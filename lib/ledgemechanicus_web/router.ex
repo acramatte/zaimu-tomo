@@ -54,6 +54,11 @@ defmodule LedgemechanicusWeb.Router do
       on_mount: [{LedgemechanicusWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      live "/documents", DocumentLive.Index, :index
+      live "/documents/new", DocumentLive.Form, :new
+      live "/documents/:id", DocumentLive.Show, :show
+      live "/documents/:id/edit", DocumentLive.Form, :edit
     end
 
     post "/users/update-password", UserSessionController, :update_password
