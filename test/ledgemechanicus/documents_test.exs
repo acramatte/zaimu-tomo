@@ -9,7 +9,7 @@ defmodule Ledgemechanicus.DocumentsTest do
     import Ledgemechanicus.AccountsFixtures, only: [user_scope_fixture: 0]
     import Ledgemechanicus.DocumentsFixtures
 
-    @invalid_attrs %{description: nil, title: nil, url: nil}
+    @invalid_attrs %{filename: nil, filepath: nil}
 
     test "list_documents/1 returns all scoped documents" do
       scope = user_scope_fixture()
@@ -29,13 +29,12 @@ defmodule Ledgemechanicus.DocumentsTest do
     end
 
     test "create_document/2 with valid data creates a document" do
-      valid_attrs = %{description: "some description", title: "some title", url: "some url"}
+      valid_attrs = %{filename: "some filename", filepath: "some filepath"}
       scope = user_scope_fixture()
 
       assert {:ok, %Document{} = document} = Documents.create_document(scope, valid_attrs)
-      assert document.description == "some description"
-      assert document.title == "some title"
-      assert document.url == "some url"
+      assert document.filename == "some filename"
+      assert document.filepath == "some filepath"
       assert document.user_id == scope.user.id
     end
 
@@ -47,12 +46,11 @@ defmodule Ledgemechanicus.DocumentsTest do
     test "update_document/3 with valid data updates the document" do
       scope = user_scope_fixture()
       document = document_fixture(scope)
-      update_attrs = %{description: "some updated description", title: "some updated title", url: "some updated url"}
+      update_attrs = %{filename: "some updated filename", filepath: "some updated filepath"}
 
       assert {:ok, %Document{} = document} = Documents.update_document(scope, document, update_attrs)
-      assert document.description == "some updated description"
-      assert document.title == "some updated title"
-      assert document.url == "some updated url"
+      assert document.filename == "some updated filename"
+      assert document.filepath == "some updated filepath"
     end
 
     test "update_document/3 with invalid scope raises" do

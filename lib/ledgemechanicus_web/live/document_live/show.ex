@@ -21,9 +21,8 @@ defmodule LedgemechanicusWeb.DocumentLive.Show do
       </.header>
 
       <.list>
-        <:item title="Title">{@document.title}</:item>
-        <:item title="Description">{@document.description}</:item>
-        <:item title="Url">{@document.url}</:item>
+        <:item title="Filename">{@document.filename}</:item>
+        <:item title="Filepath">{@document.filepath}</:item>
       </.list>
     </Layouts.app>
     """

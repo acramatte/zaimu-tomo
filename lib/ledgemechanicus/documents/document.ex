@@ -3,9 +3,8 @@ defmodule Ledgemechanicus.Documents.Document do
   import Ecto.Changeset
 
   schema "documents" do
-    field :title, :string
-    field :description, :string
-    field :url, :string
+    field :filename, :string
+    field :filepath, :string
     field :user_id, :id
 
     timestamps(type: :utc_datetime)
@@ -14,8 +13,8 @@ defmodule Ledgemechanicus.Documents.Document do
   @doc false
   def changeset(document, attrs, user_scope) do
     document
-    |> cast(attrs, [:title, :description, :url])
-    |> validate_required([:title, :description, :url])
+    |> cast(attrs, [:filename, :filepath])
+    |> validate_required([:filename, :filepath])
     |> put_change(:user_id, user_scope.user.id)
   end
 end

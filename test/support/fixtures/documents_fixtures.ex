@@ -10,9 +10,8 @@ defmodule Ledgemechanicus.DocumentsFixtures do
   def document_fixture(scope, attrs \\ %{}) do
     attrs =
       Enum.into(attrs, %{
-        description: "some description",
-        title: "some title",
-        url: "some url"
+        filename: "some filename",
+        filepath: "some filepath"
       })
 
     {:ok, document} = Ledgemechanicus.Documents.create_document(scope, attrs)

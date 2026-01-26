@@ -21,9 +21,8 @@ defmodule LedgemechanicusWeb.DocumentLive.Index do
         rows={@streams.documents}
         row_click={fn {_id, document} -> JS.navigate(~p"/documents/#{document}") end}
       >
-        <:col :let={{_id, document}} label="Title">{document.title}</:col>
-        <:col :let={{_id, document}} label="Description">{document.description}</:col>
-        <:col :let={{_id, document}} label="Url">{document.url}</:col>
+        <:col :let={{_id, document}} label="Filename">{document.filename}</:col>
+        <:col :let={{_id, document}} label="Filepath">{document.filepath}</:col>
         <:action :let={{_id, document}}>
           <div class="sr-only">
             <.link navigate={~p"/documents/#{document}"}>Show</.link>

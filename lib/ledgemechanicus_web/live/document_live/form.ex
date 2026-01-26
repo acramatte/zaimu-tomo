@@ -14,14 +14,45 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
       </.header>
 
       <.form for={@form} id="document-form" phx-change="validate" phx-submit="save">
-        <.input field={@form[:title]} type="text" label="Title" />
-        <.input field={@form[:description]} type="text" label="Description" />
-        <.input field={@form[:url]} type="text" label="Url" />
+        <.live_file_input upload={@uploads.document} />
         <footer>
           <.button phx-disable-with="Saving..." variant="primary">Save Document</.button>
           <.button navigate={return_path(@current_scope, @return_to, @document)}>Cancel</.button>
         </footer>
       </.form>
+      <section phx-drop-target={@uploads.document.ref}>
+        <%!-- render each document entry --%>
+        <article :for={entry <- @uploads.document.entries} class="upload-entry">
+          <%!-- entry.progress will update automatically for in-flight entries --%>
+          <progress value={entry.progress} max="100">{entry.progress}% </progress>
+
+          <%!-- a regular click event whose handler will invoke Phoenix.LiveView.cancel_upload/3 --%>
+          <button
+            type="button"
+            phx-click="cancel-upload"
+            phx-value-ref={entry.ref}
+            aria-label="cancel"
+          >
+            &times;
+          </button>
+            <p class="pointer-events-none mt-2 block truncate text-sm font-medium text-gray-900">
+              <%= entry.client_name %>
+            </p>
+            <p class="pointer-events-none block text-sm font-medium text-gray-500">
+              <%= to_megabytes_or_kilobytes(entry.client_size) %>
+            </p>
+
+          <%!-- Phoenix.Component.upload_errors/2 returns a list of error atoms --%>
+          <p :for={err <- upload_errors(@uploads.document, entry)} role="alert" class="alert alert-error">
+            {error_to_string(err)}
+          </p>
+        </article>
+
+        <%!-- Phoenix.Component.upload_errors/1 returns a list of error atoms --%>
+        <p :for={err <- upload_errors(@uploads.document)} role="alert" class="alert alert-error">
+          {error_to_string(err)}
+        </p>
+      </section>
     </Layouts.app>
     """
   end
@@ -31,6 +62,14 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
     {:ok,
      socket
      |> assign(:return_to, return_to(params["return_to"]))
+     # accept relevant document types supported by our OCR API https://docs.mistral.ai/capabilities/document_ai/basic_ocr#faq
+     |> allow_upload(:document,
+          accept: ~w(.jpg .jpeg .png .tiff .heic .heif .webp .pdf .docx .odt .txt),
+          max_file_size: 20_000_000,
+          auto_upload: true,
+          chunk_size: 64_000 * 3,
+          max_entries: 1
+     )
      |> apply_action(socket.assigns.live_action, params)}
   end
 
@@ -56,17 +95,36 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
   end
 
   @impl true
-  def handle_event("validate", %{"document" => document_params}, socket) do
-    changeset = Documents.change_document(socket.assigns.current_scope, socket.assigns.document, document_params)
-    {:noreply, assign(socket, form: to_form(changeset, action: :validate))}
+  def handle_event("validate", %{"_target" => ["document"]}, socket) do
+    {done, in_progress} = uploaded_entries(socket, :document)
+    IO.inspect(done)
+    IO.inspect(in_progress)
+    {:noreply, socket}
   end
 
-  def handle_event("save", %{"document" => document_params}, socket) do
+  def handle_event("save", %{}, socket) do
+    entries =
+      consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
+        dest = Path.join([:code.priv_dir(:ledgemechanicus), "uploads", Path.basename(path)])
+        File.cp!(path, dest)
+        {:ok, Map.put(entry, :filepath, Path.join(["/", "uploads", Path.basename(dest)]))}
+      end)
+
+    document_params =
+      case entries do
+        [entry | _ ] -> %{ "filepath" => entry.filepath, "filename" => entry.client_name}
+        [] -> %{}
+      end
+
     save_document(socket, socket.assigns.live_action, document_params)
   end
 
   defp save_document(socket, :edit, document_params) do
-    case Documents.update_document(socket.assigns.current_scope, socket.assigns.document, document_params) do
+    case Documents.update_document(
+           socket.assigns.current_scope,
+           socket.assigns.document,
+           document_params
+         ) do
       {:ok, document} ->
         {:noreply,
          socket
@@ -97,4 +155,25 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
 
   defp return_path(_scope, "index", _document), do: ~p"/documents"
   defp return_path(_scope, "show", document), do: ~p"/documents/#{document}"
+
+  defp error_to_string(:too_large), do: "Too large"
+  defp error_to_string(:too_many_files), do: "You have selected too many files"
+  defp error_to_string(:not_accepted), do: "You have selected an unacceptable file type"
+
+  defp to_megabytes_or_kilobytes(bytes) when is_integer(bytes) do
+    case bytes do
+      b when b < 1_048_576 ->
+        kilobytes = (b / 1024) |> Float.round(1)
+
+        if kilobytes < 1 do
+          "#{kilobytes}MB"
+        else
+          "#{round(kilobytes)}KB"
+        end
+
+      _ ->
+        megabytes = (bytes / 1_048_576) |> Float.round(1)
+        "#{megabytes}MB"
+    end
+  end
 end
