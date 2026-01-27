@@ -14,45 +14,70 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
       </.header>
 
       <.form for={@form} id="document-form" phx-change="validate" phx-submit="save">
-        <.live_file_input upload={@uploads.document} />
+        <p class="mt-1 text-sm leading-6 text-gray-500">
+          Accepts PDF, JPEG, PNG, WEBP, HEIC, TIFF, DOC, and TXT files.
+        </p>
+        <div class="px-4 py-6 border-t border-gray-200">
+          <div
+            phx-drop-target={@uploads.document.ref}
+            class="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            <.icon name="hero-cloud-arrow-up" class="size-16 text-gray-400" />
+            <div class="mt-4 flex text-sm leading-6 text-gray-500 justify-center">
+              <label
+                for={@uploads.document.ref}
+                class="relative font-semibold text-primary focus-within:outline-none hover:text-gray-400 cursor-pointer"
+              >
+                <.live_file_input upload={@uploads.document} class="cursor-pointer" />
+              </label>
+              <p class="pl-1">or drag and drop</p>
+            </div>
+          </div>
+        </div>
+
+        <section>
+          <%!-- render each document entry --%>
+          <article :for={entry <- @uploads.document.entries} class="upload-entry">
+            <%!-- entry.progress will update automatically for in-flight entries --%>
+            <progress value={entry.progress} max="100">{entry.progress}% </progress>
+
+            <%!-- a regular click event whose handler will invoke Phoenix.LiveView.cancel_upload/3 --%>
+            <button
+              type="button"
+              phx-click="cancel-upload"
+              phx-value-ref={entry.ref}
+              aria-label="cancel"
+            >
+              &times;
+            </button>
+            <p class="pointer-events-none mt-2 block truncate text-sm font-medium text-gray-900">
+              {entry.client_name}
+            </p>
+            <p class="pointer-events-none block text-sm font-medium text-gray-500">
+              {to_megabytes_or_kilobytes(entry.client_size)}
+            </p>
+
+            <%!-- Phoenix.Component.upload_errors/2 returns a list of error atoms --%>
+            <p
+              :for={err <- upload_errors(@uploads.document, entry)}
+              role="alert"
+              class="alert alert-error"
+            >
+              {error_to_string(err)}
+            </p>
+          </article>
+
+          <%!-- Phoenix.Component.upload_errors/1 returns a list of error atoms --%>
+          <p :for={err <- upload_errors(@uploads.document)} role="alert" class="alert alert-error">
+            {error_to_string(err)}
+          </p>
+        </section>
+
         <footer>
           <.button phx-disable-with="Saving..." variant="primary">Save Document</.button>
           <.button navigate={return_path(@current_scope, @return_to, @document)}>Cancel</.button>
         </footer>
       </.form>
-      <section phx-drop-target={@uploads.document.ref}>
-        <%!-- render each document entry --%>
-        <article :for={entry <- @uploads.document.entries} class="upload-entry">
-          <%!-- entry.progress will update automatically for in-flight entries --%>
-          <progress value={entry.progress} max="100">{entry.progress}% </progress>
-
-          <%!-- a regular click event whose handler will invoke Phoenix.LiveView.cancel_upload/3 --%>
-          <button
-            type="button"
-            phx-click="cancel-upload"
-            phx-value-ref={entry.ref}
-            aria-label="cancel"
-          >
-            &times;
-          </button>
-            <p class="pointer-events-none mt-2 block truncate text-sm font-medium text-gray-900">
-              <%= entry.client_name %>
-            </p>
-            <p class="pointer-events-none block text-sm font-medium text-gray-500">
-              <%= to_megabytes_or_kilobytes(entry.client_size) %>
-            </p>
-
-          <%!-- Phoenix.Component.upload_errors/2 returns a list of error atoms --%>
-          <p :for={err <- upload_errors(@uploads.document, entry)} role="alert" class="alert alert-error">
-            {error_to_string(err)}
-          </p>
-        </article>
-
-        <%!-- Phoenix.Component.upload_errors/1 returns a list of error atoms --%>
-        <p :for={err <- upload_errors(@uploads.document)} role="alert" class="alert alert-error">
-          {error_to_string(err)}
-        </p>
-      </section>
     </Layouts.app>
     """
   end
@@ -64,11 +89,11 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
      |> assign(:return_to, return_to(params["return_to"]))
      # accept relevant document types supported by our OCR API https://docs.mistral.ai/capabilities/document_ai/basic_ocr#faq
      |> allow_upload(:document,
-          accept: ~w(.jpg .jpeg .png .tiff .heic .heif .webp .pdf .docx .odt .txt),
-          max_file_size: 20_000_000,
-          auto_upload: true,
-          chunk_size: 64_000 * 3,
-          max_entries: 1
+       accept: ~w(.jpg .jpeg .png .tiff .heic .heif .webp .pdf .docx .odt .txt),
+       max_file_size: 20_000_000,
+       auto_upload: true,
+       chunk_size: 64_000 * 3,
+       max_entries: 1
      )
      |> apply_action(socket.assigns.live_action, params)}
   end
@@ -112,7 +137,7 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
 
     document_params =
       case entries do
-        [entry | _ ] -> %{ "filepath" => entry.filepath, "filename" => entry.client_name}
+        [entry | _] -> %{"filepath" => entry.filepath, "filename" => entry.client_name}
         [] -> %{}
       end
 
