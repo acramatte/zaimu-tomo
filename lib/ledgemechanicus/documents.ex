@@ -27,8 +27,7 @@ defmodule Ledgemechanicus.Documents do
 
   defp broadcast_document(%Scope{} = scope, message) do
     key = scope.user.id
-
-    Phoenix.PubSub.broadcast(Ledgemechanicus.PubSub, "user:#{key}:documents", message)
+    Phoenix.PubSub.broadcast(Ledgemechanicus.PubSub, "documents_uploaded", message)
   end
 
   @doc """

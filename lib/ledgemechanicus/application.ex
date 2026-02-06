@@ -15,7 +15,9 @@ defmodule Ledgemechanicus.Application do
       # Start a worker by calling: Ledgemechanicus.Worker.start_link(arg)
       # {Ledgemechanicus.Worker, arg},
       # Start to serve requests, typically the last entry
-      LedgemechanicusWeb.Endpoint
+      LedgemechanicusWeb.Endpoint,
+      Ledgemechanicus.DocumentProcessing.Saga,
+      {Ledgemechanicus.DocumentProcessing.OCRSupervisor, name: Ledgemechanicus.OCRSupervisor}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

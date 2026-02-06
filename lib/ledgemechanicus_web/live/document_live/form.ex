@@ -20,7 +20,7 @@ defmodule LedgemechanicusWeb.DocumentLive.Form do
         <div class="px-4 py-6 border-t border-gray-200">
           <div
             phx-drop-target={@uploads.document.ref}
-            class="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            class="phx-drop-target-active:scale-105 relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
             <.icon name="hero-cloud-arrow-up" class="size-16 text-gray-400" />
             <div class="mt-4 flex text-sm leading-6 text-gray-500 justify-center">

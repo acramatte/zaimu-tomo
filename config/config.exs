@@ -24,6 +24,10 @@ config :ledgemechanicus,
   ecto_repos: [Ledgemechanicus.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :ledgemechanicus, :mistral,
+  base_url: "https://api.mistral.ai/v1/",
+  api_key: System.get_env("MISTRAL_API_KEY")
+
 # Configure the endpoint
 config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
   url: [host: "localhost"],
