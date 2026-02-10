@@ -1,7 +1,7 @@
-defmodule Ledgemechanicus.DocumentsFixtures do
+defmodule ZaimuTomo.DocumentsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  entities via the `Ledgemechanicus.Documents` context.
+  entities via the `ZaimuTomo.Documents` context.
   """
 
   @doc """
@@ -14,7 +14,7 @@ defmodule Ledgemechanicus.DocumentsFixtures do
         filepath: "some filepath"
       })
 
-    {:ok, document} = Ledgemechanicus.Documents.create_document(scope, attrs)
+    {:ok, document} = ZaimuTomo.Documents.create_document(scope, attrs)
     document
   end
 end

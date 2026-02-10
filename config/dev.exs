@@ -1,11 +1,11 @@
 import Config
 
 # Configure your database
-config :ledgemechanicus, Ledgemechanicus.Repo,
+config :zaimu_tomo, ZaimuTomo.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "ledgemechanicus_dev",
+  database: "zaimu_tomo_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -16,7 +16,7 @@ config :ledgemechanicus, Ledgemechanicus.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
+config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
@@ -25,8 +25,8 @@ config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "Gd9LhxMK4TLHQ5IcBi/R40D0BXliPlbLlYhHJdUSy3NCGvCLH/LinlTccrLDy0l7",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:ledgemechanicus, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:ledgemechanicus, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:zaimu_tomo, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:zaimu_tomo, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -53,7 +53,7 @@ config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
+config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
@@ -62,13 +62,13 @@ config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
       # Gettext translations
       ~r"priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/ledgemechanicus_web/router\.ex$"E,
-      ~r"lib/ledgemechanicus_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      ~r"lib/zaimu_tomo_web/router\.ex$"E,
+      ~r"lib/zaimu_tomo_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :ledgemechanicus, dev_routes: true
+config :zaimu_tomo, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

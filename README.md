@@ -1,4 +1,4 @@
-# Ledgemechanicus
+# ZaimuTomo
 
 To start your Phoenix server:
 

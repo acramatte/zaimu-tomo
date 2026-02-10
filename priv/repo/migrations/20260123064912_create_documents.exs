@@ -1,4 +1,4 @@
-defmodule Ledgemechanicus.Repo.Migrations.CreateDocuments do
+defmodule ZaimuTomo.Repo.Migrations.CreateDocuments do
   use Ecto.Migration
 
   def change do

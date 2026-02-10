@@ -1,13 +1,13 @@
-defmodule Ledgemechanicus.AccountsFixtures do
+defmodule ZaimuTomo.AccountsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  entities via the `Ledgemechanicus.Accounts` context.
+  entities via the `ZaimuTomo.Accounts` context.
   """
 
   import Ecto.Query
 
-  alias Ledgemechanicus.Accounts
-  alias Ledgemechanicus.Accounts.Scope
+  alias ZaimuTomo.Accounts
+  alias ZaimuTomo.Accounts.Scope
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
@@ -64,7 +64,7 @@ defmodule Ledgemechanicus.AccountsFixtures do
   end
 
   def override_token_authenticated_at(token, authenticated_at) when is_binary(token) do
-    Ledgemechanicus.Repo.update_all(
+    ZaimuTomo.Repo.update_all(
       from(t in Accounts.UserToken,
         where: t.token == ^token
       ),
@@ -74,14 +74,14 @@ defmodule Ledgemechanicus.AccountsFixtures do
 
   def generate_user_magic_link_token(user) do
     {encoded_token, user_token} = Accounts.UserToken.build_email_token(user, "login")
-    Ledgemechanicus.Repo.insert!(user_token)
+    ZaimuTomo.Repo.insert!(user_token)
     {encoded_token, user_token.token}
   end
 
   def offset_user_token(token, amount_to_add, unit) do
     dt = DateTime.add(DateTime.utc_now(:second), amount_to_add, unit)
 
-    Ledgemechanicus.Repo.update_all(
+    ZaimuTomo.Repo.update_all(
       from(ut in Accounts.UserToken, where: ut.token == ^token),
       set: [inserted_at: dt, authenticated_at: dt]
     )

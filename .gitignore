@@ -23,7 +23,7 @@ erl_crash.dump
 /tmp/
 
 # Ignore package tarball (built via "mix hex.build").
-ledgemechanicus-*.tar
+zaimu_tomo-*.tar
 
 # Ignore assets that are produced by build tools.
 /priv/static/assets/
@@ -38,4 +38,4 @@ npm-debug.log
 
 # IDEs and editors
 /.idea
-ledgemechanicus.iml
+zaimu_tomo.iml

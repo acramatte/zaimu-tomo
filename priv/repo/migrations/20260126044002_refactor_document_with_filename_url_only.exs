@@ -1,4 +1,4 @@
-defmodule Ledgemechanicus.Repo.Migrations.RefactorDocumentWithFilenameUrlOnly do
+defmodule ZaimuTomo.Repo.Migrations.RefactorDocumentWithFilenameUrlOnly do
   use Ecto.Migration
 
   def change do

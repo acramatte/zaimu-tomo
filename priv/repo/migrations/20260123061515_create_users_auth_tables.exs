@@ -1,4 +1,4 @@
-defmodule Ledgemechanicus.Repo.Migrations.CreateUsersAuthTables do
+defmodule ZaimuTomo.Repo.Migrations.CreateUsersAuthTables do
   use Ecto.Migration
 
   def change do

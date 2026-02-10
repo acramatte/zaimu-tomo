@@ -8,23 +8,23 @@ config :bcrypt_elixir, :log_rounds, 1
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
-config :ledgemechanicus, Ledgemechanicus.Repo,
+config :zaimu_tomo, ZaimuTomo.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "ledgemechanicus_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "zaimu_tomo_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :ledgemechanicus, LedgemechanicusWeb.Endpoint,
+config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "q7oULDVBxwa9mvcMKjGk9Kj0RZuT1e4dULrSheNjdlr0Wix+eWDL6c849rS9Oqyo",
   server: false
 
 # In test we don't send emails
-config :ledgemechanicus, Ledgemechanicus.Mailer, adapter: Swoosh.Adapters.Test
+config :zaimu_tomo, ZaimuTomo.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
