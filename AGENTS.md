@@ -141,3 +141,10 @@ _A config-driven dev tool for Elixir projects to manage AGENTS.md files and agen
 [usage_rules:otp usage rules](deps/usage_rules/usage-rules/otp.md)
 <!-- usage_rules:otp-end -->
 <!-- usage-rules-end -->
+
+## Active Technologies
+- Elixir 1.19 + Ecto, Postgrex, Phoenix Framework (001-persist-ocr-data)
+- PostgreSQL (existing database infrastructure) (001-persist-ocr-data)
+
+## Recent Changes
+- 001-persist-ocr-data: Added Elixir 1.19 + Ecto, Postgrex, Phoenix Framework
