@@ -23,6 +23,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           data: extracted_data,
           timestamp: DateTime.utc_now()
         })
+
         {:ok, extracted_data}
 
       {:error, reason} ->
@@ -32,6 +33,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           error: reason,
           timestamp: DateTime.utc_now()
         })
+
         {:error, reason}
     end
   end

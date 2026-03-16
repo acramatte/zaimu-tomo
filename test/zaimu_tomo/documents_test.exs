@@ -25,7 +25,10 @@ defmodule ZaimuTomo.DocumentsTest do
       document = document_fixture(scope)
       other_scope = user_scope_fixture()
       assert Documents.get_document!(scope, document.id) == document
-      assert_raise Ecto.NoResultsError, fn -> Documents.get_document!(other_scope, document.id) end
+
+      assert_raise Ecto.NoResultsError, fn ->
+        Documents.get_document!(other_scope, document.id)
+      end
     end
 
     test "create_document/2 with valid data creates a document" do
@@ -48,7 +51,9 @@ defmodule ZaimuTomo.DocumentsTest do
       document = document_fixture(scope)
       update_attrs = %{filename: "some updated filename", filepath: "some updated filepath"}
 
-      assert {:ok, %Document{} = document} = Documents.update_document(scope, document, update_attrs)
+      assert {:ok, %Document{} = document} =
+               Documents.update_document(scope, document, update_attrs)
+
       assert document.filename == "some updated filename"
       assert document.filepath == "some updated filepath"
     end
@@ -66,7 +71,10 @@ defmodule ZaimuTomo.DocumentsTest do
     test "update_document/3 with invalid data returns error changeset" do
       scope = user_scope_fixture()
       document = document_fixture(scope)
-      assert {:error, %Ecto.Changeset{}} = Documents.update_document(scope, document, @invalid_attrs)
+
+      assert {:error, %Ecto.Changeset{}} =
+               Documents.update_document(scope, document, @invalid_attrs)
+
       assert document == Documents.get_document!(scope, document.id)
     end
 

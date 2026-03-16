@@ -65,7 +65,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   @impl true
   def handle_info({type, %ZaimuTomo.Documents.Document{}}, socket)
       when type in [:created, :updated, :deleted] do
-    {:noreply, stream(socket, :documents, list_documents(socket.assigns.current_scope), reset: true)}
+    {:noreply,
+     stream(socket, :documents, list_documents(socket.assigns.current_scope), reset: true)}
   end
 
   defp list_documents(current_scope) do

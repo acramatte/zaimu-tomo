@@ -26,7 +26,7 @@ defmodule ZaimuTomo.Documents do
   end
 
   defp broadcast_document(%Scope{} = scope, message) do
-    key = scope.user.id
+    _key = scope.user.id
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "documents_uploaded", message)
   end
 

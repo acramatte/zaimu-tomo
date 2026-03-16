@@ -57,17 +57,6 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     end
   end
 
-  """
-  Uploads a file to the Mistral API using multipart/form-data encoding.
-
-  The CURL command equivalent:
-  curl ... -F purpose="ocr" -F file="@path/to/file.pdf"
-
-  ## Examples
-    iex> DocumentOCR.upload("../my_file.pdf")
-    :json_body
-  """
-
   @spec upload(String.t()) :: {:ok, map()} | {:error, term()}
   defp upload(filepath) do
     config = Application.fetch_env!(:zaimu_tomo, :mistral)
@@ -92,10 +81,6 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
         {:error, reason}
     end
   end
-
-  """
-  Get the URL for the provided document id, assuming the document was previously uploaded with upload()
-  """
 
   @spec get_url(String.t()) :: {:ok, map()} | {:error, term()}
   defp get_url(id) do
