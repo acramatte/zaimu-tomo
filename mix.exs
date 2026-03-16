@@ -11,7 +11,8 @@ defmodule ZaimuTomo.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      usage_rules: usage_rules()
     ]
   end
 
@@ -63,6 +64,7 @@ defmodule ZaimuTomo.MixProject do
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      {:usage_rules, "~> 1.2.5", only: [:dev]},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
@@ -90,6 +92,32 @@ defmodule ZaimuTomo.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+    ]
+  end
+
+  defp usage_rules do
+    # Example for those using claude.
+    [
+      file: "AGENTS.md",
+      # rules to include directly in CLAUDE.md
+      # use a regex to match multiple deps, or atoms/strings for specific ones
+      usage_rules: [{~r/.*/, link: :markdown}],
+      # If your CLAUDE.md is getting too big, link instead of inlining:
+      usage_rules: [:ash, {~r/^ash_/, link: :markdown}],
+      # or use skills
+      skills: [
+        location: ".vibe/skills",
+        # Auto-build a "use-<pkg>" skill per dependency
+        deps: [:req],
+        # build skills that combine multiple usage rules
+        build: [
+          "phoenix-framework": [
+            description: "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
+            # Include all Phoenix dependencies
+            usage_rules: [:phoenix, ~r/^phoenix_/]
+          ]
+        ]
+      ]
     ]
   end
 end
