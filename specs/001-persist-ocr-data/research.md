@@ -195,21 +195,21 @@ end
 
 **Finding**: Index foreign keys and frequently queried fields
 
-**Application**: Index `document_id`, `status`, and `extraction_timestamp`
+**Application**: Index `document_id`, `status`, and `inserted_at`
 
 **Recommended Indexes**:
 ```elixir
 # In migration file
 create index(:extracted_content, [:document_id])
 create index(:extracted_content, [:status])
-create index(:extracted_content, [:extraction_timestamp])
-create index(:extracted_content, [:document_id, :extraction_timestamp])
+create index(:extracted_content, [:inserted_at])
+create index(:extracted_content, [:document_id, :inserted_at])
 ```
 
 **Query Optimization**:
 - Document-based queries: `WHERE document_id = ?`
 - Status filtering: `WHERE status = ?`
-- Time-range queries: `WHERE extraction_timestamp BETWEEN ? AND ?`
+- Time-range queries: `WHERE inserted_at BETWEEN ? AND ?`
 - Combined queries: `WHERE document_id = ? AND status = ?`
 
 **Monitoring**:
@@ -225,7 +225,7 @@ create index(:extracted_content, [:document_id, :extraction_timestamp])
 
 **Recommended Implementation**:
 ```elixir
-defp with_retry(operation, max_attempts \ 3, initial_delay \ 1000) do
+defp with_retry(operation, max_attempts \\ 3, initial_delay \\ 1000) do
   with_retry(operation, max_attempts, initial_delay, 1)
 end
 
@@ -269,7 +269,7 @@ def create_and_emit_extracted_content(attrs) do
         ZaimuTomo.PubSub.emit("document_processing:success", %{
           document_id: content.document_id,
           extraction_id: content.id,
-          timestamp: content.extraction_timestamp,
+          timestamp: content.inserted_at,
           status: content.status
         })
         {:ok, content}
@@ -367,20 +367,15 @@ defmodule ZaimuTomo.Repo.Migrations.CreateExtractedContent do
       add :document_id, references(:documents, on_delete: :delete_all)
       add :ocr_content, :map
       add :llm_content, :map
-      add :confidence_score, :float
       add :status, :string
       add :error_details, :map
-      add :ocr_version, :string
-      add :llm_version, :string
-      add :processing_duration_ms, :integer
-      add :extraction_timestamp, :naive_datetime
       
       timestamps()
     end
     
     create index(:extracted_content, [:document_id])
     create index(:extracted_content, [:status])
-    create index(:extracted_content, [:extraction_timestamp])
+    create index(:extracted_content, [:inserted_at])
   end
 end
 ```

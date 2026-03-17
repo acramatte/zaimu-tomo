@@ -7,38 +7,38 @@
 ## Task List
 
 ### 1. Database Setup
-- [ ] Create migration for `extracted_content` table
-- [ ] Add indexes for performance optimization
-- [ ] Run database migration
+- [x] Create migration for `extracted_content` table
+- [x] Add indexes for performance optimization
+- [x] Run database migration
 
 ### 2. Core Functionality
-- [ ] Create `ExtractedContent` context module
-- [ ] Implement `ExtractedContent` schema with validations
-- [ ] Add relationship to existing `Document` schema
-- [ ] Implement CRUD operations for extracted content
+- [x] Create `ExtractedContent` context module
+- [x] Implement `ExtractedContent` schema with validations
+- [x] Add relationship to existing `Document` schema
+- [x] Implement CRUD operations for extracted content
 
 ### 3. API Implementation
-- [ ] Create `ExtractedContentController`
-- [ ] Implement GET `/api/extracted_content/{document_id}`
-- [ ] Implement GET `/api/extracted_content`
-- [ ] Implement GET `/api/extracted_content/{document_id}/latest`
-- [ ] Implement POST `/api/extracted_content/{id}/retry`
-- [ ] Add routes to router
+- [x] Create `ExtractedContentController`
+- [x] Implement GET `/api/extracted_content/{document_id}`
+- [x] Implement GET `/api/extracted_content`
+- [x] Implement GET `/api/extracted_content/{document_id}/latest`
+- [x] Implement POST `/api/extracted_content/{id}/retry`
+- [x] Add routes to router
 
 ### 4. Views and JSON Rendering
-- [ ] Create JSON view for extracted content
-- [ ] Implement rendering templates for all endpoints
+- [x] Create JSON view for extracted content
+- [x] Implement rendering templates for all endpoints
 
 ### 5. Integration with OCR Pipeline
-- [ ] Update OCR worker to persist extraction results
-- [ ] Implement event emission after successful persistence
-- [ ] Handle error cases and failed extractions
+- [x] Update OCR worker to persist extraction results
+- [x] Implement event emission after successful persistence
+- [x] Handle error cases and failed extractions
 
 ### 6. Testing
-- [ ] Create comprehensive test suite
-- [ ] Implement unit tests for context functions
-- [ ] Add integration tests for API endpoints
-- [ ] Test error handling and edge cases
+- [x] Create comprehensive test suite
+- [x] Implement unit tests for context functions
+- [x] Add integration tests for API endpoints
+- [x] Test error handling and edge cases
 
 ### 7. Documentation
 - [ ] Update API documentation

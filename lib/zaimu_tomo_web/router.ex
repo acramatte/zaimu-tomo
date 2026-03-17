@@ -23,10 +23,17 @@ defmodule ZaimuTomoWeb.Router do
     get "/", PageController, :home
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", ZaimuTomoWeb do
-  #   pipe_through :api
-  # end
+  # API routes
+  scope "/api", ZaimuTomoWeb do
+    pipe_through :api
+
+    resources "/extracted_content", ExtractedContentController, only: [:index] do
+      get "/:document_id", ExtractedContentController, :index
+      get "/:document_id/latest", ExtractedContentController, :show
+      post "/:id/retry", ExtractedContentController, :retry
+      get "/", ExtractedContentController, :list
+    end
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:zaimu_tomo, :dev_routes) do

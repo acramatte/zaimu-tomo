@@ -2,10 +2,14 @@ defmodule ZaimuTomo.Documents.Document do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+
   schema "documents" do
     field :filename, :string
     field :filepath, :string
     field :user_id, :id
+
+    has_many :extracted_content, ExtractedContent
 
     timestamps(type: :utc_datetime)
   end

@@ -120,7 +120,7 @@ test/
 
 3. **Database Indexing**: Research indexing strategies for query performance
    - Finding: Index foreign keys and frequently queried fields
-   - Application: Index `document_id`, `status`, and `extraction_timestamp`
+   - Application: Index `document_id`, `status`, and `inserted_at`
 
 4. **Error Recovery**: Research patterns for failed extraction retry
    - Finding: Implement exponential backoff with maximum retry limit
@@ -139,13 +139,8 @@ test/
 schema "extracted_content" do
   field :ocr_content, :map
   field :llm_content, :map
-  field :confidence_score, :float
   field :status, :string
   field :error_details, :map
-  field :ocr_version, :string
-  field :llm_version, :string
-  field :processing_duration_ms, :integer
-  field :extraction_timestamp, :naive_datetime
   
   belongs_to :document, ZaimuTomo.Documents.Document
   
@@ -155,7 +150,6 @@ end
 
 **Validation Rules:**
 - `status`: Must be one of ["success", "partial", "failed"]
-- `confidence_score`: Must be between 0.0 and 1.0
 - `document_id`: Must exist in documents table
 - `ocr_content` and `llm_content`: Maximum size 10MB when serialized
 
