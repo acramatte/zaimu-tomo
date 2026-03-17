@@ -21,39 +21,55 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
   """
   @spec process(String.t()) :: {:ok, ExtractedData.t()} | {:error, term()}
   def process(filepath) do
-    with {:ok, %{"id" => file_id}} <- upload(filepath),
+    result = with {:ok, %{"id" => file_id}} <- upload(filepath),
          {:ok, %{"url" => document_url}} <- get_url(file_id),
-         {:ok, res_body} <- chat_completions(document_url),
-         {:ok, result} <- extract_data(res_body) do
-      Logger.info("✅ OCR Analysis Complete #{filepath}")
+         {:ok, res_body} <- chat_completions(document_url) do
+         extract_data(res_body)
+    end
 
-      {:ok, result}
+    case result do
+      {:ok, data} ->
+        Logger.info("✅ OCR Analysis Complete: #{filepath}")
+        {:ok, data}
+
+      {:error, reason} ->
+        Logger.error("❌ OCR Analysis Failed for #{filepath}: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
-  # body is the full JSON map from Mistral
-  defp extract_data(body) do
-    with %{"choices" => [%{"message" => %{"content" => raw_string}} | _]} <- body,
-         {:ok, decoded_map} <- Jason.decode(raw_string),
-         {:ok, extracted_data} <-
-           decoded_map
-           |> ExtractedData.changeset()
-           |> Ecto.Changeset.apply_action(:parse) do
-      {:ok, extracted_data}
-    else
-      # 'body' doesn't have the expected Mistral structure
-      %{} ->
-        {:error, :unexpected_api_structure}
+  def extract_data(body) do
+    with {:ok, raw_string} <- extract_content_string(body),
+         {:ok, decoded_map} <- decode_json(raw_string) do
+         cast_to_schema(decoded_map)
+    end
+  end
+
+  defp extract_content_string(%{"choices" => [%{"message" => %{"content" => raw_string}} | _]}) do
+    {:ok, raw_string}
+  end
+
+  defp extract_content_string(_unexpected_body) do
+    {:error, :unexpected_api_structure}
+  end
+
+  defp decode_json(raw_string) do
+    case Jason.decode(raw_string) do
+      {:ok, decoded_map} ->
+        {:ok, decoded_map}
 
       {:error, %Jason.DecodeError{}} ->
         {:error, :invalid_json_from_llm}
+    end
+  end
 
-      {:error, %Ecto.Changeset{} = cs} ->
-        {:error, {:validation_failed, changeset_errors_to_string(cs)}}
+  defp cast_to_schema(decoded_map) do
+    case ExtractedData.changeset(decoded_map) |> Ecto.Changeset.apply_action(:parse) do
+      {:ok, extracted_data} ->
+        {:ok, extracted_data}
 
-      # Safety net: ensures we never return a raw string
-      other ->
-        {:error, {:internal_processing_error, other}}
+      {:error, changeset} ->
+        {:error, {:validation_failed, changeset_errors_to_string(changeset)}}
     end
   end
 
