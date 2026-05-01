@@ -3,7 +3,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
-  import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
+  import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0, user_fixture: 0]
   import ZaimuTomo.DocumentsFixtures
 
   describe "create_extracted_content/1" do
@@ -24,6 +24,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
       attrs = %{
         document_id: document_id,
+        user_id: user_fixture().id,
         extracted_data: Map.from_struct(extracted_data),
         status: "success"
       }
@@ -50,6 +51,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
       attrs = %{
         document_id: document_id,
+        user_id: user_fixture().id,
         extracted_data: Map.from_struct(extracted_data),
         status: "invalid_status"
       }
@@ -75,6 +77,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
       attrs = %{
         document_id: document_id,
+        user_id: user_fixture().id,
         extracted_data: Map.from_struct(extracted_data),
         status: "success"
       }
@@ -115,6 +118,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
       old_attrs = %{
         document_id: document_id,
+        user_id: user_fixture().id,
         extracted_data: Map.from_struct(old_data),
         status: "success"
       }
@@ -133,6 +137,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
       new_attrs = %{
         document_id: document_id,
+        user_id: user_fixture().id,
         extracted_data: Map.from_struct(new_data),
         status: "success"
       }
@@ -191,6 +196,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
 
     attrs = %{
       document_id: document_id,
+      user_id: user_fixture().id,
       extracted_data: Map.from_struct(extracted_data),
       status: "success",
       analysis: %{"confidence" => 0.95}

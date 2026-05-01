@@ -25,7 +25,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end
   end
 
-  defp persist_and_emit_success(document, extracted_data) do
+  def persist_and_emit_success(document, extracted_data) do
     analysis = %{
       "analysis" => "Invoice data extracted successfully",
       "confidence" => calculate_confidence(extracted_data),
@@ -34,6 +34,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     extraction_params = %{
       document_id: document.id,
+      user_id: document.user_id,
       extracted_data: extracted_data,
       analysis: analysis,
       status: "success"
@@ -41,9 +42,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     case ExtractedContentContext.create_extracted_content(extraction_params) do
       {:ok, content} ->
+        # Create review decision directly
+        {:ok, _review_decision} = create_review_decision(content, document.user_id, extracted_data)
+        
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:success", %{
           document_id: document.id,
           extraction_id: content.id,
+          user_id: document.user_id,
           status: :completed,
           data: extracted_data,
           timestamp: DateTime.utc_now()
@@ -55,7 +60,22 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end
   end
 
-  defp persist_and_emit_failure(document, error) do
+  defp create_review_decision(content, user_id, extracted_data) do
+    attrs = %{
+      extracted_content_id: content.id,
+      user_id: user_id,
+      review_status: "pending",
+      decision_type: "initial",
+      decision_data: %{},
+      review_notes: "Automatically created from document processing",
+      original_data: Map.from_struct(extracted_data)
+    }
+    
+    ZaimuTomo.Review.ReviewDecision.changeset_for_create(attrs)
+    |> ZaimuTomo.Repo.insert()
+  end
+
+  def persist_and_emit_failure(document, error) do
     error_details = %{
       "type" => error_type(error),
       "message" => error_message(error),
@@ -67,6 +87,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     # Pass empty map and let ExtractedData changeset validate required fields
     extraction_params = %{
       document_id: document.id,
+      user_id: document.user_id,
       extracted_data: %{},  # Empty map - will fail validation as expected
       analysis: %{
         "error" => "Extraction failed",
@@ -78,9 +99,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     case ExtractedContentContext.create_extracted_content(extraction_params) do
       {:ok, content} ->
+        # Create review decision for failed extraction
+        {:ok, _review_decision} = create_failed_review_decision(content, document.user_id, error)
+        
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:failed", %{
           document_id: document.id,
           extraction_id: content.id,
+          user_id: document.user_id,
           status: :failed,
           error: error,
           timestamp: DateTime.utc_now()
@@ -90,6 +115,20 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       {:error, changeset} ->
         {:error, {:persistence_failed, changeset.errors}}
     end
+  end
+
+  defp create_failed_review_decision(content, user_id, error) do
+    attrs = %{
+      extracted_content_id: content.id,
+      user_id: user_id,
+      review_status: "failed",
+      decision_type: "failed",
+      decision_data: %{},
+      review_notes: "Automatically marked as failed: #{inspect(error)}"
+    }
+    
+    ZaimuTomo.Review.ReviewDecision.changeset_for_create(attrs)
+    |> ZaimuTomo.Repo.insert()
   end
 
   # Helper function to calculate confidence (placeholder)

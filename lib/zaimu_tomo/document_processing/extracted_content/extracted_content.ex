@@ -12,6 +12,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     field :analysis, :map
 
     belongs_to :document, Document
+    belongs_to :user, ZaimuTomo.Accounts.User
 
     timestamps()
   end
@@ -20,6 +21,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     extracted_content
     |> cast(attrs, [
         :document_id,
+        :user_id,
         :status,
         :error_details,
         :analysis
@@ -30,6 +32,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     |> validate_embedded_data_size()
     |> validate_extracted_data_for_status()
     |> foreign_key_constraint(:document_id)
+    |> foreign_key_constraint(:user_id)
   end
 
   defp validate_extracted_data_for_status(changeset) do

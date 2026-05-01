@@ -160,7 +160,6 @@ See the actual migration in: `priv/repo/migrations/20260316154625_create_extract
   "analysis": {
     "confidence": 0.98,
     "processed_at": "2024-07-26T14:30:05Z",
-    "processing_duration_ms": 1250,
     "model_version": "mistral-small-2024-03"
   },
   "inserted_at": "2024-07-26T14:30:05Z",

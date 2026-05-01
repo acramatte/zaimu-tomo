@@ -66,6 +66,10 @@ defmodule ZaimuTomoWeb.Router do
       live "/documents/new", DocumentLive.Form, :new
       live "/documents/:id", DocumentLive.Show, :show
       live "/documents/:id/edit", DocumentLive.Form, :edit
+
+      live "/reviews", ReviewLive.Index, :index
+      live "/reviews/:id", ReviewLive.Show, :show
+      live "/reviews/:id/edit", ReviewLive.Edit, :edit
     end
 
     post "/users/update-password", UserSessionController, :update_password
