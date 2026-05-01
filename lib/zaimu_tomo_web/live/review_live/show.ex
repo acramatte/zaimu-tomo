@@ -1,0 +1,106 @@
+defmodule ZaimuTomoWeb.ReviewLive.Show do
+  use ZaimuTomoWeb, :live_view
+
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Accounts.Scope
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <.header>
+        Review <%= @review_decision.id %>
+        <:actions>
+          <.link patch={~p"/reviews/#{@review_decision}/edit"}>
+            <.icon name="hero-pencil-square" /> Edit
+          </.link>
+        </:actions>
+      </.header>
+
+      <.list>
+        <:item title="Status"><span class={["px-2 py-1 rounded-full text-xs font-medium", status_class(@review_decision.review_status)]}><%= String.capitalize(@review_decision.review_status) %></span></:item>
+        <:item title="Decision Type"><%= String.capitalize(@review_decision.decision_type || "N/A") %></:item>
+        <:item title="Created At"><%= format_datetime(@review_decision.inserted_at) %></:item>
+        <:item title="Updated At"><%= format_datetime(@review_decision.updated_at) %></:item>
+      </.list>
+
+      <.header>
+        Invoice Data
+      </.header>
+
+      <.list>
+        <:item title="Invoice Number"><%= @review_decision.decision_data["invoice_number"] || @review_decision.original_data["invoice_number"] || "N/A" %></:item>
+        <:item title="Invoice Date"><%= @review_decision.decision_data["invoice_date"] || @review_decision.original_data["invoice_date"] || "N/A" %></:item>
+        <:item title="Issuer"><%= @review_decision.decision_data["issuer"] || @review_decision.original_data["issuer"] || "N/A" %></:item>
+        <:item title="Currency"><%= @review_decision.decision_data["currency"] || @review_decision.original_data["currency"] || "N/A" %></:item>
+        <:item title="Amount"><%= format_amount(@review_decision) %></:item>
+        <:item title="Reason for Payment"><%= @review_decision.decision_data["reason_for_payment"] || @review_decision.original_data["reason_for_payment"] || "N/A" %></:item>
+      </.list>
+
+      <%= if @review_decision.review_notes do %>
+        <.header>Review Notes</.header>
+        <div class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg"><%= @review_decision.review_notes %></div>
+      <% end %>
+
+      <div class="mt-6 flex gap-4">
+        <.link patch={~p"/reviews"}>
+          <.icon name="hero-arrow-left" /> Back to Reviews
+        </.link>
+      </div>
+    </Layouts.app>
+    """
+  end
+
+  @impl true
+  def mount(%{"id" => id}, _session, socket) do
+    case socket.assigns.current_scope do
+      %Scope{user: user} ->
+        case Review.get_review_decision(id, user.id) do
+          {:ok, %ReviewDecision{} = rd} ->
+            {:ok, assign(socket, :review_decision, rd)}
+          {:error, reason} ->
+            {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
+        end
+      _ ->
+        {:ok, put_flash(socket, :error, "Not authenticated") |> redirect(to: ~p"/")}
+    end
+  end
+
+  defp status_class(status) do
+    case status do
+      "pending" -> "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
+      "approved" -> "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+      "rejected" -> "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
+      "amended" -> "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
+      _ -> "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+    end
+  end
+
+  defp format_amount(review) do
+    decision_amount = review.decision_data["amount_to_pay_cents"]
+    decision_currency = review.decision_data["currency"]
+    original_amount = review.original_data["amount_to_pay_cents"]
+    original_currency = review.original_data["currency"]
+
+    cond do
+      decision_amount -> format_currency(decision_amount, decision_currency || "USD")
+      original_amount -> format_currency(original_amount, original_currency || "USD")
+      true -> "N/A"
+    end
+  end
+
+  defp format_datetime(%DateTime{} = datetime) do
+    "#{DateTime.to_iso8601(datetime)}"
+  end
+  defp format_datetime(%Date{} = date) do
+    Date.to_iso8601(date)
+  end
+  defp format_datetime(_), do: "N/A"
+
+  defp format_currency(cents, currency) when is_integer(cents) do
+    amount = cents / 100.0
+    "#{currency} #{amount}"
+  end
+  defp format_currency(_cents, _currency), do: "N/A"
+end

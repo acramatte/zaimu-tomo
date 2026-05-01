@@ -56,7 +56,6 @@ Accept: application/json
       "confidence_score": 0.95,
       "ocr_version": "v2.1.0",
       "llm_version": "mistral-small-2.0",
-      "processing_duration_ms": 1250,
       "extraction_timestamp": "2024-07-26T14:30:00Z",
       "created_at": "2024-07-26T14:30:05Z",
       "ocr_content": {
@@ -227,7 +226,6 @@ Accept: application/json
     },
     "ocr_version": "v2.1.0",
     "llm_version": "mistral-small-2.0",
-    "processing_duration_ms": 1250,
     "extraction_timestamp": "2024-07-26T14:30:00Z",
     "created_at": "2024-07-26T14:30:05Z"
   }
@@ -392,7 +390,6 @@ curl -X GET \
   "confidence_score": 0.95,
   "ocr_version": "v2.1.0",
   "llm_version": "mistral-small-2.0",
-  "processing_duration_ms": 1250,
   "user_id": 123
 }
 ```
@@ -422,7 +419,6 @@ curl -X GET \
   "retry_count": 3,
   "ocr_version": "v2.1.0",
   "llm_version": "mistral-small-2.0",
-  "processing_duration_ms": 30500,
   "user_id": 123
 }
 ```

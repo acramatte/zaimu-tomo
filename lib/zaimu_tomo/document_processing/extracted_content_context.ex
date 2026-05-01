@@ -43,6 +43,23 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
   end
 
   @doc """
+  Gets extracted content by ID.
+
+  ## Parameters
+    - extraction_id: ID of the extracted content record
+
+  ## Returns
+    - %ExtractedContent{} or nil
+  """
+  def get_by_id(extraction_id) do
+    query = from ec in ExtractedContent,
+            where: ec.id == ^extraction_id,
+            limit: 1
+
+    Repo.one(query)
+  end
+
+  @doc """
   Gets the latest extraction for a document.
 
   ## Parameters
