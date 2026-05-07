@@ -57,7 +57,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       assert {:error, changeset} = ExtractedContentContext.create_extracted_content(attrs)
-      assert changeset.errors[:status] == {"is invalid", [validation: :inclusion, enum: ["success", "partial", "failed"]]}
+      assert changeset.errors[:status] == {"is invalid", [validation: :inclusion, enum: ["success", "failed"]]}
     end
 
     test "creates extracted content successfully" do
@@ -199,7 +199,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       user_id: user_fixture().id,
       extracted_data: Map.from_struct(extracted_data),
       status: "success",
-      analysis: %{"confidence" => 0.95}
+      analysis: %{"processed_at" => DateTime.utc_now()}
     } |> Map.merge(overrides)
 
     {:ok, content} = ExtractedContentContext.create_extracted_content(attrs)

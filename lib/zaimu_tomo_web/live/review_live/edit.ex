@@ -2,7 +2,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Review
-  alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Review.ReviewDecision  # needed for changeset_for_update in mount
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -10,18 +10,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.header>
-        Edit Review <%= @review_decision.id %>
-        <:actions>
-          <.button type="submit" variant="primary">
-            <.icon name="hero-check" /> Save
-          </.button>
-        </:actions>
+        Amend Review
       </.header>
 
       <.form for={@form} phx-submit="save" id="review_form">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <.input field={@form[:review_status]} label="Status" type="select" options={@status_options} />
-          <.input field={@form[:decision_type]} label="Decision Type" type="select" options={@decision_type_options} />
         </div>
 
         <div class="my-6 border-t border-gray-200 dark:border-gray-700" />
@@ -30,23 +24,27 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <.input name="decision_data[invoice_number]" value={@decision_data["invoice_number"] || ""} label="Invoice Number" />
           <.input name="decision_data[invoice_date]" value={@decision_data["invoice_date"] || ""} label="Invoice Date" />
-          <.input name="decision_data[issuer]" value={@decision_data["issuer"] || ""} label="Issuer" />
-          <.input name="decision_data[currency]" value={@decision_data["currency"] || ""} label="Currency" />
+          <div class="md:col-span-2">
+            <.input name="decision_data[issuer]" value={@decision_data["issuer"] || ""} label="Issuer" />
+          </div>
           <.input name="decision_data[amount_to_pay_cents]" value={@decision_data["amount_to_pay_cents"] || ""} label="Amount (cents)" type="number" />
-          <.input name="decision_data[reason_for_payment]" value={@decision_data["reason_for_payment"] || ""} label="Reason for Payment" />
+          <.input name="decision_data[currency]" value={@decision_data["currency"] || ""} label="Currency" />
+          <div class="md:col-span-2">
+            <.input name="decision_data[reason_for_payment]" value={@decision_data["reason_for_payment"] || ""} label="Reason for Payment" type="textarea" />
+          </div>
         </div>
 
         <div class="my-6 border-t border-gray-200 dark:border-gray-700" />
 
         <.input field={@form[:review_notes]} label="Review Notes" type="textarea" />
 
-        <div class="mt-6 flex gap-4">
+        <div class="mt-6 flex justify-between items-center">
           <.button type="submit" variant="primary">
-            <.icon name="hero-check" /> Save Changes
+            <.icon name="hero-check" /> Save Amendments
           </.button>
-          <.link patch={~p"/reviews/#{@review_decision}"}>
+          <.button patch={~p"/reviews/#{@review_decision}"} class="btn btn-neutral">
             <.icon name="hero-x-mark" /> Cancel
-          </.link>
+          </.button>
         </div>
       </.form>
     </Layouts.app>
@@ -63,15 +61,13 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
             decision_data = review_decision.original_data || %{}
             
             changeset = ReviewDecision.changeset_for_update(review_decision, %{})
-            form = to_form(changeset)
-            
+
             {:ok,
              socket
              |> assign(:review_decision, review_decision)
-             |> assign(:form, form)
+             |> assign(:form, to_form(changeset))
              |> assign(:decision_data, decision_data)
-             |> assign(:status_options, ["pending", "approved", "rejected", "amended"])
-             |> assign(:decision_type_options, ["initial", "amended", "approved", "rejected"])}
+             |> assign(:status_options, ["pending", "approved", "rejected", "amended"])}
           
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
@@ -82,41 +78,33 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   end
 
   @impl true
-  def handle_event("save", %{"review_decision" => params}, socket) do
-    # Extract decision_data from nested params
-    decision_data = extract_nested_params(params, "decision_data")
-    
-    attrs = %{
-      decision_data: decision_data,
-      review_status: params["review_status"],
-      decision_type: params["decision_type"],
-      review_notes: params["review_notes"],
-      review_completed_at: DateTime.utc_now(),
-      status: "completed"
-    }
+  def handle_event("save", %{"review_decision" => form_params} = params, socket) do
+    decision_data = Map.get(params, "decision_data", %{})
+    review_status = form_params["review_status"]
+    notes = form_params["review_notes"]
+    user_id = socket.assigns.current_scope.user.id
+    extracted_content_id = socket.assigns.review_decision.extracted_content_id
 
-    case Review.update_review_decision(socket.assigns.review_decision, attrs) do
-      {:ok, _review_decision} ->
+    result =
+      case review_status do
+        "approved" -> Review.approve_invoice(extracted_content_id, user_id, notes)
+        "rejected" -> Review.reject_invoice(extracted_content_id, user_id, notes)
+        "amended"  -> Review.amend_invoice(extracted_content_id, user_id, decision_data, notes)
+        _          -> {:error, "Invalid status"}
+      end
+
+    case result do
+      {:ok, _} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Review updated successfully")
+         |> put_flash(:info, "Review saved successfully")
          |> redirect(to: ~p"/reviews")}
-      
-      {:error, changeset} ->
-        form = to_form(changeset)
-        {:noreply, assign(socket, :form, form)}
-    end
-  end
 
-  defp extract_nested_params(params, prefix) do
-    params
-    |> Enum.filter(fn {k, _} -> String.starts_with?(k, "#{prefix}[") end)
-    |> Enum.map(fn {k, v} ->
-      # k is like "decision_data[invoice_number]"
-      # Remove the prefix and brackets: "decision_data[" -> "", "]" -> ""
-      key = k |> String.replace("#{prefix}[", "") |> String.replace("]", "")
-      {key, v}
-    end)
-    |> Map.new()
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, reason)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+    end
   end
 end

@@ -17,8 +17,7 @@ defmodule ZaimuTomo.Application do
       # Start to serve requests, typically the last entry
       ZaimuTomoWeb.Endpoint,
       ZaimuTomo.DocumentProcessing.Saga,
-      {ZaimuTomo.DocumentProcessing.OCRSupervisor, name: ZaimuTomo.OCRSupervisor},
-      ZaimuTomo.Review.EventConsumer
+      {ZaimuTomo.DocumentProcessing.OCRSupervisor, name: ZaimuTomo.OCRSupervisor}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

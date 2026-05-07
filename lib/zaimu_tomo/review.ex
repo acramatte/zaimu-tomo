@@ -1,215 +1,106 @@
 defmodule ZaimuTomo.Review do
   @moduledoc """
-  Review module for OCR/LLM processed invoice data.
+  Context for reviewing OCR/LLM processed invoice data.
 
-  This module provides the main context for reviewing invoices that have been
-  processed by the OCR/LLM pipeline. It handles the business logic for:
-  - Listing invoices needing review
-  - Approving, rejecting, or amending invoices
-  - Consuming document processing events
-  - Emitting review completion events
+  Handles approve / reject / amend decisions on extracted invoices.
+  Each decision updates a single ReviewDecision row in place and appends
+  an immutable entry to EventLog for audit purposes.
   """
 
   import Ecto.Query, warn: false
+  require Logger
+
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Review.EventLog
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
 
-  @doc """
-  Gets all invoices that need review for a specific user.
+  # ---------------------------------------------------------------------------
+  # Initial decision creation (called by OCR worker)
+  # ---------------------------------------------------------------------------
 
-  ## Parameters
-    - user_id: The ID of the user whose invoices to retrieve
-    - status: Optional filter by review status (default: "pending")
+  def create_initial_decision(%ExtractedContent{} = content) do
+    original_data =
+      if content.extracted_data, do: Map.from_struct(content.extracted_data), else: %{}
 
-  ## Returns
-    - List of ExtractedContent structs with associated review decisions
-  """
-  def get_invoices_for_review(user_id, status \\ "pending") do
-    query =
-      from ec in ExtractedContent,
-      join: rd in ReviewDecision, on: rd.extracted_content_id == ec.id,
-      where: ec.user_id == ^user_id,
-      where: rd.review_status == ^status,
-      order_by: ec.inserted_at
-
-    Repo.all(query)
+    ReviewDecision.changeset_for_create(%{
+      extracted_content_id: content.id,
+      user_id: content.user_id,
+      review_status: "pending",
+      decision_type: "initial",
+      decision_data: %{},
+      original_data: original_data
+    })
+    |> Repo.insert()
   end
 
-  @doc """
-  Gets the review status count for a user.
-
-  ## Parameters
-    - user_id: The ID of the user
-
-  ## Returns
-    - Map with counts by status: %{pending: int, approved: int, rejected: int, amended: int}
-  """
-  def get_review_status_counts(user_id) do
-    ReviewDecision
-    |> join(:left, [rd], ec in ExtractedContent, on: ec.id == rd.extracted_content_id)
-    |> where([_, ec, rd], ec.user_id == ^user_id and rd.review_status in ["pending", "approved", "rejected", "amended"])
-    |> group_by([_, _, rd], rd.review_status)
-    |> select([_, _, rd], %{status: rd.review_status, count: count(rd.id)})
-    |> Repo.all()
-    |> Enum.into(%{}, fn %{status: status, count: count} -> {String.to_atom(status), count} end)
+  def create_failed_decision(%ExtractedContent{} = content, error) do
+    ReviewDecision.changeset_for_create(%{
+      extracted_content_id: content.id,
+      user_id: content.user_id,
+      review_status: "failed",
+      decision_type: "failed",
+      decision_data: %{},
+      review_notes: "Automatically marked as failed: #{inspect(error)}"
+    })
+    |> Repo.insert()
   end
 
-  @doc """
-  Approves an invoice after review.
+  # ---------------------------------------------------------------------------
+  # Human review actions
+  # ---------------------------------------------------------------------------
 
-  ## Parameters
-    - invoice_id: The ID of the invoice to approve
-    - user_id: The ID of the user approving
-    - notes: Optional notes about the approval
-
-  ## Returns
-    - {:ok, review_decision} on success
-    - {:error, reason} on failure
-  """
-  def approve_invoice(invoice_id, user_id, notes \\ nil) do
-    with [:ok, %ExtractedContent{} = invoice] <- get_invoice_with_review(invoice_id, user_id),
-         [:ok, review_decision] <- create_review_decision(invoice, user_id, "approved", %{}, notes) do
-      emit_review_completed_event(invoice, review_decision, "approved")
-      {:ok, review_decision}
-    else
-      error -> error
+  def approve_invoice(extracted_content_id, user_id, notes \\ nil) do
+    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
+         {:ok, updated} <- update_review_decision(decision, %{
+           review_status: "approved",
+           decision_type: "approved",
+           review_notes: notes,
+           review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         }) do
+      write_event_log("invoice_approved", extracted_content_id, user_id, %{notes: notes})
+      emit_review_completed_event(updated, "approved")
+      {:ok, updated}
     end
   end
 
-  @doc """
-  Rejects an invoice after review.
-
-  ## Parameters
-    - invoice_id: The ID of the invoice to reject
-    - user_id: The ID of the user rejecting
-    - notes: Optional notes about the rejection
-
-  ## Returns
-    - {:ok, review_decision} on success
-    - {:error, reason} on failure
-  """
-  def reject_invoice(invoice_id, user_id, notes \\ nil) do
-    with [:ok, %ExtractedContent{} = invoice] <- get_invoice_with_review(invoice_id, user_id),
-         [:ok, review_decision] <- create_review_decision(invoice, user_id, "rejected", %{}, notes) do
-      emit_review_completed_event(invoice, review_decision, "rejected")
-      {:ok, review_decision}
-    else
-      error -> error
+  def reject_invoice(extracted_content_id, user_id, notes \\ nil) do
+    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
+         {:ok, updated} <- update_review_decision(decision, %{
+           review_status: "rejected",
+           decision_type: "rejected",
+           review_notes: notes,
+           review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         }) do
+      write_event_log("invoice_rejected", extracted_content_id, user_id, %{notes: notes})
+      emit_review_completed_event(updated, "rejected")
+      {:ok, updated}
     end
   end
 
-  @doc """
-  Amends an invoice with corrected data.
-
-  ## Parameters
-    - invoice_id: The ID of the invoice to amend
-    - user_id: The ID of the user amending
-    - amended_data: Map of corrected data
-    - notes: Optional notes about the amendments
-
-  ## Returns
-    - {:ok, review_decision} on success
-    - {:error, reason} on failure
-  """
-  def amend_invoice(invoice_id, user_id, amended_data, notes \\ nil) do
-    with [:ok, %ExtractedContent{} = invoice] <- get_invoice_with_review(invoice_id, user_id),
-         [:ok, review_decision] <- create_review_decision(invoice, user_id, "amended", amended_data, notes) do
-      emit_review_completed_event(invoice, review_decision, "amended")
-      {:ok, review_decision}
-    else
-      error -> error
+  def amend_invoice(extracted_content_id, user_id, amended_data, notes \\ nil) do
+    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
+         {:ok, updated} <- update_review_decision(decision, %{
+           review_status: "amended",
+           decision_type: "amended",
+           status: "completed",
+           decision_data: amended_data,
+           review_notes: notes,
+           review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+         }) do
+      write_event_log("invoice_amended", extracted_content_id, user_id, %{
+        amended_data: amended_data,
+        notes: notes
+      })
+      emit_review_completed_event(updated, "amended")
+      {:ok, updated}
     end
   end
 
-  @doc """
-  Handles document processing success event.
+  # ---------------------------------------------------------------------------
+  # Queries
+  # ---------------------------------------------------------------------------
 
-  ## Parameters
-    - payload: The event payload from document_processing:success
-
-  ## Returns
-    - {:ok, review_decision} on success
-    - {:error, reason} on failure
-  """
-  def handle_document_processing_success(payload) do
-    extraction_id = payload["extraction_id"]
-    user_id = payload["user_id"]
-
-    case ZaimuTomo.DocumentProcessing.ExtractedContentContext.get_by_id(extraction_id) do
-      nil ->
-        {:error, "Extracted content not found for extraction ID: #{extraction_id}"}
-
-      %ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent{} = content ->
-        changeset =
-          ReviewDecision.changeset_for_create(
-            %ReviewDecision{
-              extracted_content_id: content.id,
-              user_id: user_id,
-              review_status: "pending",
-              decision_type: "initial",
-              decision_data: %{},
-              review_notes: "Automatically created from document processing",
-              original_data: Map.from_struct(content.extracted_data)
-            }
-          )
-
-        case Repo.insert(changeset) do
-          {:ok, review_decision} -> {:ok, review_decision}
-          {:error, reason} -> {:error, reason}
-        end
-    end
-  end
-
-  @doc """
-  Handles document processing failure event.
-
-  ## Parameters
-    - payload: The event payload from document_processing:failure
-
-  ## Returns
-    - {:ok, extracted_content} on success
-    - {:error, reason} on failure
-  """
-  def handle_document_processing_failure(payload) do
-    extraction_id = payload["extraction_id"]
-    _document_id = payload["document_id"]
-    _error = payload["error"]
-    user_id = payload["user_id"]
-
-    case ZaimuTomo.DocumentProcessing.ExtractedContentContext.get_by_id(extraction_id) do
-      nil ->
-        {:error, "Extracted content not found for extraction ID: #{extraction_id}"}
-
-      %ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent{} = content ->
-        changeset =
-          ReviewDecision.changeset_for_create(
-            %ReviewDecision{
-              extracted_content_id: content.id,
-              user_id: user_id,
-              review_status: "failed",
-              decision_type: "failed",
-              decision_data: %{},
-              review_notes: "Automatically marked as failed from document processing"
-            }
-          )
-
-        case Repo.insert(changeset) do
-          {:ok, review_decision} -> {:ok, review_decision}
-          {:error, reason} -> {:error, reason}
-        end
-    end
-  end
-
-  @doc """
-  Lists all review decisions for a user, with pending ones first.
-
-  ## Parameters
-    - user_id: The ID of the user
-
-  ## Returns
-    - List of ReviewDecision structs with associated extracted content
-  """
   def list_review_decisions(user_id) do
     query =
       from rd in ReviewDecision,
@@ -220,17 +111,6 @@ defmodule ZaimuTomo.Review do
     Repo.all(query)
   end
 
-  @doc """
-  Gets a review decision by ID.
-
-  ## Parameters
-    - id: The ID of the review decision
-    - user_id: The ID of the user (for authorization)
-
-  ## Returns
-    - {:ok, review_decision} on success
-    - {:error, reason} on failure
-  """
   def get_review_decision(id, user_id) do
     query =
       from rd in ReviewDecision,
@@ -244,61 +124,66 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  @doc """
-  Updates a review decision with amended data.
+  def get_review_status_counts(user_id) do
+    ReviewDecision
+    |> join(:left, [rd], ec in ExtractedContent, on: ec.id == rd.extracted_content_id)
+    |> where([rd, ec], ec.user_id == ^user_id and rd.review_status in ["pending", "approved", "rejected", "amended"])
+    |> group_by([rd, _], rd.review_status)
+    |> select([rd, _], %{status: rd.review_status, count: count(rd.id)})
+    |> Repo.all()
+    |> Enum.into(%{}, fn %{status: status, count: count} -> {String.to_atom(status), count} end)
+  end
 
-  ## Parameters
-    - %ReviewDecision{} = review_decision: The review decision to update
-    - attrs: Map of attributes to update
-
-  ## Returns
-    - {:ok, updated_review_decision} on success
-    - {:error, changeset} on validation error
-  """
   def update_review_decision(%ReviewDecision{} = review_decision, attrs) do
     review_decision
     |> ReviewDecision.changeset_for_update(attrs)
     |> Repo.update()
   end
 
-  defp get_invoice_with_review(invoice_id, user_id) do
+  # ---------------------------------------------------------------------------
+  # Private helpers
+  # ---------------------------------------------------------------------------
+
+  defp get_pending_decision(extracted_content_id, user_id) do
     query =
-      from ec in ExtractedContent,
-      where: ec.id == ^invoice_id,
-      where: ec.user_id == ^user_id
+      from rd in ReviewDecision,
+      join: ec in ExtractedContent, on: ec.id == rd.extracted_content_id,
+      where: rd.extracted_content_id == ^extracted_content_id,
+      where: ec.user_id == ^user_id,
+      where: rd.review_status == "pending"
 
     case Repo.one(query) do
-      nil -> {:error, "Invoice not found or not owned by user"}
-      invoice -> {:ok, invoice}
+      nil -> {:error, "No pending review found for this invoice"}
+      decision -> {:ok, decision}
     end
   end
 
-  defp create_review_decision(invoice, user_id, decision_type, decision_data, notes) do
-    changeset =
-      ReviewDecision.changeset_for_create(
-        %ReviewDecision{
-          extracted_content_id: invoice.id,
-          user_id: user_id,
-          review_status: "completed",
-          decision_type: decision_type,
-          decision_data: decision_data,
-          review_notes: notes,
-          original_data: invoice.extracted_data
-        }
-      )
+  defp write_event_log(event_type, invoice_id, user_id, metadata) do
+    result =
+      EventLog.changeset_for_create(%{
+        event_type: event_type,
+        invoice_id: to_string(invoice_id),
+        user_id: user_id,
+        metadata: metadata,
+        status: "completed"
+      })
+      |> Repo.insert()
 
-    Repo.insert(changeset)
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
+        :ok
+    end
   end
 
-  defp emit_review_completed_event(invoice, review_decision, status) do
-    payload = %{
-      invoice_id: invoice.id,
+  defp emit_review_completed_event(%ReviewDecision{} = decision, status) do
+    Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "invoice_review:completed", %{
+      invoice_id: decision.extracted_content_id,
       status: status,
-      user_id: review_decision.user_id,
-      decision_data: review_decision.decision_data,
+      user_id: decision.user_id,
+      decision_data: decision.decision_data,
       timestamp: DateTime.utc_now()
-    }
-
-    Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "invoice_review:completed", payload)
+    })
   end
 end

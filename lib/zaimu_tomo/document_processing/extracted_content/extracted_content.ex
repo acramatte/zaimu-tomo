@@ -28,7 +28,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
       ])
     |> cast_embed(:extracted_data, with: &ExtractedData.embedded_changeset/2)
     |> validate_required([:document_id, :status])
-    |> validate_inclusion(:status, ["success", "partial", "failed"])
+    |> validate_inclusion(:status, ["success", "failed"])
     |> validate_embedded_data_size()
     |> validate_extracted_data_for_status()
     |> foreign_key_constraint(:document_id)

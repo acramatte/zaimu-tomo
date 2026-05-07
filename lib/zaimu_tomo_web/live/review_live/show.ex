@@ -9,12 +9,20 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div class="mb-4">
+        <.link navigate={~p"/reviews"} class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 flex items-center gap-1">
+          <.icon name="hero-arrow-left" class="w-4 h-4" /> Back to Reviews
+        </.link>
+      </div>
+
       <.header>
-        Review <%= @review_decision.id %>
+        <%= review_title(@review_decision) %>
         <:actions>
-          <.link patch={~p"/reviews/#{@review_decision}/edit"}>
-            <.icon name="hero-pencil-square" /> Edit
-          </.link>
+          <%= if @review_decision.review_status == "pending" do %>
+            <.link patch={~p"/reviews/#{@review_decision}/edit"}>
+              <.icon name="hero-pencil-square" /> Amend
+            </.link>
+          <% end %>
         </:actions>
       </.header>
 
@@ -43,11 +51,16 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
         <div class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg"><%= @review_decision.review_notes %></div>
       <% end %>
 
-      <div class="mt-6 flex gap-4">
-        <.link patch={~p"/reviews"}>
-          <.icon name="hero-arrow-left" /> Back to Reviews
-        </.link>
-      </div>
+      <%= if @review_decision.review_status == "pending" do %>
+        <div class="mt-8 flex justify-between items-center">
+          <.button phx-click="approve" variant="primary" phx-disable-with="Approving...">
+            <.icon name="hero-check" /> Approve
+          </.button>
+          <.button phx-click="reject" class="btn btn-error" phx-disable-with="Rejecting...">
+            <.icon name="hero-x-mark" /> Reject
+          </.button>
+        </div>
+      <% end %>
     </Layouts.app>
     """
   end
@@ -64,6 +77,45 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
         end
       _ ->
         {:ok, put_flash(socket, :error, "Not authenticated") |> redirect(to: ~p"/")}
+    end
+  end
+
+  @impl true
+  def handle_event("approve", _params, socket) do
+    user_id = socket.assigns.current_scope.user.id
+    extracted_content_id = socket.assigns.review_decision.extracted_content_id
+
+    case Review.approve_invoice(extracted_content_id, user_id) do
+      {:ok, _} ->
+        {:noreply, socket |> put_flash(:info, "Invoice approved") |> redirect(to: ~p"/reviews")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
+  @impl true
+  def handle_event("reject", _params, socket) do
+    user_id = socket.assigns.current_scope.user.id
+    extracted_content_id = socket.assigns.review_decision.extracted_content_id
+
+    case Review.reject_invoice(extracted_content_id, user_id) do
+      {:ok, _} ->
+        {:noreply, socket |> put_flash(:info, "Invoice rejected") |> redirect(to: ~p"/reviews")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
+  defp review_title(%ReviewDecision{} = rd) do
+    data = rd.decision_data || rd.original_data || %{}
+    issuer = data["issuer"]
+    number = data["invoice_number"]
+
+    cond do
+      issuer && number -> "#{issuer} — #{number}"
+      issuer           -> issuer
+      number           -> "Invoice #{number}"
+      true             -> "Invoice Review"
     end
   end
 

@@ -122,7 +122,6 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
       - status: Filter by status
       - start_date: Start date filter
       - end_date: End date filter
-      - min_confidence: Minimum confidence score
       - limit: Maximum results (default: 50)
 
   ## Returns
@@ -164,7 +163,6 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     query
     |> maybe_filter_status(filters)
     |> maybe_filter_date_range(filters)
-    |> maybe_filter_confidence(filters)
   end
 
   defp maybe_filter_status(query, filters) do
@@ -192,9 +190,4 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     end
   end
 
-  defp maybe_filter_confidence(query, _filters) do
-    # Confidence score column was removed, so this filter is no longer supported
-    # This function is kept for backward compatibility but does nothing
-    query
-  end
 end
