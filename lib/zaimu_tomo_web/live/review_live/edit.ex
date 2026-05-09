@@ -2,7 +2,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Review
-  alias ZaimuTomo.Review.ReviewDecision  # needed for changeset_for_update in mount
+  alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -93,11 +94,11 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
       end
 
     case result do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Review saved successfully")
-         |> redirect(to: ~p"/reviews")}
+      {:ok, decision} when review_status in ["approved", "amended"] ->
+        {:noreply, redirect_to_journal_entry(socket, decision, "Review saved successfully")}
+
+      {:ok, _} when review_status == "rejected" ->
+        {:noreply, socket |> put_flash(:info, "Review saved successfully") |> redirect(to: ~p"/reviews")}
 
       {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -105,5 +106,10 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
       {:error, changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
     end
+  end
+
+  defp redirect_to_journal_entry(socket, decision, flash_msg) do
+    {:ok, entry} = Accounting.create_from_decision(decision)
+    socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
   end
 end

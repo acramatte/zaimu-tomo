@@ -20,6 +20,10 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     timestamps(type: :utc_datetime)
   end
 
+  def effective_data(%__MODULE__{} = decision) do
+    Map.merge(decision.original_data || %{}, decision.decision_data || %{})
+  end
+
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [

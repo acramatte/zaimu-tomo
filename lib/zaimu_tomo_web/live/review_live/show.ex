@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
 
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -89,8 +90,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     extracted_content_id = socket.assigns.review_decision.extracted_content_id
 
     case Review.approve_invoice(extracted_content_id, user_id) do
-      {:ok, _} ->
-        {:noreply, socket |> put_flash(:info, "Invoice approved") |> redirect(to: ~p"/reviews")}
+      {:ok, decision} ->
+        {:noreply, redirect_to_journal_entry(socket, decision, "Invoice approved")}
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
     end
@@ -107,6 +108,11 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
     end
+  end
+
+  defp redirect_to_journal_entry(socket, decision, flash_msg) do
+    {:ok, entry} = Accounting.create_from_decision(decision)
+    socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
   end
 
   defp review_title(%ReviewDecision{} = rd) do
@@ -134,17 +140,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     format_currency(cents, currency || "USD")
   end
 
-  defp format_datetime(%DateTime{} = datetime) do
-    "#{DateTime.to_iso8601(datetime)}"
-  end
-  defp format_datetime(%Date{} = date) do
-    Date.to_iso8601(date)
-  end
+  defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp format_datetime(%Date{} = date), do: Date.to_iso8601(date)
   defp format_datetime(_), do: "N/A"
 
   defp format_currency(cents, currency) when is_integer(cents) do
-    amount = cents / 100.0
-    "#{currency} #{amount}"
+    "#{currency} #{cents / 100.0}"
   end
   defp format_currency(_cents, _currency), do: "N/A"
 end

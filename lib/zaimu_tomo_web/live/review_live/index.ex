@@ -64,12 +64,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
 
   defp list_reviews(current_scope) do
     case current_scope do
-      %Scope{user: user} ->
-        Review.list_review_decisions(user.id)
-      _ ->
-        []
+      %Scope{user: user} -> Review.list_review_decisions(user.id)
+      _ -> []
     end
   end
+
+  defp effective(review), do: review.decision_data || review.original_data
 
   defp status_class(status) do
     case status do
@@ -81,22 +81,15 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
     end
   end
 
-  defp format_currency(cents, currency) when is_integer(cents) do
-    amount = cents / 100.0
-    "#{currency} #{amount}"
-  end
-  defp format_currency(_cents, _currency), do: "N/A"
-
-  defp format_date(%DateTime{} = datetime) do
-    DateTime.to_date(datetime) |> Date.to_iso8601()
-  end
-  defp format_date(%Date{} = date), do: Date.to_iso8601(date)
-  defp format_date(_), do: "N/A"
-
-  defp effective(review), do: review.decision_data || review.original_data
-
   defp format_amount(%{amount_to_pay_cents: nil}), do: "N/A"
   defp format_amount(%{amount_to_pay_cents: cents, currency: currency}) do
     format_currency(cents, currency || "USD")
   end
+
+  defp format_currency(cents, currency) when is_integer(cents), do: "#{currency} #{cents / 100.0}"
+  defp format_currency(_cents, _currency), do: "N/A"
+
+  defp format_date(%DateTime{} = datetime), do: DateTime.to_date(datetime) |> Date.to_iso8601()
+  defp format_date(%Date{} = date), do: Date.to_iso8601(date)
+  defp format_date(_), do: "N/A"
 end
