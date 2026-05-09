@@ -19,17 +19,17 @@ defmodule ZaimuTomo.Accounting do
   # ---------------------------------------------------------------------------
 
   def create_from_decision(%ReviewDecision{} = decision) do
-    data = ReviewDecision.effective_data(decision)
+    data = decision.decision_data || decision.original_data
 
     attrs = %{
       review_decision_id: decision.id,
       user_id: decision.user_id,
-      amount_cents: parse_integer(data["amount_to_pay_cents"]),
-      currency: data["currency"],
-      date: parse_date(data["invoice_date"]),
-      description: data["reason_for_payment"],
-      issuer: data["issuer"],
-      invoice_number: data["invoice_number"],
+      amount_cents: data.amount_to_pay_cents,
+      currency: data.currency,
+      date: parse_date(data.invoice_date),
+      description: data.reason_for_payment,
+      issuer: data.issuer,
+      invoice_number: data.invoice_number,
       status: "uncategorized"
     }
 
@@ -92,17 +92,6 @@ defmodule ZaimuTomo.Accounting do
       {:error, _} -> nil
     end
   end
-  defp parse_date(_), do: nil
-
-  defp parse_integer(nil), do: nil
-  defp parse_integer(value) when is_integer(value), do: value
-  defp parse_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> int
-      :error -> nil
-    end
-  end
-  defp parse_integer(_), do: nil
 
   defp write_event_log(event_type, entry_id, user_id, metadata) do
     result =
