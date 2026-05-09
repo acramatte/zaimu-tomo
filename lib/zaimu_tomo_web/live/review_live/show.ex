@@ -38,12 +38,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
       </.header>
 
       <.list>
-        <:item title="Invoice Number"><%= @review_decision.decision_data["invoice_number"] || @review_decision.original_data["invoice_number"] || "N/A" %></:item>
-        <:item title="Invoice Date"><%= @review_decision.decision_data["invoice_date"] || @review_decision.original_data["invoice_date"] || "N/A" %></:item>
-        <:item title="Issuer"><%= @review_decision.decision_data["issuer"] || @review_decision.original_data["issuer"] || "N/A" %></:item>
-        <:item title="Currency"><%= @review_decision.decision_data["currency"] || @review_decision.original_data["currency"] || "N/A" %></:item>
-        <:item title="Amount"><%= format_amount(@review_decision) %></:item>
-        <:item title="Reason for Payment"><%= @review_decision.decision_data["reason_for_payment"] || @review_decision.original_data["reason_for_payment"] || "N/A" %></:item>
+        <:item title="Invoice Number"><%= @effective_data.invoice_number || "N/A" %></:item>
+        <:item title="Invoice Date"><%= @effective_data.invoice_date || "N/A" %></:item>
+        <:item title="Issuer"><%= @effective_data.issuer || "N/A" %></:item>
+        <:item title="Currency"><%= @effective_data.currency || "N/A" %></:item>
+        <:item title="Amount"><%= format_amount(@effective_data) %></:item>
+        <:item title="Reason for Payment"><%= @effective_data.reason_for_payment || "N/A" %></:item>
       </.list>
 
       <%= if @review_decision.review_notes do %>
@@ -71,7 +71,10 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
       %Scope{user: user} ->
         case Review.get_review_decision(id, user.id) do
           {:ok, %ReviewDecision{} = rd} ->
-            {:ok, assign(socket, :review_decision, rd)}
+            {:ok,
+             socket
+             |> assign(:review_decision, rd)
+             |> assign(:effective_data, rd.decision_data || rd.original_data)}
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
         end
@@ -107,15 +110,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   defp review_title(%ReviewDecision{} = rd) do
-    data = rd.decision_data || rd.original_data || %{}
-    issuer = data["issuer"]
-    number = data["invoice_number"]
-
+    data = rd.decision_data || rd.original_data
     cond do
-      issuer && number -> "#{issuer} — #{number}"
-      issuer           -> issuer
-      number           -> "Invoice #{number}"
-      true             -> "Invoice Review"
+      data.issuer && data.invoice_number -> "#{data.issuer} — #{data.invoice_number}"
+      data.issuer                        -> data.issuer
+      data.invoice_number                -> "Invoice #{data.invoice_number}"
+      true                               -> "Invoice Review"
     end
   end
 
@@ -129,17 +129,9 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     end
   end
 
-  defp format_amount(review) do
-    decision_amount = review.decision_data["amount_to_pay_cents"]
-    decision_currency = review.decision_data["currency"]
-    original_amount = review.original_data["amount_to_pay_cents"]
-    original_currency = review.original_data["currency"]
-
-    cond do
-      decision_amount -> format_currency(decision_amount, decision_currency || "USD")
-      original_amount -> format_currency(original_amount, original_currency || "USD")
-      true -> "N/A"
-    end
+  defp format_amount(%{amount_to_pay_cents: nil}), do: "N/A"
+  defp format_amount(%{amount_to_pay_cents: cents, currency: currency}) do
+    format_currency(cents, currency || "USD")
   end
 
   defp format_datetime(%DateTime{} = datetime) do

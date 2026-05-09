@@ -20,16 +20,12 @@ defmodule ZaimuTomo.Review do
   # ---------------------------------------------------------------------------
 
   def create_initial_decision(%ExtractedContent{} = content) do
-    original_data =
-      if content.extracted_data, do: Map.from_struct(content.extracted_data), else: %{}
-
     ReviewDecision.changeset_for_create(%{
       extracted_content_id: content.id,
       user_id: content.user_id,
       review_status: "pending",
       decision_type: "initial",
-      decision_data: %{},
-      original_data: original_data
+      original_data: content.extracted_data
     })
     |> Repo.insert()
   end
@@ -40,7 +36,6 @@ defmodule ZaimuTomo.Review do
       user_id: content.user_id,
       review_status: "failed",
       decision_type: "failed",
-      decision_data: %{},
       review_notes: "Automatically marked as failed: #{inspect(error)}"
     })
     |> Repo.insert()

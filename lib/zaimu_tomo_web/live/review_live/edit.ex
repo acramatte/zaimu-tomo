@@ -22,15 +22,15 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
 
         <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Invoice Data (Amended)</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <.input name="decision_data[invoice_number]" value={@decision_data["invoice_number"] || ""} label="Invoice Number" />
-          <.input name="decision_data[invoice_date]" value={@decision_data["invoice_date"] || ""} label="Invoice Date" />
+          <.input name="decision_data[invoice_number]" value={@decision_data.invoice_number || ""} label="Invoice Number" />
+          <.input name="decision_data[invoice_date]" value={@decision_data.invoice_date || ""} label="Invoice Date" />
           <div class="md:col-span-2">
-            <.input name="decision_data[issuer]" value={@decision_data["issuer"] || ""} label="Issuer" />
+            <.input name="decision_data[issuer]" value={@decision_data.issuer || ""} label="Issuer" />
           </div>
-          <.input name="decision_data[amount_to_pay_cents]" value={@decision_data["amount_to_pay_cents"] || ""} label="Amount (cents)" type="number" />
-          <.input name="decision_data[currency]" value={@decision_data["currency"] || ""} label="Currency" />
+          <.input name="decision_data[amount_to_pay_cents]" value={@decision_data.amount_to_pay_cents || ""} label="Amount (cents)" type="number" />
+          <.input name="decision_data[currency]" value={@decision_data.currency || ""} label="Currency" />
           <div class="md:col-span-2">
-            <.input name="decision_data[reason_for_payment]" value={@decision_data["reason_for_payment"] || ""} label="Reason for Payment" type="textarea" />
+            <.input name="decision_data[reason_for_payment]" value={@decision_data.reason_for_payment || ""} label="Reason for Payment" type="textarea" />
           </div>
         </div>
 
@@ -57,8 +57,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
       %Scope{user: user} ->
         case Review.get_review_decision(id, user.id) do
           {:ok, %ReviewDecision{} = review_decision} ->
-            # Pre-populate decision_data with original_data for editing
-            decision_data = review_decision.original_data || %{}
+            decision_data = review_decision.original_data || %ZaimuTomo.DocumentProcessing.ExtractedData{}
             
             changeset = ReviewDecision.changeset_for_update(review_decision, %{})
 

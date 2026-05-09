@@ -7,6 +7,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
 
   schema "extracted_content" do
     embeds_one :extracted_data, ExtractedData
+    field :raw_llm_response, :map
     field :status, :string
     field :error_details, :map
     field :analysis, :map
@@ -23,6 +24,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
         :document_id,
         :user_id,
         :status,
+        :raw_llm_response,
         :error_details,
         :analysis
       ])

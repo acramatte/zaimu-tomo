@@ -27,7 +27,6 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
   # Embedded changeset: Takes a struct and attrs, used by cast_embed
   # Used in ExtractedContent.changeset
   def embedded_changeset(_struct, attrs) do
-    # If attrs is already a validated struct, just wrap it in a changeset
     if is_struct(attrs, __MODULE__) do
       Ecto.Changeset.change(attrs)
     else
@@ -36,6 +35,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
       |> validate_required(fields())
     end
   end
+
 
   defp fields do
     [:amount_to_pay_cents, :invoice_date, :invoice_number, :currency, :reason_for_payment, :issuer]

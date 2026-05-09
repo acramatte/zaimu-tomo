@@ -20,11 +20,13 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCRTest do
         ]
       }
 
-      assert {:ok, %ZaimuTomo.DocumentProcessing.ExtractedData{} = data} =
+      assert {:ok, %ZaimuTomo.DocumentProcessing.ExtractedData{} = data, raw_map} =
                DocumentOCR.extract_data(mock_body)
 
       assert data.amount_to_pay_cents == 1500
       assert data.issuer == "ACME Corp"
+      assert raw_map["amount_to_pay_cents"] == 1500
+      assert raw_map["issuer"] == "ACME Corp"
     end
 
     test "returns error for malformed API structure" do

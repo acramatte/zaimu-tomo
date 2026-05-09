@@ -3,12 +3,13 @@ defmodule ZaimuTomo.Review.ReviewDecision do
   import Ecto.Changeset
 
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Accounts.User
 
   schema "review_decisions" do
-    field :decision_data, :map
+    embeds_one :original_data, ExtractedData
+    embeds_one :decision_data, ExtractedData
     field :decision_type, :string
-    field :original_data, :map
     field :review_completed_at, :utc_datetime
     field :review_notes, :string
     field :review_status, :string
@@ -26,11 +27,11 @@ defmodule ZaimuTomo.Review.ReviewDecision do
         :user_id,
         :review_status,
         :decision_type,
-        :decision_data,
         :review_notes,
-        :original_data,
         :review_completed_at
       ])
+    |> cast_embed(:original_data, with: &ExtractedData.embedded_changeset/2)
+    |> cast_embed(:decision_data, with: &ExtractedData.embedded_changeset/2)
     |> validate_required([:extracted_content_id, :user_id, :review_status, :decision_type])
     |> validate_inclusion(:review_status, ["pending", "approved", "rejected", "amended", "failed"])
     |> foreign_key_constraint(:extracted_content_id)
@@ -41,11 +42,11 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     review_decision
     |> cast(attrs, [
         :review_status,
-        :decision_data,
         :review_notes,
         :decision_type,
         :review_completed_at
       ])
+    |> cast_embed(:decision_data, with: &ExtractedData.embedded_changeset/2)
     |> validate_inclusion(:review_status, ["pending", "approved", "rejected", "amended", "failed"])
   end
 end
