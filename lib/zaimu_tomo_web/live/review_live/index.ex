@@ -2,6 +2,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -28,16 +29,16 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
           </span>
         </:col>
         <:col :let={{_id, review}} label="Invoice #">
-          <%= review.decision_data["invoice_number"] || review.original_data["invoice_number"] || "N/A" %>
+          <%= ReviewDecision.effective_data(review).invoice_number || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Issuer">
-          <%= review.decision_data["issuer"] || review.original_data["issuer"] || "N/A" %>
+          <%= ReviewDecision.effective_data(review).issuer || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Amount">
-          <%= format_amount(review) %>
+          <%= format_amount(ReviewDecision.effective_data(review)) %>
         </:col>
         <:col :let={{_id, review}} label="Date">
-          <%= review.decision_data["invoice_date"] || review.original_data["invoice_date"] || "N/A" %>
+          <%= ReviewDecision.effective_data(review).invoice_date || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Created">
           <%= format_date(review.inserted_at) %>
@@ -93,16 +94,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "N/A"
 
-  defp format_amount(review) do
-    decision_amount = review.decision_data["amount_to_pay_cents"]
-    decision_currency = review.decision_data["currency"]
-    original_amount = review.original_data["amount_to_pay_cents"]
-    original_currency = review.original_data["currency"]
-
-    cond do
-      decision_amount -> format_currency(decision_amount, decision_currency || "USD")
-      original_amount -> format_currency(original_amount, original_currency || "USD")
-      true -> "N/A"
-    end
+  defp format_amount(%{amount_to_pay_cents: nil}), do: "N/A"
+  defp format_amount(%{amount_to_pay_cents: cents, currency: currency}) do
+    format_currency(cents, currency || "USD")
   end
 end

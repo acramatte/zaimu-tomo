@@ -27,7 +27,6 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
   # Embedded changeset: Takes a struct and attrs, used by cast_embed
   # Used in ExtractedContent.changeset
   def embedded_changeset(_struct, attrs) do
-    # If attrs is already a validated struct, just wrap it in a changeset
     if is_struct(attrs, __MODULE__) do
       Ecto.Changeset.change(attrs)
     else
@@ -35,6 +34,13 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
       |> cast(attrs, fields())
       |> validate_required(fields())
     end
+  end
+
+  # Used by ReviewDecision.changeset_for_update — all fields optional since
+  # effective_data/1 fills gaps from original_data
+  def amendment_changeset(_struct, attrs) do
+    %__MODULE__{}
+    |> cast(attrs, fields())
   end
 
   defp fields do

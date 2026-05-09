@@ -28,9 +28,9 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     end
 
     case result do
-      {:ok, data} ->
+      {:ok, data, raw_map} ->
         Logger.info("✅ OCR Analysis Complete: #{filepath}")
-        {:ok, data}
+        {:ok, data, raw_map}
 
       {:error, reason} ->
         Logger.error("❌ OCR Analysis Failed for #{filepath}: #{inspect(reason)}")
@@ -40,8 +40,9 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
 
   def extract_data(body) do
     with {:ok, raw_string} <- extract_content_string(body),
-         {:ok, decoded_map} <- decode_json(raw_string) do
-         cast_to_schema(decoded_map)
+         {:ok, decoded_map} <- decode_json(raw_string),
+         {:ok, extracted_data} <- cast_to_schema(decoded_map) do
+      {:ok, extracted_data, decoded_map}
     end
   end
 

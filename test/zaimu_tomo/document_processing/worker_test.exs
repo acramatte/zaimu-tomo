@@ -6,8 +6,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
   import ZaimuTomo.DocumentsFixtures
 
-  describe "persist_and_emit_success/2" do
-    test "includes user_id from document in extracted content" do
+  describe "persist_and_emit_success/3" do
+    test "includes user_id from document in extracted content and stores raw response" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       document = document_fixture(scope, %{})
@@ -21,11 +21,14 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
         issuer: "Test Issuer"
       }
 
-      {:ok, content} = Worker.persist_and_emit_success(document, extracted_data)
+      raw_llm_response = %{"amount_to_pay_cents" => 1000, "issuer" => "Test Issuer"}
+
+      {:ok, content} = Worker.persist_and_emit_success(document, extracted_data, raw_llm_response)
 
       assert content.user_id == user.id
       assert content.document_id == document.id
       assert content.status == "success"
+      assert content.raw_llm_response == raw_llm_response
     end
   end
 end

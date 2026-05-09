@@ -18,21 +18,22 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     full_path = build_document_path(filepath)
 
     case DocumentOCR.process(full_path) do
-      {:ok, extracted_data} ->
-        persist_and_emit_success(document, extracted_data)
+      {:ok, extracted_data, raw_llm_response} ->
+        persist_and_emit_success(document, extracted_data, raw_llm_response)
 
       {:error, reason} ->
         persist_and_emit_failure(document, reason)
     end
   end
 
-  def persist_and_emit_success(document, extracted_data) do
+  def persist_and_emit_success(document, extracted_data, raw_llm_response) do
     analysis = %{"processed_at" => DateTime.utc_now()}
 
     extraction_params = %{
       document_id: document.id,
       user_id: document.user_id,
       extracted_data: extracted_data,
+      raw_llm_response: raw_llm_response,
       analysis: analysis,
       status: "success"
     }
