@@ -85,8 +85,6 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
     case Accounting.post_entry(socket.assigns.entry, user_id, category, notes) do
       {:ok, updated} ->
         {:noreply, socket |> assign(:entry, updated) |> put_flash(:info, "Entry posted successfully")}
-      {:error, reason} when is_binary(reason) ->
-        {:noreply, put_flash(socket, :error, reason)}
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Failed to post entry")}
     end

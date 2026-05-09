@@ -33,16 +33,7 @@ defmodule ZaimuTomo.Accounting do
       status: "uncategorized"
     }
 
-    case JournalEntry.changeset_for_create(attrs) |> Repo.insert() do
-      {:ok, entry} ->
-        {:ok, entry}
-
-      {:error, %Ecto.Changeset{errors: [review_decision_id: {"has already been taken", _}]}} ->
-        {:duplicate, get_by_review_decision(decision.id)}
-
-      {:error, changeset} ->
-        {:error, changeset}
-    end
+    JournalEntry.changeset_for_create(attrs) |> Repo.insert()
   end
 
   # ---------------------------------------------------------------------------
@@ -50,22 +41,20 @@ defmodule ZaimuTomo.Accounting do
   # ---------------------------------------------------------------------------
 
   def post_entry(%JournalEntry{} = entry, user_id, category, notes \\ nil) do
-    if entry.user_id != user_id do
-      {:error, "Journal entry not found or not owned by user"}
-    else
-      case JournalEntry.changeset_for_categorize(entry, %{
-             category: category,
-             notes: notes,
-             status: "posted"
-           })
-           |> Repo.update() do
-        {:ok, updated} ->
-          write_event_log("journal_entry_posted", entry.id, user_id, %{category: category})
-          {:ok, updated}
+    true = entry.user_id == user_id
 
-        {:error, changeset} ->
-          {:error, changeset}
-      end
+    case JournalEntry.changeset_for_categorize(entry, %{
+           category: category,
+           notes: notes,
+           status: "posted"
+         })
+         |> Repo.update() do
+      {:ok, updated} ->
+        write_event_log("journal_entry_posted", entry.id, user_id, %{category: category})
+        {:ok, updated}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
@@ -95,10 +84,6 @@ defmodule ZaimuTomo.Accounting do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
-
-  defp get_by_review_decision(review_decision_id) do
-    Repo.get_by(JournalEntry, review_decision_id: review_decision_id)
-  end
 
   defp parse_date(nil), do: nil
   defp parse_date(str) when is_binary(str) do

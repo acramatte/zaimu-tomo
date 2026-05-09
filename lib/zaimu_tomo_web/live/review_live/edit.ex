@@ -109,11 +109,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   end
 
   defp redirect_to_journal_entry(socket, decision, flash_msg) do
-    case Accounting.create_from_decision(decision) do
-      {result, entry} when result in [:ok, :duplicate] ->
-        socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
-      {:error, _} ->
-        socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/reviews")
-    end
+    {:ok, entry} = Accounting.create_from_decision(decision)
+    socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
   end
 end
