@@ -2,7 +2,6 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Review
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -29,16 +28,16 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
           </span>
         </:col>
         <:col :let={{_id, review}} label="Invoice #">
-          <%= ReviewDecision.effective_data(review).invoice_number || "N/A" %>
+          <%= effective(review).invoice_number || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Issuer">
-          <%= ReviewDecision.effective_data(review).issuer || "N/A" %>
+          <%= effective(review).issuer || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Amount">
-          <%= format_amount(ReviewDecision.effective_data(review)) %>
+          <%= format_amount(effective(review)) %>
         </:col>
         <:col :let={{_id, review}} label="Date">
-          <%= ReviewDecision.effective_data(review).invoice_date || "N/A" %>
+          <%= effective(review).invoice_date || "N/A" %>
         </:col>
         <:col :let={{_id, review}} label="Created">
           <%= format_date(review.inserted_at) %>
@@ -93,6 +92,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
   end
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "N/A"
+
+  defp effective(review), do: review.decision_data || review.original_data
 
   defp format_amount(%{amount_to_pay_cents: nil}), do: "N/A"
   defp format_amount(%{amount_to_pay_cents: cents, currency: currency}) do

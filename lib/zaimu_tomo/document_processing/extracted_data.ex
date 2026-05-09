@@ -36,12 +36,6 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
     end
   end
 
-  # Used by ReviewDecision.changeset_for_update — all fields optional since
-  # effective_data/1 fills gaps from original_data
-  def amendment_changeset(_struct, attrs) do
-    %__MODULE__{}
-    |> cast(attrs, fields())
-  end
 
   defp fields do
     [:amount_to_pay_cents, :invoice_date, :invoice_number, :currency, :reason_for_payment, :issuer]

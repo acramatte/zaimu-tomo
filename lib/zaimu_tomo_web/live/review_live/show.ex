@@ -74,7 +74,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             {:ok,
              socket
              |> assign(:review_decision, rd)
-             |> assign(:effective_data, ReviewDecision.effective_data(rd))}
+             |> assign(:effective_data, rd.decision_data || rd.original_data)}
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
         end
@@ -110,7 +110,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   defp review_title(%ReviewDecision{} = rd) do
-    data = ReviewDecision.effective_data(rd)
+    data = rd.decision_data || rd.original_data
     cond do
       data.issuer && data.invoice_number -> "#{data.issuer} — #{data.invoice_number}"
       data.issuer                        -> data.issuer
