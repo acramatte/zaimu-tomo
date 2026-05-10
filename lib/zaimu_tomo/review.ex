@@ -101,7 +101,7 @@ defmodule ZaimuTomo.Review do
       from rd in ReviewDecision,
       join: ec in ExtractedContent, on: ec.id == rd.extracted_content_id,
       where: ec.user_id == ^user_id,
-      order_by: [asc: rd.review_status == "pending", desc: rd.inserted_at]
+      order_by: [desc: rd.review_status == "pending", desc: rd.inserted_at]
 
     Repo.all(query)
   end

@@ -56,13 +56,17 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             </div>
           </div>
           <div class="actions">
+      <div>
             <a :if={status == "review" && ec && ec.review_decision} class="btn sm primary" href={~p"/reviews/#{ec.review_decision}"}>Review</a>
             <.link :if={status != "posted"} navigate={~p"/documents/#{document}/edit"}>Edit</.link>
             <.link
               phx-click={JS.push("delete", value: %{id: document.id}) |> hide("##{dom_id}")}
               data-confirm="Are you sure?"
             >Delete</.link>
+      </div>
+      <div>
             <time>{ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(document.inserted_at))}</time>
+      </div>
           </div>
         </div>
       </div>

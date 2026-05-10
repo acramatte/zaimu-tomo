@@ -407,6 +407,20 @@ body {
   border-bottom: 1px solid var(--hairline);
 }
 .budget-row:last-child { border-bottom: 0; }
+.detail-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--hairline);
+}
+.detail-row:last-child { border-bottom: 0; }
+.detail-row .name {
+  font-family: 'Geist', sans-serif;
+  color: var(--muted);
+}
 .budget-row .name {
   font-family: 'Geist', sans-serif;
   font-size: 13.5px;

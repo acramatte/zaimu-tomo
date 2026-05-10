@@ -9,46 +9,38 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.header>
-        Amend Review
-      </.header>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <a class="btn sm" href={~p"/reviews/#{@review_decision}"}>← Back</a>
+    </div>
+    <h1 class="view-title" style="margin-top:8px">Amend invoice</h1>
 
+    <div class="card" style="max-width:640px;margin-top:16px">
       <.form for={@form} phx-submit="save" id="review_form">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <.input field={@form[:review_status]} label="Status" type="select" options={@status_options} />
+        <div class="card-head" style="margin-bottom:12px">
+          <div class="card-title">Corrected data</div>
+        </div>
+        <div style="display:grid;gap:12px">
+          <.input name="decision_data[issuer]" value={@decision_data.issuer || ""} label="Issuer" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <.input name="decision_data[invoice_number]" value={@decision_data.invoice_number || ""} label="Invoice #" />
+            <.input name="decision_data[invoice_date]" value={@decision_data.invoice_date || ""} label="Date" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <.input name="decision_data[amount_to_pay_cents]" value={@decision_data.amount_to_pay_cents || ""} label="Amount (cents)" type="number" />
+            <.input name="decision_data[currency]" value={@decision_data.currency || ""} label="Currency" />
+          </div>
+          <.input name="decision_data[reason_for_payment]" value={@decision_data.reason_for_payment || ""} label="Reason for payment" type="textarea" />
+          <.input field={@form[:review_notes]} label="Internal notes" type="textarea" />
         </div>
 
-        <div class="my-6 border-t border-gray-200 dark:border-gray-700" />
-
-        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Invoice Data (Amended)</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <.input name="decision_data[invoice_number]" value={@decision_data.invoice_number || ""} label="Invoice Number" />
-          <.input name="decision_data[invoice_date]" value={@decision_data.invoice_date || ""} label="Invoice Date" />
-          <div class="md:col-span-2">
-            <.input name="decision_data[issuer]" value={@decision_data.issuer || ""} label="Issuer" />
-          </div>
-          <.input name="decision_data[amount_to_pay_cents]" value={@decision_data.amount_to_pay_cents || ""} label="Amount (cents)" type="number" />
-          <.input name="decision_data[currency]" value={@decision_data.currency || ""} label="Currency" />
-          <div class="md:col-span-2">
-            <.input name="decision_data[reason_for_payment]" value={@decision_data.reason_for_payment || ""} label="Reason for Payment" type="textarea" />
-          </div>
-        </div>
-
-        <div class="my-6 border-t border-gray-200 dark:border-gray-700" />
-
-        <.input field={@form[:review_notes]} label="Review Notes" type="textarea" />
-
-        <div class="mt-6 flex justify-between items-center">
-          <.button type="submit" variant="primary">
-            <.icon name="hero-check" /> Save Amendments
+        <div style="margin-top:16px;display:flex;gap:8px">
+          <.button type="submit" variant="primary" phx-disable-with="Saving…">
+            Amend &amp; post
           </.button>
-          <.button patch={~p"/reviews/#{@review_decision}"} class="btn btn-neutral">
-            <.icon name="hero-x-mark" /> Cancel
-          </.button>
+          <a class="btn sm" href={~p"/reviews/#{@review_decision}"}>Cancel</a>
         </div>
       </.form>
-    </Layouts.app>
+    </div>
     """
   end
 
@@ -64,6 +56,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
 
             {:ok,
              socket
+             |> assign(:page_title, "Amend invoice")
+             |> assign(:current_path, "/reviews")
              |> assign(:review_decision, review_decision)
              |> assign(:form, to_form(changeset))
              |> assign(:decision_data, decision_data)
