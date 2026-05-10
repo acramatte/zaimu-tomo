@@ -5,54 +5,50 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
-  def render(assigns) do
-    ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.header>
-        Journal Entries
-      </.header>
-
-      <.table
-        id="journal-entries"
-        rows={@streams.entries}
-        row_click={fn {_id, entry} -> JS.navigate(~p"/journal_entries/#{entry}") end}
-      >
-        <:col :let={{_id, entry}} label="Status">
-          <span class={["px-2 py-1 rounded-full text-xs font-medium", status_class(entry.status)]}>
-            <%= String.capitalize(entry.status) %>
-          </span>
-        </:col>
-        <:col :let={{_id, entry}} label="Issuer"><%= entry.issuer || "—" %></:col>
-        <:col :let={{_id, entry}} label="Invoice #"><%= entry.invoice_number || "—" %></:col>
-        <:col :let={{_id, entry}} label="Amount"><%= format_amount(entry) %></:col>
-        <:col :let={{_id, entry}} label="Date"><%= format_date(entry.date) %></:col>
-        <:col :let={{_id, entry}} label="Category"><%= entry.category || "—" %></:col>
-        <:action :let={{_id, entry}}>
-          <.link navigate={~p"/journal_entries/#{entry}"}>Show</.link>
-        </:action>
-      </.table>
-    </Layouts.app>
-    """
-  end
-
-  @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(:page_title, "Journal Entries")
+     |> assign(:page_title, "Journal entries")
+     |> assign(:current_path, "/journal_entries")
      |> stream(:entries, list_entries(socket.assigns.current_scope))}
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <h1 class="view-title">Journal entries</h1>
+    <p class="view-sub">Posted and pending expense records</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">All entries</div>
+      </div>
+      <div class="feed" id="entries-feed" phx-update="stream">
+        <div :for={{dom_id, entry} <- @streams.entries} id={dom_id} class="feed-item posted">
+          <div class="stat">{entry.currency || "—"}</div>
+          <div class="body">
+            <div class="title">
+              {entry.issuer || "Unknown issuer"}
+            </div>
+            <div class="desc">
+              <span class="amt">{if entry.amount_cents, do: fmt(entry.amount_cents / 100), else: "—"}</span>
+              {if entry.invoice_number, do: " · #{entry.invoice_number}", else: ""}
+              · <span class="muted">{format_date(entry.date)}</span>
+              {if entry.category, do: " · #{entry.category}", else: ""}
+            </div>
+          </div>
+          <div class="actions">
+            <a class="btn sm" href={~p"/journal_entries/#{entry}"}>View</a>
+            <time>{ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(entry.inserted_at))}</time>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
   end
 
   defp list_entries(%Scope{user: user}), do: Accounting.list_journal_entries(user.id)
   defp list_entries(_), do: []
-
-  defp status_class("posted"), do: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-  defp status_class(_), do: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
-
-  defp format_amount(%{amount_cents: cents, currency: currency}) when is_integer(cents) do
-    "#{currency} #{cents / 100.0}"
-  end
-  defp format_amount(_), do: "N/A"
 
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "—"
