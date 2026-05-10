@@ -186,44 +186,7 @@
         </div>
         <div class="feed">
           <%= for item <- Enum.take(@activity, 5) do %>
-            <%
-              cat = Enum.find(@categories, &(&1.id == item.category))
-              amt_str = if item.amount, do: fmt(item.amount), else: "—"
-              ext = if item.filename, do: item.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase() |> String.slice(0, 3), else: "DOC"
-            %>
-            <div class={"feed-item #{item.status}"}>
-              <div class="stat">{ext}</div>
-              <div class="body">
-                <div class="title">
-                  {item.merchant || if(item.status == "processing", do: "Scanning…", else: "Untitled")}
-                  <.status_pill status={item.status} />
-                </div>
-                <div class="desc">
-                  <%= case item.status do %>
-                    <% "processing" -> %>
-                      Sent to OCR · extraction in progress
-                    <% "review" -> %>
-                      <span class="amt">{amt_str}</span> · {item.invoice_no || "—"} · ready to verify
-                    <% "posted" -> %>
-                      <span class="amt">{amt_str}</span>{if cat, do: " · #{cat.name}", else: ""}
-                    <% "failed" -> %>
-                      {item.error || "Processing failed"}
-                    <% _ -> %>
-                      {amt_str}
-                  <% end %>
-                  · <span class="muted">{item.filename}</span>
-                </div>
-              </div>
-              <div class="actions">
-                <%= if item.status == "review" do %>
-                  <a class="btn sm primary" href={~p"/reviews/#{item.id}"}>Review</a>
-                <% end %>
-                <%= if item.status == "failed" do %>
-                  <button class="btn sm">Retry</button>
-                <% end %>
-                <time>{ZaimuTomoWeb.Layouts.rel_time(item.ts)}</time>
-              </div>
-            </div>
+            <.feed_item item={item} categories={@categories} />
           <% end %>
         </div>
       </div>
