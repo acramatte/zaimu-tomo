@@ -17,7 +17,11 @@
   <body class="density-comfortable">
     <div class="app">
       <%
-        path = @conn.request_path
+        path = case assigns do
+          %{conn: conn} -> conn.request_path
+          %{current_path: p} -> p
+          _ -> ""
+        end
         nav_active = fn route -> if path == route, do: "active", else: "" end
       %>
 
@@ -41,7 +45,7 @@
           </svg>
           Dashboard
         </a>
-        <a class={"nav-item #{nav_active.("/activity")}"} href="#">
+        <a class={"nav-item #{nav_active.("/activity")}"} href={~p"/activity"}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 8h2.5l1.5-4 3 8 1.5-4H14" />
           </svg>
@@ -85,15 +89,26 @@
           Rules &amp; categories
         </a>
 
+          <%= if @current_scope do %>
         <div class="user-card">
           <div class="avatar">
-            {if @current_scope, do: String.slice(@current_scope.user.email, 0, 2) |> String.upcase(), else: "SM"}
+            {String.slice(@current_scope.user.email, 0, 2) |> String.upcase()}
           </div>
-          <div>
-            <div class="name">{if @current_scope, do: @current_scope.user.email, else: "Sora Matsuda"}</div>
+          <div style="min-width:0;flex:1">
+            <div class="name">{@current_scope.user.email}</div>
             <div class="meta">Brussels · EUR</div>
           </div>
+            <form action={~p"/users/log-out"} method="post" style="display:contents">
+              <input type="hidden" name="_method" value="delete" />
+              <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+              <button type="submit" class="icon-btn" title="Sign out">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M6 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3M10 11l3-3-3-3M13 8H6" />
+                </svg>
+              </button>
+            </form>
         </div>
+          <% end %>
       </aside>
 
       <!-- ========================

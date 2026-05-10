@@ -86,6 +86,7 @@ defmodule ZaimuTomoWeb do
       import Phoenix.HTML
       # Core UI components
       import ZaimuTomoWeb.CoreComponents
+      import ZaimuTomoWeb.ZaimuComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

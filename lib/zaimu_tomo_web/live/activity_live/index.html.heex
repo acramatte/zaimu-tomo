@@ -1,0 +1,39 @@
+<h1 class="view-title">
+  Activity <span class="accent">·</span> async processing feed
+</h1>
+<p class="view-sub">
+  Every uploaded document, every OCR job, every posted journal entry — chronological, live over websocket.
+</p>
+
+<div class="tab-row">
+  <%= for {key, label} <- @tabs do %>
+    <div
+      class={"tab #{if @filter == key, do: "active", else: ""}"}
+      phx-click="filter"
+      phx-value-status={key}
+    >
+      {label}
+      <span class="count">{@counts[key]}</span>
+    </div>
+  <% end %>
+</div>
+
+<div class="card">
+  <div class="feed">
+    <%= if Enum.empty?(@items) do %>
+      <div class="muted" style="padding:32px;text-align:center">Nothing here yet.</div>
+    <% else %>
+      <%= for item <- @items do %>
+        <.feed_item item={item} categories={@categories} />
+      <% end %>
+    <% end %>
+  </div>
+</div>
+
+<div style="margin-top:20px;display:flex;gap:24px;font-size:12px" class="muted">
+  <span class="mono">events.zaimutomo.app · phx_socket connected</span>
+  <span>·</span>
+  <span>Average extraction confidence this week <span class="mono dim">0.91</span></span>
+  <span>·</span>
+  <span><span class="mono dim">{@counts["posted"]}</span> auto-posted via rules</span>
+</div>

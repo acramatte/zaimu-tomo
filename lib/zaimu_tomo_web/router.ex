@@ -55,9 +55,12 @@ defmodule ZaimuTomoWeb.Router do
     get "/", PageController, :home
 
     live_session :require_authenticated_user,
+      root_layout: {ZaimuTomoWeb.Layouts, :zaimutomo},
       on_mount: [{ZaimuTomoWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      live "/activity", ActivityLive.Index, :index
 
       live "/documents", DocumentLive.Index, :index
       live "/documents/new", DocumentLive.Form, :new
