@@ -103,3 +103,6 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* Zaimutomo design system — imported after Tailwind so its resets win for Zaimutomo pages */
+@import "./zaimutomo.css";

@@ -17,11 +17,6 @@ defmodule ZaimuTomoWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/", ZaimuTomoWeb do
-    pipe_through :browser
-
-    get "/", PageController, :home
-  end
 
   # API routes
   scope "/api", ZaimuTomoWeb do
@@ -56,6 +51,8 @@ defmodule ZaimuTomoWeb.Router do
 
   scope "/", ZaimuTomoWeb do
     pipe_through [:browser, :require_authenticated_user]
+
+    get "/", PageController, :home
 
     live_session :require_authenticated_user,
       on_mount: [{ZaimuTomoWeb.UserAuth, :require_authenticated}] do
