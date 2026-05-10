@@ -14,6 +14,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
 
     belongs_to :document, Document
     belongs_to :user, ZaimuTomo.Accounts.User
+    has_one :review_decision, ZaimuTomo.Review.ReviewDecision
 
     timestamps()
   end

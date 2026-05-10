@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
   import Phoenix.LiveViewTest
   import ZaimuTomo.DocumentsFixtures
+  import ZaimuTomo.ReviewFixtures
 
 
 
@@ -20,7 +21,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     test "lists all documents", %{conn: conn, document: document} do
       {:ok, _index_live, html} = live(conn, ~p"/documents")
 
-      assert html =~ "Listing Documents"
+      assert html =~ "Documents"
       assert html =~ document.filename
     end
 
@@ -29,7 +30,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert {:ok, form_live, _} =
                index_live
-               |> element("a", "New Document")
+               |> element("a", "New expense")
                |> render_click()
                |> follow_redirect(conn, ~p"/documents/new")
 
@@ -64,13 +65,60 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     end
   end
 
+  describe "document status display" do
+    test "processing — no extracted content yet", %{conn: conn, scope: scope} do
+      document_fixture(scope)
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Processing"
+    end
+
+    test "needs review — extraction succeeded, decision pending", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      ec = extracted_content_fixture(doc, user)
+      pending_review_fixture(ec)
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Needs review"
+    end
+
+    test "posted — review approved", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      ec = extracted_content_fixture(doc, user)
+      approved_review_fixture(ec, user)
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Posted"
+    end
+
+    test "posted — review amended", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      ec = extracted_content_fixture(doc, user)
+      amended_review_fixture(ec, user)
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Posted"
+    end
+
+    test "failed — extraction failed", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      extracted_content_fixture(doc, user, %{status: "failed"})
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Failed"
+    end
+
+    test "failed — review rejected", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      ec = extracted_content_fixture(doc, user)
+      rejected_review_fixture(ec, user)
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "Failed"
+    end
+  end
+
   describe "Show" do
     setup [:create_document]
 
     test "displays document", %{conn: conn, document: document} do
       {:ok, _show_live, html} = live(conn, ~p"/documents/#{document}")
 
-      assert html =~ "Show Document"
+      assert html =~ document.filename
       assert html =~ document.filename
     end
 
