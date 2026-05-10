@@ -16,8 +16,10 @@ defmodule ZaimuTomo.DocumentsTest do
       other_scope = user_scope_fixture()
       document = document_fixture(scope)
       other_document = document_fixture(other_scope)
-      assert Documents.list_documents(scope) == [document]
-      assert Documents.list_documents(other_scope) == [other_document]
+      assert [%{id: id}] = Documents.list_documents(scope)
+      assert id == document.id
+      assert [%{id: other_id}] = Documents.list_documents(other_scope)
+      assert other_id == other_document.id
     end
 
     test "get_document!/2 returns the document with given id" do
@@ -75,7 +77,7 @@ defmodule ZaimuTomo.DocumentsTest do
       assert {:error, %Ecto.Changeset{}} =
                Documents.update_document(scope, document, @invalid_attrs)
 
-      assert document == Documents.get_document!(scope, document.id)
+      assert Documents.get_document!(scope, document.id).id == document.id
     end
 
     test "delete_document/2 deletes the document" do

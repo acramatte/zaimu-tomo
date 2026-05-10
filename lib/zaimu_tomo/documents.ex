@@ -8,6 +8,7 @@ defmodule ZaimuTomo.Documents do
 
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
 
   @doc """
   Subscribes to scoped notifications about any document changes.
@@ -40,7 +41,16 @@ defmodule ZaimuTomo.Documents do
 
   """
   def list_documents(%Scope{} = scope) do
-    Repo.all_by(Document, user_id: scope.user.id)
+    ec_query = from ec in ExtractedContent,
+      order_by: [desc: ec.inserted_at],
+      preload: :review_decision
+
+    from(d in Document,
+      where: d.user_id == ^scope.user.id,
+      order_by: [desc: d.inserted_at],
+      preload: [extracted_content: ^ec_query]
+    )
+    |> Repo.all()
   end
 
   @doc """
@@ -59,6 +69,16 @@ defmodule ZaimuTomo.Documents do
   """
   def get_document!(%Scope{} = scope, id) do
     Repo.get_by!(Document, id: id, user_id: scope.user.id)
+  end
+
+  def get_document_with_content!(%Scope{} = scope, id) do
+    ec_query = from ec in ExtractedContent,
+      order_by: [desc: ec.inserted_at],
+      preload: :review_decision
+
+    Document
+    |> Repo.get_by!(id: id, user_id: scope.user.id)
+    |> Repo.preload(extracted_content: ec_query)
   end
 
   @doc """
@@ -122,10 +142,20 @@ defmodule ZaimuTomo.Documents do
   def delete_document(%Scope{} = scope, %Document{} = document) do
     true = document.user_id == scope.user.id
 
-    with {:ok, document = %Document{}} <-
-           Repo.delete(document) do
-      broadcast_document(scope, {:deleted, document})
-      {:ok, document}
+    document
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.foreign_key_constraint(:id,
+      name: :journal_entries_review_decision_id_fkey,
+      message: "has a posted journal entry and cannot be deleted"
+    )
+    |> Repo.delete()
+    |> case do
+      {:ok, document} ->
+        broadcast_document(scope, {:deleted, document})
+        {:ok, document}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
