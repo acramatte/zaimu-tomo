@@ -72,6 +72,49 @@ defmodule ZaimuTomoWeb.Layouts do
     """
   end
 
+  @doc "Compact feed item for the notification dropdown."
+  attr :item, :map, required: true
+
+  def notif_feed_item(assigns) do
+    ~H"""
+    <div class={"feed-item #{@item.status}"}>
+      <div class="stat">
+        {if @item.filename, do: @item.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase() |> String.slice(0, 3), else: "DOC"}
+      </div>
+      <div class="body">
+        <div class="title">
+          {@item.merchant || "Untitled"}
+          <span class={"pill #{@item.status}"}>
+            {String.capitalize(@item.status)}
+          </span>
+        </div>
+        <div class="desc muted">{@item.filename}</div>
+      </div>
+      <div class="actions">
+        <time>{ZaimuTomoWeb.Layouts.rel_time(@item.ts)}</time>
+      </div>
+    </div>
+    """
+  end
+
+  @doc false
+  def rel_time(ts) when is_binary(ts) do
+    with {:ok, dt, _} <- DateTime.from_iso8601(ts) do
+      now = DateTime.utc_now()
+      diff = DateTime.diff(now, dt, :second)
+      cond do
+        diff < 60 -> "just now"
+        diff < 3600 -> "#{div(diff, 60)}m ago"
+        diff < 86400 -> "#{div(diff, 3600)}h ago"
+        true -> "#{div(diff, 86400)}d ago"
+      end
+    else
+      _ -> "—"
+    end
+  end
+
+  def rel_time(_), do: "—"
+
   @doc """
   Shows the flash group with standard titles and content.
 

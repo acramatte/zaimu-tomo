@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zaimutomo — keep your books quietly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="density-comfortable">
+
+<div class="app">
+  <!-- ============================
+       SIDEBAR
+       ============================ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">Z</div>
+      <div class="brand-name">
+        Zaimutomo
+        <small>Personal books</small>
+      </div>
+    </div>
+
+    <div class="nav-section">Workspace</div>
+    <div class="nav-item active" data-route="dashboard">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="6" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="10" width="5" height="4" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-route="activity">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h2.5l1.5-4 3 8 1.5-4H14"/></svg>
+      Activity
+      <span class="badge" id="nav-activity-badge">2</span>
+    </div>
+    <div class="nav-item" data-route="journal">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8a2 2 0 0 1 2 2v10H5a2 2 0 0 1-2-2V2z"/><path d="M6 5h5M6 8h5M6 11h3"/></svg>
+      Journal entries
+    </div>
+    <div class="nav-item" data-route="documents">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M9 2v3h3"/></svg>
+      Documents
+    </div>
+    <div class="nav-item" data-route="budgets">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13h12M4 13V7M7 13V4M10 13V9M13 13V6"/></svg>
+      Budgets
+    </div>
+
+    <div class="nav-section">Settings</div>
+    <div class="nav-item" data-route="account">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="6" r="3"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0"/></svg>
+      Account
+    </div>
+    <div class="nav-item" data-route="rules">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="2"/><path d="M7 5h7M2 11h7"/><circle cx="11" cy="11" r="2"/></svg>
+      Rules &amp; categories
+    </div>
+
+    <div class="user-card">
+      <div class="avatar">SM</div>
+      <div>
+        <div class="name">Sora Matsuda</div>
+        <div class="meta">Brussels · EUR</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================
+       MAIN
+       ============================ -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb"><strong id="route-name">Dashboard</strong> <span id="route-sub">· May 2026</span></div>
+      <div class="spacer"></div>
+      <button class="btn sm" id="quick-add">
+        <svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 2v10M2 7h10"/></svg>
+        New expense
+      </button>
+      <div class="bell" id="bell" title="Notifications">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7a4 4 0 0 1 8 0v3l1 2H3l1-2V7z"/><path d="M6.5 13a1.5 1.5 0 0 0 3 0"/></svg>
+        <div class="dot"></div>
+        <div class="count" id="bell-count">2</div>
+      </div>
+    </div>
+
+    <!-- Notification dropdown -->
+    <div class="notif-pop" id="notif-pop">
+      <header>
+        <span>Activity</span>
+        <span class="muted" style="font-size:11px;font-family:'Geist Mono',monospace">live · ws connected</span>
+      </header>
+      <div class="feed" id="notif-feed"></div>
+    </div>
+
+    <!-- View container -->
+    <div class="view" id="view"></div>
+  </main>
+</div>
+
+<!-- Drag overlay -->
+<div class="drop-overlay" id="drop-overlay">
+  <div class="msg">drop to scan</div>
+</div>
+
+<!-- Review modal -->
+<div class="modal-bg" id="review-modal">
+  <div class="modal">
+    <header>
+      <h3>Review extracted data</h3>
+      <span class="muted" style="font-size:12px">Step 2 of 3 · Human-in-the-loop</span>
+      <span class="pill review"><span class="pulse"></span>Awaiting review</span>
+    </header>
+    <div class="modal-body" id="review-body"></div>
+    <footer>
+      <button class="btn ghost" id="review-cancel">Cancel</button>
+      <span class="muted" style="font-size:12px;margin-left:6px">Edits will retrain your extractor</span>
+      <div class="spacer"></div>
+      <button class="btn" id="review-reject">Reject document</button>
+      <button class="btn primary" id="review-approve">Approve &amp; categorize</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Category modal -->
+<div class="modal-bg" id="cat-modal">
+  <div class="modal" style="max-width:680px;grid-template-rows:auto auto auto">
+    <header>
+      <h3>Pick a category</h3>
+      <span class="muted" style="font-size:12px">Step 3 of 3</span>
+      <span class="pill posted" id="cat-amount-pill"></span>
+    </header>
+    <div style="padding:24px">
+      <div class="label" style="margin-bottom:6px">Suggested by your rules</div>
+      <div class="cat-grid" id="cat-suggested"></div>
+      <div class="label" style="margin:18px 0 6px">All categories</div>
+      <div class="cat-grid" id="cat-all"></div>
+    </div>
+    <footer>
+      <button class="btn ghost" id="cat-back">Back to review</button>
+      <div class="spacer"></div>
+      <span class="muted" style="font-size:12px" id="cat-selected-label">Pick one to post the journal entry</span>
+      <button class="btn primary" id="cat-confirm" disabled>Post entry</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Tweaks panel -->
+<div class="tweaks-panel" id="tweaks-panel">
+  <header>
+    <span>Tweaks</span>
+    <span class="x" id="tweaks-close" title="Close">×</span>
+  </header>
+  <div class="tweaks-section">
+    <span class="label">Density</span>
+    <div class="seg cols-2" data-tweak="density">
+      <button data-val="comfortable" class="active">Comfortable</button>
+      <button data-val="compact">Compact</button>
+    </div>
+  </div>
+  <div class="tweaks-section">
+    <span class="label">OCR async treatment</span>
+    <div class="seg cols-3" data-tweak="async">
+      <button data-val="subtle" class="active">Subtle</button>
+      <button data-val="inbox">Inbox</button>
+      <button data-val="hero">Hero</button>
+    </div>
+    <div class="tweak-help" id="async-help">Toast + bell badge when documents finish processing.</div>
+  </div>
+  <div class="tweaks-section">
+    <span class="label">Demo</span>
+    <button class="btn sm" id="demo-upload" style="width:100%">Drop a sample invoice →</button>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toast-container" id="toasts"></div>
+
+<!-- Hidden file input -->
+<input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" multiple>
+
+<!-- Receipt template (used by review modal) -->
+<template id="receipt-tpl">
+  <div class="receipt" data-receipt>
+    <div class="receipt-head" data-merchant>—</div>
+    <div class="receipt-meta" data-meta>—</div>
+    <div data-lines></div>
+    <div class="receipt-line total"><span>TOTAL</span><span data-total>—</span></div>
+    <div class="receipt-foot">Thank you · TVA <span data-vat>—</span></div>
+  </div>
+</template>
+
+<script src="data.js"></script>
+<script src="render.js"></script>
+<script src="ocr.js"></script>
+<script src="tweaks.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

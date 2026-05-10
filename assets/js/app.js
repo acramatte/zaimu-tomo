@@ -46,6 +46,9 @@ liveSocket.connect()
 // >> liveSocket.disableLatencySim()
 window.liveSocket = liveSocket
 
+import { initZaimu } from "./zaimutomo"
+initZaimu()
+
 // The lines below enable quality of life phoenix_live_reload
 // development features:
 //

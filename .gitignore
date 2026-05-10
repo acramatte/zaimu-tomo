@@ -39,3 +39,4 @@ npm-debug.log
 # IDEs and editors
 /.idea
 zaimu_tomo.iml
+.claude/
