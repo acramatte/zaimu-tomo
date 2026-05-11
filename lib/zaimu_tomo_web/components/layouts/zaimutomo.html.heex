@@ -16,19 +16,10 @@
   </head>
   <body class="density-comfortable">
     <div class="app">
-      <%
-        path = case assigns do
-          %{conn: conn} -> conn.request_path
-          %{current_path: p} -> p
-          _ -> ""
-        end
-        nav_active = fn route -> if path == route, do: "active", else: "" end
-      %>
-
       <!-- ========================
            SIDEBAR
            ======================== -->
-      <aside class="sidebar">
+      <aside class="sidebar" phx-hook=".NavActive" id="sidebar">
         <div class="brand">
           <div class="brand-mark">Z</div>
           <div class="brand-name">
@@ -38,14 +29,14 @@
         </div>
 
         <div class="nav-section">Workspace</div>
-        <a class={"nav-item #{nav_active.("/")}"} href="/">
+        <.nav_item navigate={~p"/"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="2" width="5" height="6" rx="1" /><rect x="9" y="2" width="5" height="4" rx="1" />
             <rect x="2" y="10" width="5" height="4" rx="1" /><rect x="9" y="8" width="5" height="6" rx="1" />
           </svg>
           Dashboard
-        </a>
-        <a class={"nav-item #{nav_active.("/activity")}"} href={~p"/activity"}>
+        </.nav_item>
+        <.nav_item navigate={~p"/activity"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 8h2.5l1.5-4 3 8 1.5-4H14" />
           </svg>
@@ -53,47 +44,47 @@
           <span class="badge" id="nav-activity-badge" style={if assigns[:in_flight_count] == 0, do: "display:none", else: ""}>
             {assigns[:in_flight_count] || 0}
           </span>
-        </a>
-        <a class={"nav-item #{nav_active.("/journal_entries")}"} href={~p"/journal_entries"}>
+        </.nav_item>
+        <.nav_item navigate={~p"/journal_entries"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M3 2h8a2 2 0 0 1 2 2v10H5a2 2 0 0 1-2-2V2z" />
             <path d="M6 5h5M6 8h5M6 11h3" />
           </svg>
           Journal entries
-        </a>
-        <a class={"nav-item #{nav_active.("/documents")}"} href={~p"/documents"}>
+        </.nav_item>
+        <.nav_item navigate={~p"/documents"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
             <path d="M9 2v3h3" />
           </svg>
           Documents
-        </a>
-        <a class={"nav-item #{nav_active.("/reviews")}"} href={~p"/reviews"}>
+        </.nav_item>
+        <.nav_item navigate={~p"/reviews"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="8" cy="8" r="6" /><path d="M5 8l2 2 4-4" />
           </svg>
           Reviews
-        </a>
-        <a class={"nav-item #{nav_active.("/budgets")}"} href="#">
+        </.nav_item>
+        <.nav_item current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 13h12M4 13V7M7 13V4M10 13V9M13 13V6" />
           </svg>
           Budgets
-        </a>
+        </.nav_item>
 
         <div class="nav-section">Settings</div>
-        <a class={"nav-item #{nav_active.("/users/settings")}"} href={~p"/users/settings"}>
+        <.nav_item navigate={~p"/users/settings"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="8" cy="6" r="3" /><path d="M2.5 14a5.5 5.5 0 0 1 11 0" />
           </svg>
           Account
-        </a>
-        <a class={"nav-item #{nav_active.("/rules")}"} href="#">
+        </.nav_item>
+        <.nav_item current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="5" cy="5" r="2" /><path d="M7 5h7M2 11h7" /><circle cx="11" cy="11" r="2" />
           </svg>
           Rules &amp; categories
-        </a>
+        </.nav_item>
 
           <%= if @current_scope do %>
         <div class="user-card">
@@ -249,5 +240,25 @@
 
     <!-- Hidden file input -->
     <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" multiple />
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".NavActive">
+      export default {
+        mounted() {
+          this.updateActive()
+          this._onNavigate = () => this.updateActive()
+          window.addEventListener("phx:navigate", this._onNavigate)
+        },
+        destroyed() {
+          window.removeEventListener("phx:navigate", this._onNavigate)
+        },
+        updateActive() {
+          const path = window.location.pathname
+          this.el.querySelectorAll(".nav-item[href]").forEach(el => {
+            const href = el.getAttribute("href")
+            el.classList.toggle("active", href === path || (href !== "/" && path.startsWith(href)))
+          })
+        }
+      }
+    </script>
   </body>
 </html>

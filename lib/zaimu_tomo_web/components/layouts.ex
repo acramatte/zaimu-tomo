@@ -72,6 +72,25 @@ defmodule ZaimuTomoWeb.Layouts do
     """
   end
 
+  attr :navigate, :string, default: nil
+  attr :current_path, :string, required: true
+  slot :inner_block, required: true
+
+  def nav_item(assigns) do
+    ~H"""
+    <.link
+      :if={@navigate}
+      navigate={@navigate}
+      class={["nav-item", @current_path == @navigate && "active"]}
+    >
+      {render_slot(@inner_block)}
+    </.link>
+    <a :if={!@navigate} class="nav-item" href="#">
+      {render_slot(@inner_block)}
+    </a>
+    """
+  end
+
   @doc "Compact feed item for the notification dropdown."
   attr :item, :map, required: true
 
