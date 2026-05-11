@@ -86,6 +86,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
   def mount(params, _session, socket) do
     {:ok,
      socket
+     |> assign(:current_path, "/documents")
      |> assign(:return_to, return_to(params["return_to"]))
      # accept relevant document types supported by our OCR API https://docs.mistral.ai/capabilities/document_ai/basic_ocr#faq
      |> allow_upload(:document,
