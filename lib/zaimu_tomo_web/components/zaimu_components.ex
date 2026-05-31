@@ -54,6 +54,30 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
+  # ── Processing hero ────────────────────────────────────────────────────────
+
+  attr :documents, :list, required: true
+
+  def processing_hero(assigns) do
+    ~H"""
+    <div :if={@documents != []} class="processing-hero">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500">
+          <span class="spinner"></span>
+          Reading <span class="mono">{List.first(@documents).filename}</span> · OCR + extraction
+          <span :if={length(@documents) > 1} class="muted">
+            + {length(@documents) - 1} more
+          </span>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:2px">
+          Async pipeline · usually <code class="mono">~30s</code>
+        </div>
+        <div class="progress"><div class="progress-fill"></div></div>
+      </div>
+    </div>
+    """
+  end
+
   # ── Activity feed item ─────────────────────────────────────────────────────
 
   attr :item, :map, required: true
@@ -62,11 +86,20 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
   def feed_item(assigns) do
     assigns =
       assigns
-      |> assign_new(:cat, fn -> Enum.find(assigns.categories, &(&1.id == assigns.item.category)) end)
-      |> assign_new(:amt_str, fn -> if assigns.item.amount, do: fmt(assigns.item.amount), else: "—" end)
+      |> assign_new(:cat, fn ->
+        Enum.find(assigns.categories, &(&1.id == assigns.item.category))
+      end)
+      |> assign_new(:amt_str, fn ->
+        if assigns.item.amount, do: fmt(assigns.item.amount), else: "—"
+      end)
       |> assign_new(:ext, fn ->
         if assigns.item.filename,
-          do: assigns.item.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase() |> String.slice(0, 3),
+          do:
+            assigns.item.filename
+            |> Path.extname()
+            |> String.trim_leading(".")
+            |> String.upcase()
+            |> String.slice(0, 3),
           else: "DOC"
       end)
 

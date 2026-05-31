@@ -23,6 +23,8 @@
   · {@in_flight_count} document{if @in_flight_count == 1, do: "", else: "s"} in flight
 </p>
 
+<%= live_render(@conn, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero") %>
+
 <div class="grid grid-12">
   <div class="span-12">
     <div class="grid grid-12">

@@ -3,17 +3,26 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
 
   alias ZaimuTomo.Documents
 
+  @processing_window_seconds 10 * 60
+  @prune_interval_ms 30_000
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Documents.subscribe_documents(socket.assigns.current_scope)
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+      schedule_prune()
     end
+
+    documents = Documents.list_documents(socket.assigns.current_scope)
 
     {:ok,
      socket
      |> assign(:page_title, "Documents")
      |> assign(:current_path, "/documents")
-     |> stream(:documents, Documents.list_documents(socket.assigns.current_scope))}
+     |> assign(:processing_docs, processing_documents(documents))
+     |> stream(:documents, documents)}
   end
 
   @impl true
@@ -21,6 +30,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     ~H"""
     <h1 class="view-title">Documents</h1>
     <p class="view-sub">All uploaded receipts, invoices, and pay stubs</p>
+
+    <.processing_hero documents={@processing_docs} />
 
     <div class="card">
       <div class="card-head">
@@ -89,10 +100,36 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   end
 
   @impl true
-  def handle_info({:document_uploaded, _document}, socket) do
+  def handle_info({:document_uploaded, document}, socket) do
     {:noreply,
      socket
+     |> add_processing_document(document)
      |> stream(:documents, Documents.list_documents(socket.assigns.current_scope), reset: true)}
+  end
+
+  def handle_info({:created, %ZaimuTomo.Documents.Document{} = document}, socket) do
+    {:noreply,
+     socket
+     |> add_processing_document(document)
+     |> stream(:documents, Documents.list_documents(socket.assigns.current_scope), reset: true)}
+  end
+
+  def handle_info(%{document_id: id, user_id: uid}, socket)
+      when uid == socket.assigns.current_scope.user.id do
+    documents = Documents.list_documents(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> update(:processing_docs, fn docs -> Enum.reject(docs, &(&1.id == id)) end)
+     |> assign(:processing_docs, processing_documents(documents))
+     |> stream(:documents, documents, reset: true)}
+  end
+
+  def handle_info(:prune_processing_docs, socket) do
+    schedule_prune()
+    documents = Documents.list_documents(socket.assigns.current_scope)
+
+    {:noreply, assign(socket, :processing_docs, processing_documents(documents))}
   end
 
   def handle_info({type, %ZaimuTomo.Documents.Document{}}, socket)
@@ -109,5 +146,29 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     do: "posted"
   defp derive_status(%{review_decision: %{review_status: "rejected"}}), do: "failed"
   defp derive_status(_), do: "review"
+
+  defp add_processing_document(socket, document) do
+    update(socket, :processing_docs, fn docs ->
+      [document | Enum.reject(docs, &(&1.id == document.id))]
+    end)
+  end
+
+  defp processing_documents(documents) do
+    Enum.filter(documents, &processing_document?/1)
+  end
+
+  defp processing_document?(document) do
+    derive_status(List.first(document.extracted_content)) == "processing" and recently_uploaded?(document)
+  end
+
+  defp recently_uploaded?(%{inserted_at: %DateTime{} = inserted_at}) do
+    DateTime.diff(DateTime.utc_now(), inserted_at, :second) <= @processing_window_seconds
+  end
+
+  defp recently_uploaded?(_document), do: false
+
+  defp schedule_prune do
+    Process.send_after(self(), :prune_processing_docs, @prune_interval_ms)
+  end
 
 end
