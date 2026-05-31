@@ -229,17 +229,10 @@
         </div>
         <div class="tweak-help" id="async-help">Toast + bell badge when documents finish processing.</div>
       </div>
-      <div class="tweaks-section">
-        <span class="label">Demo</span>
-        <button class="btn sm" id="demo-upload" style="width:100%">Drop a sample invoice →</button>
-      </div>
     </div>
 
     <!-- Toasts -->
     <div class="toast-container" id="toasts"></div>
-
-    <!-- Hidden file input -->
-    <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" multiple />
 
     <script :type={Phoenix.LiveView.ColocatedHook} name=".NavActive">
       export default {

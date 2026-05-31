@@ -138,15 +138,7 @@
           <div class="card-title">Quick add</div>
           <div class="card-meta">drop · paste · click</div>
         </div>
-        <div class="drop-zone" id="drop-zone">
-          <div class="glyph">+</div>
-          <div class="h">Drop an invoice or receipt</div>
-          <div class="sub">PDF, JPG, HEIC · sent to OCR · review takes <span class="kbd">~30s</span></div>
-          <div class="sub" style="margin-top:10px">
-            or paste with <span class="kbd">⌘V</span>
-            · click to <span class="kbd">browse</span>
-          </div>
-        </div>
+        <%= live_render(@conn, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload") %>
         <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:11.5px" class="muted">
           <span>This month: <span class="mono dim">{posted_count}</span> documents posted</span>
           <span class="mono">avg ~3.1s OCR</span>

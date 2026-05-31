@@ -25,9 +25,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     <div class="card">
       <div class="card-head">
         <div class="card-title">All files</div>
-        <.link navigate={~p"/documents/new"} class="btn sm primary">New expense</.link>
       </div>
-      <div class="feed" id="documents-feed" phx-update="stream">
+      <%= live_render(@socket, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload") %>
+      <div class="feed" id="documents-feed" phx-update="stream" style="margin-top:16px">
         <div :for={{dom_id, document} <- @streams.documents} id={dom_id} class={"feed-item #{derive_status(List.first(document.extracted_content))}"}>
           <% ec = List.first(document.extracted_content) %>
           <% status = derive_status(ec) %>
@@ -89,6 +89,12 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   end
 
   @impl true
+  def handle_info({:document_uploaded, _document}, socket) do
+    {:noreply,
+     socket
+     |> stream(:documents, Documents.list_documents(socket.assigns.current_scope), reset: true)}
+  end
+
   def handle_info({type, %ZaimuTomo.Documents.Document{}}, socket)
       when type in [:created, :updated, :deleted] do
     {:noreply,
@@ -99,7 +105,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
 
   defp derive_status(nil), do: "processing"
   defp derive_status(%{status: "failed"}), do: "failed"
-  defp derive_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"], do: "posted"
+  defp derive_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"],
+    do: "posted"
   defp derive_status(%{review_decision: %{review_status: "rejected"}}), do: "failed"
   defp derive_status(_), do: "review"
+
 end

@@ -81,9 +81,11 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   @impl true
   def handle_info(
-        {:updated, %ZaimuTomo.Documents.Document{id: id} = document},
+        {:updated, %ZaimuTomo.Documents.Document{id: id}},
         %{assigns: %{document: %{id: id}}} = socket
       ) do
+    document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
+
     {:noreply, assign(socket, :document, document)}
   end
 
@@ -104,7 +106,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   defp derive_status(nil), do: "processing"
   defp derive_status(%{status: "failed"}), do: "failed"
-  defp derive_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"], do: "posted"
+  defp derive_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"],
+    do: "posted"
   defp derive_status(%{review_decision: %{review_status: "rejected"}}), do: "failed"
   defp derive_status(_), do: "review"
 end
