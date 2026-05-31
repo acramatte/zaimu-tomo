@@ -62,6 +62,7 @@ defmodule ZaimuTomo.MixProject do
        depth: 1},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
+      {:req_llm, "~> 1.11"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:usage_rules, "~> 1.2.5", only: [:dev]},
@@ -112,7 +113,8 @@ defmodule ZaimuTomo.MixProject do
         # build skills that combine multiple usage rules
         build: [
           "phoenix-framework": [
-            description: "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
+            description:
+              "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
             # Include all Phoenix dependencies
             usage_rules: [:phoenix, ~r/^phoenix_/]
           ]

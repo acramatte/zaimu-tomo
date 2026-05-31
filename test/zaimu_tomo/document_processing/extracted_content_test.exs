@@ -19,8 +19,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         reason_for_payment: "Test payment",
         issuer: "Test Issuer"
       }
-      {:ok, extracted_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
-      |> Ecto.Changeset.apply_action(:insert)
+
+      {:ok, extracted_data} =
+        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
         document_id: document_id,
@@ -29,7 +31,9 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         status: "success"
       }
 
-      assert {:ok, %ExtractedContent{} = content} = ExtractedContentContext.create_extracted_content(attrs)
+      assert {:ok, %ExtractedContent{} = content} =
+               ExtractedContentContext.create_extracted_content(attrs)
+
       assert content.document_id == document_id
       assert content.status == "success"
     end
@@ -46,8 +50,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         reason_for_payment: "Test payment",
         issuer: "Test Issuer"
       }
-      {:ok, extracted_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
-      |> Ecto.Changeset.apply_action(:insert)
+
+      {:ok, extracted_data} =
+        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
         document_id: document_id,
@@ -57,7 +63,9 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       assert {:error, changeset} = ExtractedContentContext.create_extracted_content(attrs)
-      assert changeset.errors[:status] == {"is invalid", [validation: :inclusion, enum: ["success", "failed"]]}
+
+      assert changeset.errors[:status] ==
+               {"is invalid", [validation: :inclusion, enum: ["success", "failed"]]}
     end
 
     test "creates extracted content successfully" do
@@ -72,8 +80,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         reason_for_payment: "Test payment",
         issuer: "Test Issuer"
       }
-      {:ok, extracted_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
-      |> Ecto.Changeset.apply_action(:insert)
+
+      {:ok, extracted_data} =
+        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
         document_id: document_id,
@@ -82,7 +92,9 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         status: "success"
       }
 
-      assert {:ok, %ExtractedContent{} = content} = ExtractedContentContext.create_extracted_content(attrs)
+      assert {:ok, %ExtractedContent{} = content} =
+               ExtractedContentContext.create_extracted_content(attrs)
+
       assert content.status == "success"
     end
   end
@@ -113,8 +125,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         reason_for_payment: "Old payment",
         issuer: "Old Issuer"
       }
-      {:ok, old_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(old_extracted_data)
-      |> Ecto.Changeset.apply_action(:insert)
+
+      {:ok, old_data} =
+        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(old_extracted_data)
+        |> Ecto.Changeset.apply_action(:insert)
 
       old_attrs = %{
         document_id: document_id,
@@ -132,8 +146,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
         reason_for_payment: "New payment",
         issuer: "New Issuer"
       }
-      {:ok, new_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(new_extracted_data)
-      |> Ecto.Changeset.apply_action(:insert)
+
+      {:ok, new_data} =
+        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(new_extracted_data)
+        |> Ecto.Changeset.apply_action(:insert)
 
       new_attrs = %{
         document_id: document_id,
@@ -158,7 +174,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       success_content = extracted_content_fixture(success_document.id, %{status: "success"})
       _failed_content = extracted_content_fixture(failed_document.id, %{status: "failed"})
 
-      {results, meta} = ExtractedContentContext.list_extracted_content([status: "success"])
+      {results, meta} = ExtractedContentContext.list_extracted_content(status: "success")
       assert length(results) == 1
       assert hd(results).id == success_content.id
       assert meta[:total_count] >= 1
@@ -170,7 +186,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       success_content = extracted_content_fixture(doc1.id, %{status: "success"})
       _failed_content = extracted_content_fixture(doc2.id, %{status: "failed"})
 
-      {results, _meta} = ExtractedContentContext.list_extracted_content([status: "success"])
+      {results, _meta} = ExtractedContentContext.list_extracted_content(status: "success")
       assert length(results) == 1
       assert hd(results).id == success_content.id
     end
@@ -191,16 +207,19 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       issuer: "Test Issuer"
     }
 
-    {:ok, extracted_data} = ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
-    |> Ecto.Changeset.apply_action(:insert)
+    {:ok, extracted_data} =
+      ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+      |> Ecto.Changeset.apply_action(:insert)
 
-    attrs = %{
-      document_id: document_id,
-      user_id: user_fixture().id,
-      extracted_data: Map.from_struct(extracted_data),
-      status: "success",
-      analysis: %{"processed_at" => DateTime.utc_now()}
-    } |> Map.merge(overrides)
+    attrs =
+      %{
+        document_id: document_id,
+        user_id: user_fixture().id,
+        extracted_data: Map.from_struct(extracted_data),
+        status: "success",
+        analysis: %{"processed_at" => DateTime.utc_now()}
+      }
+      |> Map.merge(overrides)
 
     {:ok, content} = ExtractedContentContext.create_extracted_content(attrs)
     content

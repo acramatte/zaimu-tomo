@@ -21,7 +21,10 @@ defmodule ZaimuTomoWeb.ExtractedContentController do
       nil ->
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Not found", message: "No extracted content found for document #{document_id}"})
+        |> json(%{
+          error: "Not found",
+          message: "No extracted content found for document #{document_id}"
+        })
 
       _ ->
         json(conn, %{data: extraction})
