@@ -1,63 +1,6 @@
 // Zaimutomo — interactive JS for the dashboard
-// Handles: tweaks panel, bell dropdown, drag/drop upload, OCR simulation,
-//          review modal, category modal, toasts.
-// Server renders the dashboard content; this file owns only the interactive layer.
-
-// ─── Mock data for client-side OCR simulation ────────────────────────────────
-
-const SAMPLES = [
-  {
-    filename: "IMG_8821.jpg",
-    merchant_name: "MEDIAMARKT BRUSSEL CITY 2",
-    address: "Rue Neuve 123, 1000 Brussel",
-    invoice_no: "MM-2410581",
-    date_iso: "2026-05-08",
-    currency: "EUR",
-    lines: [
-      { d: "Logitech MX Master 3S", q: 1, p: 99.0 },
-      { d: "USB-C dock 4-in-1", q: 1, p: 67.5 },
-      { d: "HDMI cable 2m", q: 2, p: 12.95 },
-      { d: "Carrying case M", q: 1, p: 26.6 },
-    ],
-    subtotal: 218.95, vat_pct: 21, vat: 38.02, total: 219.0,
-    conf: { merchant: 0.96, amount: 0.99, date: 0.62, vat: 0.71, invoice_no: 0.42 },
-    suggested_category: "office",
-  },
-  {
-    filename: "recu-delhaize-9-mai.pdf",
-    merchant_name: "Delhaize Châtelain",
-    address: "Rue du Page 2, 1050 Ixelles",
-    invoice_no: "20260509-21-440",
-    date_iso: "2026-05-09",
-    currency: "EUR",
-    lines: [
-      { d: "Pain au levain 600g", q: 1, p: 4.2 },
-      { d: "Yaourt grec 1kg", q: 1, p: 5.85 },
-      { d: "Tomates grappe", q: 1, p: 3.4 },
-      { d: "Œufs bio x6", q: 2, p: 4.95 },
-      { d: "Vin rouge Chinon", q: 1, p: 14.8 },
-      { d: "Saumon frais 200g", q: 1, p: 8.3 },
-    ],
-    subtotal: 46.45, vat_pct: 6, vat: 2.79, total: 46.45,
-    conf: { merchant: 0.99, amount: 0.97, date: 0.94, vat: 0.81, invoice_no: 0.55 },
-    suggested_category: "groceries",
-  },
-  {
-    filename: "taxi-receipt.pdf",
-    merchant_name: "Heetch Bruxelles",
-    address: "Trip 8aab21 · driver Karim",
-    invoice_no: "HE-58210",
-    date_iso: "2026-05-09",
-    currency: "EUR",
-    lines: [
-      { d: "Course Schaerbeek → Ixelles", q: 1, p: 18.4 },
-      { d: "Pourboire", q: 1, p: 2.0 },
-    ],
-    subtotal: 20.4, vat_pct: 21, vat: 3.54, total: 20.4,
-    conf: { merchant: 0.92, amount: 0.96, date: 0.99, vat: 0.4, invoice_no: 0.88 },
-    suggested_category: "transport",
-  },
-]
+// Handles: tweaks panel, bell dropdown, drag/drop upload, review modal, category modal, toasts.
+// Upload is handled server-side by DocumentUploadLive.
 
 const CATEGORIES = [
   { id: "office",    name: "Office",           glyph: "o", color: "oklch(0.55 0.08 240)", spent: 184.2,  budget: 250 },
@@ -92,57 +35,6 @@ const relTime = (iso) => {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-// ─── OCR pipeline simulation ──────────────────────────────────────────────────
-
-let nextId = 22
-const sessionActivity = []
-const ocrSubs = new Set()
-
-const ocrEmit = (evt) => ocrSubs.forEach((fn) => fn(evt))
-const ocrSubscribe = (fn) => { ocrSubs.add(fn); return () => ocrSubs.delete(fn) }
-
-function uploadFiles(files) {
-  files.forEach(() => {
-    const id = `j-${String(nextId++).padStart(3, "0")}`
-    const sample = SAMPLES[nextId % SAMPLES.length]
-    const item = {
-      id, status: "processing",
-      merchant: "…",
-      filename: files[0]?.name || sample.filename,
-      amount: null, currency: null, date: null, category: null,
-      ts: new Date().toISOString(),
-      _sample: sample,
-    }
-    sessionActivity.unshift(item)
-    ocrEmit({ type: "uploaded", item })
-
-    const delay = 2200 + Math.random() * 1600
-    setTimeout(() => {
-      const s = item._sample
-      Object.assign(item, {
-        status: "review",
-        merchant: s.merchant_name,
-        amount: s.total,
-        currency: s.currency,
-        date: s.date_iso,
-        invoice_no: s.invoice_no,
-        vat_pct: s.vat_pct,
-        conf: s.conf,
-        ocr: {
-          merchant_name: s.merchant_name,
-          address: s.address,
-          invoice_no: s.invoice_no,
-          date_raw: s.date_iso,
-          lines: s.lines,
-          subtotal: s.subtotal, vat: s.vat, total: s.total,
-        },
-        suggested_category: s.suggested_category,
-      })
-      ocrEmit({ type: "extracted", item })
-    }, delay)
-  })
-}
-
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let reviewState = { item: null, edits: {} }
@@ -156,21 +48,6 @@ export function initZaimu() {
   setupUpload()
   setupReviewModal()
   setupCategoryModal()
-
-  document.getElementById("demo-upload")?.addEventListener("click", () => {
-    const sample = SAMPLES[Math.floor(Math.random() * SAMPLES.length)]
-    handleUpload([{ name: sample.filename }])
-  })
-
-  ocrSubscribe((evt) => {
-    if (evt.type === "extracted") {
-      pushToast(`${evt.item.merchant} · ready for review`, {
-        label: "Review",
-        fn: () => openReview(evt.item),
-      })
-    }
-    updateBell()
-  })
 }
 
 // ─── Tweaks panel ─────────────────────────────────────────────────────────────
@@ -224,122 +101,41 @@ function setupBell() {
 }
 
 function updateBell() {
-  const inFlight = sessionActivity.filter((a) => a.status === "processing" || a.status === "review")
   const serverCount = parseInt(document.getElementById("bell-count")?.dataset.serverCount ?? "0", 10)
-  const total = serverCount + inFlight.length
-
   const bell = document.getElementById("bell")
   const countEl = document.getElementById("bell-count")
-  if (bell) bell.classList.toggle("has-unread", total > 0)
-  if (countEl) countEl.textContent = total > 0 ? String(total) : ""
+  if (bell) bell.classList.toggle("has-unread", serverCount > 0)
+  if (countEl) countEl.textContent = serverCount > 0 ? String(serverCount) : ""
 
   const navBadge = document.getElementById("nav-activity-badge")
   if (navBadge) {
-    navBadge.textContent = String(total)
-    navBadge.style.display = total ? "" : "none"
+    navBadge.textContent = String(serverCount)
+    navBadge.style.display = serverCount ? "" : "none"
   }
-
-  // Prepend session items to the notif feed
-  const feed = document.getElementById("notif-feed")
-  if (feed && sessionActivity.length > 0) {
-    let sessionEl = feed.querySelector("[data-session-items]")
-    if (!sessionEl) {
-      sessionEl = document.createElement("div")
-      sessionEl.dataset.sessionItems = ""
-      feed.prepend(sessionEl)
-    }
-    sessionEl.innerHTML = sessionActivity.slice(0, 4).map(feedItemHTML).join("")
-    sessionEl.querySelectorAll("[data-review]").forEach((b) =>
-      b.addEventListener("click", (e) => {
-        e.stopPropagation()
-        const item = sessionActivity.find((a) => a.id === b.dataset.review)
-        if (item) { document.getElementById("notif-pop")?.classList.remove("show"); openReview(item) }
-      })
-    )
-  }
-}
-
-function statusPill(status) {
-  if (status === "processing") return `<span class="pill processing"><span class="pulse"></span>Processing</span>`
-  if (status === "review") return `<span class="pill review"><span class="pulse"></span>Needs review</span>`
-  if (status === "posted") return `<span class="pill posted">Posted</span>`
-  if (status === "failed") return `<span class="pill failed">Failed</span>`
-  return `<span class="pill">${status}</span>`
-}
-
-function feedItemHTML(item) {
-  const cat = CATEGORIES.find((c) => c.id === item.category)
-  const amt = item.amount != null ? fmt(item.amount, item.currency || "EUR") : "—"
-  let desc = ""
-  if (item.status === "processing") desc = "Sent to OCR · extraction in progress"
-  else if (item.status === "review") desc = `<span class="amt">${amt}</span> · ${item.invoice_no || "—"} · ready to verify`
-  else if (item.status === "posted") desc = `<span class="amt">${amt}</span>${cat ? " · " + cat.name : ""}`
-  else if (item.status === "failed") desc = item.error || "Processing failed"
-  const actions =
-    item.status === "review"
-      ? `<button class="btn sm primary" data-review="${item.id}">Review</button>`
-      : item.status === "failed"
-        ? `<button class="btn sm">Retry</button>`
-        : ""
-  return `
-    <div class="feed-item ${item.status}" data-id="${item.id}">
-      <div class="stat">${item.filename ? item.filename.split(".").pop().slice(0, 3).toUpperCase() : "DOC"}</div>
-      <div class="body">
-        <div class="title">${item.merchant || (item.status === "processing" ? "Scanning…" : "Untitled")} ${statusPill(item.status)}</div>
-        <div class="desc">${desc} · <span class="muted">${item.filename || ""}</span></div>
-      </div>
-      <div class="actions">${actions}<time>${relTime(item.ts)}</time></div>
-    </div>`
 }
 
 // ─── Upload & drag/drop ───────────────────────────────────────────────────────
 
 function setupUpload() {
-  const fileInput = document.getElementById("file-input")
-  fileInput?.addEventListener("change", (e) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length) handleUpload(files)
-    e.target.value = ""
+  // Quick-add button opens DocumentUploadLive's file input
+  document.getElementById("quick-add")?.addEventListener("click", () => {
+    document.querySelector("input[data-phx-upload-ref]")?.click()
   })
 
-  document.getElementById("quick-add")?.addEventListener("click", () => fileInput?.click())
-
-  const dz = document.getElementById("drop-zone")
-  if (dz) {
-    dz.addEventListener("click", () => fileInput?.click())
-    ;["dragenter", "dragover"].forEach((ev) =>
-      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag") })
-    )
-    ;["dragleave", "drop"].forEach((ev) =>
-      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag") })
-    )
-    dz.addEventListener("drop", (e) => {
-      const files = Array.from(e.dataTransfer.files)
-      if (files.length) handleUpload(files)
-    })
-  }
-
+  // Global drag overlay — visual feedback only, actual drop handled by phx-drop-target
   let dragDepth = 0
   const overlay = document.getElementById("drop-overlay")
   window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; overlay?.classList.add("show") })
   window.addEventListener("dragleave", (e) => { e.preventDefault(); dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) overlay?.classList.remove("show") })
   window.addEventListener("dragover", (e) => e.preventDefault())
-  window.addEventListener("drop", (e) => {
-    e.preventDefault(); dragDepth = 0; overlay?.classList.remove("show")
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length) handleUpload(files)
-  })
+  window.addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; overlay?.classList.remove("show") })
 
-  window.addEventListener("paste", (e) => {
-    const files = Array.from(e.clipboardData?.files || [])
-    if (files.length) handleUpload(files)
+  // Server upload success → show toast
+  window.addEventListener("phx:upload:success", (e) => {
+    const filename = e.detail?.filename
+    pushToast(filename ? `${filename} · OCR running` : "Document uploaded · OCR running")
+    updateBell()
   })
-}
-
-function handleUpload(files) {
-  uploadFiles(files)
-  pushToast(`Uploaded ${files.length} document${files.length === 1 ? "" : "s"} · OCR running`)
-  updateBell()
 }
 
 // ─── Review modal ─────────────────────────────────────────────────────────────
@@ -350,15 +146,12 @@ function setupReviewModal() {
     if (!reviewState.item) return
     reviewState.item.status = "failed"
     reviewState.item.error = "Rejected by user"
-    ocrEmit({ type: "rejected", item: reviewState.item })
     closeReview()
     pushToast("Document rejected — moved to failed")
-    updateBell()
   })
   document.getElementById("review-approve")?.addEventListener("click", () => {
     if (!reviewState.item) return
     Object.assign(reviewState.item, reviewState.edits)
-    ocrEmit({ type: "reviewed", item: reviewState.item })
     openCategory()
   })
 }
@@ -424,9 +217,7 @@ function renderReview() {
       <div class="form-meta">
         <span class="mono">${item.id}</span>
         <span>·</span>
-        <span>OCR via <code class="mono">claude-vision-3</code></span>
-        <span>·</span>
-        <span>extracted in <span class="mono">2.8s</span></span>
+        <span>extracted in <span class="mono">~3s</span></span>
       </div>
       <div class="field">
         <label>Merchant ${cm.html}</label>
@@ -493,7 +284,6 @@ function setupCategoryModal() {
     if (!item || !pickedCategory) return
     item.category = pickedCategory
     item.status = "posted"
-    ocrEmit({ type: "posted", item })
     const cat = CATEGORIES.find((c) => c.id === pickedCategory)
     if (cat && reviewState.edits.amount) cat.spent += reviewState.edits.amount
     closeCategory()
@@ -501,7 +291,6 @@ function setupCategoryModal() {
       label: "View",
       fn: () => { window.location.href = "/documents" },
     })
-    updateBell()
   })
 }
 

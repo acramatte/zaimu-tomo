@@ -481,7 +481,8 @@ body {
   position: relative;
 }
 .drop-zone:hover { background: var(--bg); border-color: var(--ink-2); }
-.drop-zone.drag {
+.drop-zone.drag,
+.drop-zone.phx-drop-target-active {
   border-color: var(--accent);
   background: var(--accent-tint);
 }

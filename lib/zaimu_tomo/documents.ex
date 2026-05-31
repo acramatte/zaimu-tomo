@@ -21,15 +21,15 @@ defmodule ZaimuTomo.Documents do
 
   """
   def subscribe_documents(%Scope{} = scope) do
-    key = scope.user.id
-
-    Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "user:#{key}:documents")
+    Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, documents_topic(scope))
   end
 
   defp broadcast_document(%Scope{} = scope, message) do
-    _key = scope.user.id
+    Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, documents_topic(scope), message)
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "documents_uploaded", message)
   end
+
+  defp documents_topic(%Scope{} = scope), do: "user:#{scope.user.id}:documents"
 
   @doc """
   Returns the list of documents.

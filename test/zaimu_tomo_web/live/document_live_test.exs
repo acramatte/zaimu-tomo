@@ -25,22 +25,6 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ document.filename
     end
 
-    test "saves new document", %{conn: conn} do
-      {:ok, index_live, _html} = live(conn, ~p"/documents")
-
-      assert {:ok, form_live, _} =
-               index_live
-               |> element("a", "New expense")
-               |> render_click()
-               |> follow_redirect(conn, ~p"/documents/new")
-
-      assert render(form_live) =~ "New Document"
-
-      # Skip validation and submission tests for now as file upload works differently
-      # The form now uses live file uploads which require a different testing approach
-      # TODO: Enhance this test with proper file upload simulation
-    end
-
     test "updates document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 
