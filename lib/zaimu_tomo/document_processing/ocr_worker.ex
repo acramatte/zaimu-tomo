@@ -17,11 +17,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   def process(%{filepath: filepath} = document) do
     full_path = build_document_path(filepath)
 
-    case DocumentOCR.process(full_path) do
-      {:ok, extracted_data, raw_llm_response} ->
-        persist_and_emit_success(document, extracted_data, raw_llm_response)
-
+    with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
+         {:ok, extracted_data} <- ZaimuTomo.LLMClient.extract_invoice(markdown),
+         :ok <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+      persist_and_emit_success(document, extracted_data, raw_llm_response)
+    else
       {:error, reason} ->
+        Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
         persist_and_emit_failure(document, reason)
     end
   end
@@ -50,9 +52,14 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           data: extracted_data,
           timestamp: DateTime.utc_now()
         })
+
         {:ok, content}
 
       {:error, changeset} ->
+        Logger.error(
+          "[Saga] Failed to persist successful extraction for document #{document.id}: #{inspect(changeset.errors)}"
+        )
+
         {:error, {:persistence_failed, changeset.errors}}
     end
   end
@@ -70,7 +77,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     extraction_params = %{
       document_id: document.id,
       user_id: document.user_id,
-      extracted_data: %{},  # Empty map - will fail validation as expected
+      # Empty map - will fail validation as expected
+      extracted_data: %{},
       analysis: %{
         "error" => "Extraction failed",
         "attempted_at" => DateTime.utc_now()
@@ -91,9 +99,14 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           error: error,
           timestamp: DateTime.utc_now()
         })
+
         {:ok, content}
 
       {:error, changeset} ->
+        Logger.error(
+          "[Saga] Failed to persist failed extraction for document #{document.id}: #{inspect(changeset.errors)}"
+        )
+
         {:error, {:persistence_failed, changeset.errors}}
     end
   end
@@ -105,19 +118,21 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   # Error handling helper functions
   defp error_type(error) when is_tuple(error),
     do: elem(error, 0) |> to_string()
+
   defp error_type(error) when is_atom(error),
     do: Atom.to_string(error)
+
   defp error_type(_error),
     do: "unknown"
 
-  defp error_message(error) when is_tuple(error),
-    do: elem(error, 1) |> to_string()
-  defp error_message(error) when is_atom(error),
-    do: Atom.to_string(error)
-  defp error_message(error) when is_binary(error),
-    do: error
-  defp error_message(_error),
-    do: "unknown error"
+  defp error_message(error) when is_tuple(error) do
+    val = elem(error, 1)
+    if is_binary(val), do: val, else: inspect(val)
+  end
+
+  defp error_message(error) when is_atom(error), do: Atom.to_string(error)
+  defp error_message(error) when is_binary(error), do: error
+  defp error_message(error), do: inspect(error)
 
   defp error_stack_trace(_error),
     do: []

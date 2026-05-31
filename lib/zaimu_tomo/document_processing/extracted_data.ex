@@ -12,32 +12,24 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
     field(:issuer, :string)
   end
 
-  @doc """
-  Builds a changeset from a plain map
-  All fields are required here.
-  """
-  # Standalone changeset: Takes a map, creates a new struct
-  # Used in DocumentOCR.process flow
+  @required_fields [:amount_to_pay_cents, :invoice_date, :currency, :reason_for_payment, :issuer]
+  @optional_fields [:invoice_number]
+
   def changeset(attrs) when is_map(attrs) do
-    %ZaimuTomo.DocumentProcessing.ExtractedData{}
-    |> cast(attrs, fields())
-    |> validate_required(fields())
+    %__MODULE__{}
+    |> cast(attrs, @required_fields ++ @optional_fields)
+    |> validate_required(@required_fields)
   end
 
-  # Embedded changeset: Takes a struct and attrs, used by cast_embed
-  # Used in ExtractedContent.changeset
   def embedded_changeset(_struct, attrs) do
     if is_struct(attrs, __MODULE__) do
       Ecto.Changeset.change(attrs)
     else
       %__MODULE__{}
-      |> cast(attrs, fields())
-      |> validate_required(fields())
+      |> cast(attrs, @required_fields ++ @optional_fields)
+      |> validate_required(@required_fields)
     end
   end
 
-
-  defp fields do
-    [:amount_to_pay_cents, :invoice_date, :invoice_number, :currency, :reason_for_payment, :issuer]
-  end
+  def fields, do: @required_fields ++ @optional_fields
 end
