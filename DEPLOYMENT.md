@@ -9,7 +9,7 @@ This branch prepares deployment to a Hetzner VPS where SSH is reachable publicly
 - nginx already owns `0.0.0.0:80` on the VPS, and ports `8080`, `8081`, `8082`, and `1883` are reserved. Kamal Proxy therefore binds the unreserved VPN-only port `10.0.0.1:8083`, and nginx should forward `http://10.0.0.1` to it.
 - If port `8083` becomes reserved later, change Kamal Proxy's `http_port` and the matching nginx `proxy_pass` target.
 - PostgreSQL is a Kamal accessory. Its host port is bound to `127.0.0.1:5433` only; the app should use Docker networking via `zaimu-tomo-db:5432`.
-- Uploaded documents use the Docker named volume `zaimu_tomo_uploads`, so the `kamal` user does not need sudo access to create host directories.
+- Uploaded documents use the Docker named volume `zaimu_tomo_uploads`, so the `kamal` user does not need sudo access to create host directories. The application runs as UID/GID `65534` so it can keep writing an existing upload volume created by the previous Debian/nobody-based image.
 - The VPS runs Watchtower. The Kamal app and PostgreSQL accessory are labelled with `com.centurylinklabs.watchtower.enable=false` so Watchtower does not restart/upgrade containers outside Kamal's deployment flow.
 - The existing `deployer` SSH account can remain restricted to the forced command `/usr/local/bin/load-docker-iamge.sh`. Kamal should use a separate dedicated user, for example `kamal`, because it must run Docker commands such as network creation, login, pull/load, run, stop, rename, health checks, and container inspection.
 
@@ -42,7 +42,7 @@ If you want stronger isolation from the VPS's existing Docker containers, invest
 
 ## Files
 
-- `Dockerfile` builds a Phoenix release.
+- `Dockerfile` builds a Phoenix release and runs it on `gcr.io/distroless/cc-debian13:debug-nonroot` to reduce runtime image size while keeping the `/bin/sh` support required by Elixir release scripts. The final image still uses a non-root numeric user, but pins it to UID/GID `65534` to match the existing uploads volume ownership from the earlier Debian `nobody` runtime.
 - `config/deploy.yml` is the Kamal config with placeholders to replace.
 - `.kamal/secrets.example` documents required secrets; copy it to `.kamal/secrets` or export variables.
 - `lib/zaimu_tomo/release.ex` provides release migration commands, and `rel/overlays/bin/migrate` exposes them as a release script included at `bin/migrate`.
