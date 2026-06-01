@@ -1,0 +1,95 @@
+# Kamal 2 deployment for ZaimuTomo on a Hetzner VPS reached through WireGuard.
+# SSH reaches the VPS on its public IP. The app itself is exposed only on WireGuard.
+# Keep real host/IP values in environment variables or .kamal/secrets, not in git.
+
+service: zaimu-tomo
+image: acramatte/zaimu-tomo
+
+ssh:
+  user: <%= ENV.fetch("KAMAL_SSH_USER", "kamal") %>
+
+# This VPS runs Watchtower. Kamal should remain in control of deployments, so
+# exclude the app container from automatic Watchtower updates.
+labels:
+  com.centurylinklabs.watchtower.enable: "false"
+
+servers:
+  web:
+    hosts:
+      # SSH target. Kamal connects here, while the proxy below binds to the VPN IP only.
+      - <%= ENV.fetch("KAMAL_SSH_HOST") %>
+    # If another reverse proxy already owns ports 80/443 on this VPS, uncomment this
+    # and route that proxy to the app container/port yourself instead of using Kamal Proxy.
+    # proxy: false
+
+proxy:
+  ssl: false
+  host: <%= ENV.fetch("PHX_HOST", "10.0.0.1") %>
+  app_port: 4000
+  forward_headers: true
+  healthcheck:
+    path: /health
+    interval: 3
+    timeout: 3
+  run:
+    # Keep Kamal Proxy reachable only from the VPN interface.
+    # If your current reverse proxy binds 0.0.0.0:80/443, either move it to the
+    # public interface only, change these ports, or set `proxy: false` above.
+    bind_ips:
+      - <%= ENV.fetch("KAMAL_PROXY_BIND_IP", "10.0.0.1") %>
+    # nginx already owns 0.0.0.0:80 on the VPS. Kamal Proxy listens on an
+    # unreserved VPN-only port, and nginx forwards http://10.0.0.1 to it.
+    http_port: 8083
+    https_port: 8443
+
+registry:
+  server: ghcr.io
+  username: acramatte
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+env:
+  clear:
+    PHX_SERVER: "true"
+    PHX_HOST: <%= ENV.fetch("PHX_HOST", "10.0.0.1") %>
+    PORT: "4000"
+    POOL_SIZE: "10"
+    AI_EXTRACTOR: "mistral"
+    AI_VERIFIER: "mistral"
+    AI_CURRENCY_HINT: "CHF"
+    MISTRAL_URL: "https://api.mistral.ai/v1"
+    MISTRAL_LLM_MODEL: "mistral-small-latest"
+  secret:
+    - SECRET_KEY_BASE
+    - DATABASE_URL
+    - MISTRAL_API_KEY
+
+# Uploaded documents are written under :code.priv_dir(:zaimu_tomo)/uploads.
+# This path includes the application version from mix.exs; update it when bumping the release version.
+volumes:
+  - zaimu_tomo_uploads:/app/lib/zaimu_tomo-0.1.0/priv/uploads
+
+accessories:
+  db:
+    image: postgres:18-alpine
+    host: <%= ENV.fetch("KAMAL_SSH_HOST") %>
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    port: "127.0.0.1:5433:5432"
+    env:
+      clear:
+        POSTGRES_USER: zaimu_tomo
+        POSTGRES_DB: zaimu_tomo_prod
+        PGDATA: /var/lib/postgresql/data
+      secret:
+        - POSTGRES_PASSWORD
+    directories:
+      - data:/var/lib/postgresql
+
+aliases:
+  console: app exec --interactive --reuse "bin/zaimu_tomo remote"
+  migrate: app exec "bin/migrate"
+  db_rollback: app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.rollback(ZaimuTomo.Repo, 1)'"
