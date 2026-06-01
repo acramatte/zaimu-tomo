@@ -45,8 +45,12 @@ Key properties:
 ## The image
 
 `Dockerfile` is a two-stage build: `elixir:1.19.4-otp-28` builds the release
-(`mix compile`, `mix assets.deploy`, `mix release`), and `debian:trixie-slim`
-runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
+(`mix compile`, `mix assets.deploy`, `mix release`), and
+`gcr.io/distroless/cc-debian13:debug-nonroot` runs it as UID/GID `65534`,
+pinned to match the ownership of the existing uploads volume from the earlier
+Debian `nobody` runtime. The distroless debug image supplies BusyBox `sh`
+(symlinked to `/bin/sh` for the release scripts) and `wget` for the
+`HEALTHCHECK`. Release scripts from `rel/overlays/bin/` are included:
 
 | Script | Purpose |
 |---|---|
