@@ -40,3 +40,4 @@ npm-debug.log
 /.idea
 zaimu_tomo.iml
 .claude/
+.kamal/secrets

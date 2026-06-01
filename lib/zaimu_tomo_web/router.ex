@@ -17,6 +17,10 @@ defmodule ZaimuTomoWeb.Router do
     plug :accepts, ["json"]
   end
 
+  scope "/", ZaimuTomoWeb do
+    get "/health", HealthController, :show
+    get "/up", HealthController, :show
+  end
 
   # API routes
   scope "/api", ZaimuTomoWeb do

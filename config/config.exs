@@ -26,27 +26,27 @@ config :zaimu_tomo,
 
 config :zaimu_tomo, :mistral,
   provider: :openai,
-  base_url: System.get_env("MISTRAL_URL") || "https://api.mistral.ai/v1",
-  model: System.get_env("MISTRAL_LLM_MODEL") || "mistral-small-latest",
-  api_key: System.get_env("MISTRAL_API_KEY")
+  base_url: "https://api.mistral.ai/v1",
+  model: "mistral-small-latest",
+  api_key: nil
 
 config :zaimu_tomo, :ai_workflow,
-  extractor: System.get_env("AI_EXTRACTOR", "flm"),
-  verifier: System.get_env("AI_VERIFIER", "flm"),
+  extractor: "flm",
+  verifier: "flm",
   # TODO: Move this global extraction hint to user preferences once settings exist.
-  currency_hint: System.get_env("AI_CURRENCY_HINT", "CHF")
+  currency_hint: "CHF"
 
 config :zaimu_tomo, :ollama,
   provider: :openai,
-  base_url: System.get_env("OLLAMA_URL") || "http://localhost:11434/v1",
-  model: System.get_env("OLLAMA_MODEL") || "gemma4:e4b",
-  api_key: System.get_env("OLLAMA_API_KEY") || "ollama"
+  base_url: "http://localhost:11434/v1",
+  model: "gemma4:e4b",
+  api_key: "ollama"
 
 config :zaimu_tomo, :flm,
   provider: :openai,
-  base_url: System.get_env("FLM_URL") || "http://localhost:52625/v1",
-  model: System.get_env("FLM_MODEL") || "gemma4-it:e4b",
-  api_key: System.get_env("FLM_API_KEY") || "ollama"
+  base_url: "http://localhost:52625/v1",
+  model: "gemma4-it:e4b",
+  api_key: "ollama"
 
 # Configure the endpoint
 config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
