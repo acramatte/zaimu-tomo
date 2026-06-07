@@ -12,28 +12,41 @@ defmodule ZaimuTomo.LLMClientTest do
   end
 
   describe "verification_result/1" do
-    test "accepts exact VERIFIED response" do
-      assert LLMClient.verification_result("VERIFIED") == :ok
+    test "accepts structured verified response with explanation" do
+      assert {:ok,
+              %{
+                "status" => "verified",
+                "reason" => "All fields are grounded in OCR text.",
+                "raw_response" => %{
+                  "status" => "verified",
+                  "reason" => "All fields are grounded in OCR text."
+                }
+              }} =
+               LLMClient.verification_result(%{
+                 "status" => "verified",
+                 "reason" => "All fields are grounded in OCR text."
+               })
     end
 
-    test "accepts exact VERIFIED response with surrounding whitespace" do
-      assert LLMClient.verification_result("\n verified \n") == :ok
+    test "normalizes structured needs review response and keeps field issues" do
+      assert {:ok,
+              %{
+                "status" => "needs_review",
+                "reason" => "Invoice date is ambiguous.",
+                "field_issues" => "invoice_date"
+              }} =
+               LLMClient.verification_result(%{
+                 status: "needs review",
+                 reason: "Invoice date is ambiguous.",
+                 field_issues: "invoice_date"
+               })
     end
 
-    test "rejects needs review response" do
-      assert LLMClient.verification_result("NEEDS_REVIEW") == {:error, :verification_failed}
+    test "rejects plain text responses" do
+      assert LLMClient.verification_result("VERIFIED") == {:error, :verification_failed}
     end
 
-    test "rejects rejected response" do
-      assert LLMClient.verification_result("REJECTED") == {:error, :verification_failed}
-    end
-
-    test "rejects non-exact verified response" do
-      assert LLMClient.verification_result("This looks VERIFIED") ==
-               {:error, :verification_failed}
-    end
-
-    test "rejects missing text" do
+    test "rejects missing result" do
       assert LLMClient.verification_result(nil) == {:error, :verification_failed}
     end
   end
