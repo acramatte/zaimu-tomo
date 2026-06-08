@@ -158,33 +158,38 @@ defmodule ZaimuTomo.LLMClient do
       case ReqLLM.generate_object(model, prompt, schema, opts) do
         {:ok, response} ->
           raw_object = ReqLLM.Response.object(response)
-          result = verification_result(raw_object)
 
-          case result do
+          case verification_result(raw_object) do
             {:ok, %{"status" => "verified"} = verification} ->
               Logger.info(
                 "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
               )
+
+              {:ok, verification}
 
             {:ok, %{"status" => status} = verification} ->
               Logger.warning(
                 "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
               )
 
-            {:error, reason} ->
-              Logger.error(
-                "[LLM] Extraction verification returned invalid structured output with #{backend_summary(:verifier, config)}: #{inspect(raw_object)} (#{inspect(reason)})"
-              )
-          end
+              {:ok, verification}
 
-          result
+            {:error, reason} ->
+              raw_response = verifier_response_payload(response, raw_object)
+
+              Logger.error(
+                "[LLM] Extraction verification returned invalid structured output with #{backend_summary(:verifier, config)}: #{inspect(raw_response)} (#{inspect(reason)})"
+              )
+
+              {:ok, verification_failure_result(raw_response, reason)}
+          end
 
         {:error, reason} ->
           Logger.error(
             "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(reason)}"
           )
 
-          {:error, reason}
+          {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}
       end
     end
   end
@@ -199,6 +204,30 @@ defmodule ZaimuTomo.LLMClient do
   end
 
   def verification_result(_data), do: {:error, :verification_failed}
+
+  @doc false
+  @spec verifier_response_payload(ReqLLM.Response.t(), term()) :: map()
+  def verifier_response_payload(response, raw_object) do
+    %{
+      "raw_object" => raw_object,
+      "text" => ReqLLM.Response.text(response),
+      "tool_calls" => ReqLLM.Response.tool_calls(response),
+      "finish_reason" => response.finish_reason,
+      "provider_meta" => response.provider_meta,
+      "usage" => response.usage
+    }
+  end
+
+  @doc false
+  @spec verification_failure_result(term(), term()) :: map()
+  def verification_failure_result(raw_response, reason) do
+    %{
+      "status" => "verification_failed",
+      "reason" => "Verifier did not return valid structured output.",
+      "raw_response" => raw_response,
+      "error" => inspect(reason)
+    }
+  end
 
   @doc false
   @spec backend_for(role()) :: backend()

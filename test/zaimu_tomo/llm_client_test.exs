@@ -1,6 +1,9 @@
 defmodule ZaimuTomo.LLMClientTest do
   use ExUnit.Case, async: false
 
+  alias ReqLLM.Message
+  alias ReqLLM.Message.ContentPart
+  alias ReqLLM.Response
   alias ZaimuTomo.LLMClient
 
   setup do
@@ -48,6 +51,43 @@ defmodule ZaimuTomo.LLMClientTest do
 
     test "rejects missing result" do
       assert LLMClient.verification_result(nil) == {:error, :verification_failed}
+    end
+
+    test "builds auditable verifier failure results from malformed responses" do
+      response = %Response{
+        id: "resp-1",
+        model: "mistral-small",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [ContentPart.text("I cannot format this as requested")],
+          tool_calls: [%{name: "structured_output", arguments: %{status: "maybe"}}]
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{provider: :mistral},
+        usage: %{input_tokens: 10, output_tokens: 8}
+      }
+
+      raw_response = LLMClient.verifier_response_payload(response, nil)
+
+      assert Jason.encode!(raw_response)
+
+      assert raw_response == %{
+               "raw_object" => nil,
+               "text" => "I cannot format this as requested",
+               "tool_calls" => [%{name: "structured_output", arguments: %{status: "maybe"}}],
+               "finish_reason" => :stop,
+               "provider_meta" => %{provider: :mistral},
+               "usage" => %{input_tokens: 10, output_tokens: 8}
+             }
+
+      assert LLMClient.verification_failure_result(raw_response, :verification_failed) == %{
+               "status" => "verification_failed",
+               "reason" => "Verifier did not return valid structured output.",
+               "raw_response" => raw_response,
+               "error" => ":verification_failed"
+             }
     end
   end
 
