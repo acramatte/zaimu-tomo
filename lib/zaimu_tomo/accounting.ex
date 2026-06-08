@@ -11,6 +11,7 @@ defmodule ZaimuTomo.Accounting do
 
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Accounting.JournalEntry
+  alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
 
@@ -62,6 +63,64 @@ defmodule ZaimuTomo.Accounting do
   # Queries
   # ---------------------------------------------------------------------------
 
+  @doc """
+  Returns posted spending totals for the current UTC month.
+
+  Until currency conversion is introduced, amounts in every source currency
+  are treated as equivalent and displayed using the configured currency hint.
+  """
+  def current_month_spending(%Scope{} = scope) do
+    current_month_spending(scope, Date.utc_today())
+  end
+
+  @doc """
+  Returns posted spending totals for the month containing `reference_date`.
+
+  The explicit date keeps month-boundary behavior deterministic for callers
+  such as tests and historical reports.
+  """
+  def current_month_spending(%Scope{} = scope, %Date{} = reference_date) do
+    monthly_spending(scope, reference_date)
+  end
+
+  @doc """
+  Returns posted spending totals for the month containing `reference_date`.
+  """
+  def monthly_spending(%Scope{user: %{id: user_id}}, %Date{} = reference_date) do
+    month_start = Date.beginning_of_month(reference_date)
+    next_month_start = month_start |> Date.add(32) |> Date.beginning_of_month()
+
+    categories =
+      from(je in JournalEntry,
+        where:
+          je.user_id == ^user_id and
+            je.status == "posted" and
+            not is_nil(je.category) and
+            fragment("btrim(?) <> ''", je.category) and
+            je.date >= ^month_start and
+            je.date < ^next_month_start,
+        group_by: fragment("lower(btrim(?))", je.category),
+        order_by: [desc: sum(je.amount_cents)],
+        select: %{
+          category: fragment("lower(btrim(?))", je.category),
+          total_cents: sum(je.amount_cents),
+          entry_count: count(je.id)
+        }
+      )
+      |> Repo.all()
+      |> Enum.map(fn category ->
+        %{category | category: humanize_category(category.category)}
+      end)
+
+    %{
+      month_start: month_start,
+      currency: configured_currency(),
+      total_cents: Enum.sum_by(categories, & &1.total_cents),
+      entry_count: Enum.sum_by(categories, & &1.entry_count),
+      categories: categories
+    }
+  end
+
   def list_journal_entries(user_id) do
     from(je in JournalEntry,
       where: je.user_id == ^user_id,
@@ -85,7 +144,28 @@ defmodule ZaimuTomo.Accounting do
   # Private helpers
   # ---------------------------------------------------------------------------
 
+  defp configured_currency do
+    :zaimu_tomo
+    |> Application.get_env(:ai_workflow, [])
+    |> Keyword.get(:currency_hint, "CHF")
+    |> String.upcase()
+  end
+
+  defp humanize_category(category) do
+    category
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.map_join(" ", &capitalize_word/1)
+  end
+
+  defp capitalize_word(word) do
+    case String.next_grapheme(word) do
+      {first, rest} -> String.upcase(first) <> rest
+      nil -> word
+    end
+  end
+
   defp parse_date(nil), do: nil
+
   defp parse_date(str) when is_binary(str) do
     case Date.from_iso8601(str) do
       {:ok, date} -> date
@@ -105,7 +185,9 @@ defmodule ZaimuTomo.Accounting do
       |> Repo.insert()
 
     case result do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
         :ok

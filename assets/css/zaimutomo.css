@@ -395,6 +395,20 @@ body {
 .budget-bar.warn .fill { background: var(--warn); }
 .budget-bar.over .fill { background: var(--danger); }
 
+.spending-period-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+.spending-period-comparison { text-align: right; }
+.spending-period-amount {
+  margin-top: 6px;
+  font-size: 18px;
+  color: var(--ink);
+}
+
 .budget-row {
   display: grid;
   grid-template-columns: 1fr 80px 80px 80px;
@@ -407,6 +421,20 @@ body {
   border-bottom: 1px solid var(--hairline);
 }
 .budget-row:last-child { border-bottom: 0; }
+.budget-row.spending-row {
+  grid-template-columns: 1fr 130px 130px 80px;
+}
+.budget-row.spending-row-labels {
+  padding-top: 0;
+  padding-bottom: 6px;
+  font-family: 'Geist', sans-serif;
+  font-size: var(--fs-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.budget-row.spending-row-labels .name,
+.budget-row.spending-row-labels .num { color: inherit; font-size: inherit; }
 .detail-row {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -432,6 +460,22 @@ body {
 .budget-row .num { text-align: right; color: var(--ink-2); }
 .budget-row .num.over { color: var(--danger); }
 .budget-row .num.dim { color: var(--muted); }
+
+.empty-state {
+  min-height: 150px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-sm);
+}
+
+.empty-state .h {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+}
 
 /* ============================
    Donut / categories

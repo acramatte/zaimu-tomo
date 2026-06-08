@@ -18,21 +18,27 @@ defmodule ZaimuTomo.ReviewFixtures do
     # For failed extractions the changeset skips extracted_data validation
     # but the DB column is NOT NULL, so we bypass the changeset and insert directly.
     extracted_data =
-      if status == "success", do: @valid_extracted_data, else: %{}
+      if status == "success" do
+        Map.get(attrs, :extracted_data, @valid_extracted_data)
+      else
+        %{}
+      end
 
     now = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_naive()
 
     {1, [row]} =
       Repo.insert_all(
         "extracted_content",
-        [%{
-          document_id: document.id,
-          user_id: user.id,
-          status: status,
-          extracted_data: extracted_data,
-          inserted_at: now,
-          updated_at: now
-        }],
+        [
+          %{
+            document_id: document.id,
+            user_id: user.id,
+            status: status,
+            extracted_data: extracted_data,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
         returning: [:id]
       )
 
