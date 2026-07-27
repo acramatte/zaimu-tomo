@@ -31,10 +31,13 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
               {entry.issuer || "Unknown issuer"}
             </div>
             <div class="desc">
-              <span class="amt">{if entry.amount_cents, do: fmt(entry.amount_cents / 100), else: "—"}</span>
-              {if entry.invoice_number, do: " · #{entry.invoice_number}", else: ""}
-              · <span class="muted">{format_date(entry.date)}</span>
+              <span class="amt">
+                {if entry.amount_cents, do: fmt(entry.amount_cents / 100), else: "—"}
+              </span>
+              {if entry.invoice_number, do: " · #{entry.invoice_number}", else: ""} ·
+              <span class="muted">{format_date(entry.date)}</span>
               {if entry.category, do: " · #{entry.category}", else: ""}
+              {if entry.need_or_want, do: " · #{need_or_want_label(entry.need_or_want)}", else: ""}
             </div>
           </div>
           <div class="actions">
@@ -52,4 +55,8 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
 
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "—"
+
+  defp need_or_want_label("need"), do: "Need"
+  defp need_or_want_label("want"), do: "Want"
+  defp need_or_want_label(_), do: "—"
 end
