@@ -14,7 +14,11 @@ defmodule ZaimuTomo.DocumentsFixtures do
         filepath: "some filepath"
       })
 
-    {:ok, document} = ZaimuTomo.Documents.create_document(scope, attrs)
+    {:ok, document} =
+      %ZaimuTomo.Documents.Document{}
+      |> ZaimuTomo.Documents.Document.changeset(attrs, scope)
+      |> ZaimuTomo.Repo.insert()
+
     document
   end
 end

@@ -2,6 +2,7 @@ defmodule ZaimuTomo.DocumentsTest do
   use ZaimuTomo.DataCase
 
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
 
   describe "documents" do
     alias ZaimuTomo.Documents.Document
@@ -41,6 +42,10 @@ defmodule ZaimuTomo.DocumentsTest do
       assert document.filename == "some filename"
       assert document.filepath == "some filepath"
       assert document.user_id == scope.user.id
+
+      assert_eventually(fn ->
+        ExtractedContentContext.get_latest_by_document(document.id) != nil
+      end)
     end
 
     test "create_document/2 with invalid data returns error changeset" do
@@ -100,4 +105,17 @@ defmodule ZaimuTomo.DocumentsTest do
       assert %Ecto.Changeset{} = Documents.change_document(scope, document)
     end
   end
+
+  defp assert_eventually(fun, attempts \\ 20)
+
+  defp assert_eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      assert true
+    else
+      Process.sleep(25)
+      assert_eventually(fun, attempts - 1)
+    end
+  end
+
+  defp assert_eventually(_fun, 0), do: flunk("expected condition to become true")
 end

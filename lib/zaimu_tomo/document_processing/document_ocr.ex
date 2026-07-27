@@ -49,60 +49,50 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
 
   @spec upload(String.t()) :: {:ok, map()} | {:error, term()}
   defp upload(filepath) do
-    config = Application.fetch_env!(:zaimu_tomo, :mistral)
-    base_url = Keyword.fetch!(config, :base_url)
-    api_key = Keyword.fetch!(config, :api_key)
     files_completion_path = "/files"
 
-    case File.read(filepath) do
-      {:ok, contents} ->
-        multiplart_fields = [
-          purpose: "ocr",
-          file: {contents, filename: Path.basename(filepath)}
-        ]
+    with {:ok, contents} <- read_file(filepath, :ocr_upload_failed),
+         {:ok, base_url, api_key} <- mistral_config(:ocr_upload_failed) do
+      multipart_fields = [
+        purpose: "ocr",
+        file: {contents, filename: Path.basename(filepath)}
+      ]
 
-        Req.post(base_url <> files_completion_path,
-          form_multipart: multiplart_fields,
-          headers: [{"Authorization", "Bearer #{api_key}"}]
-        )
-        |> handle_response()
-
-      {:error, reason} ->
-        {:error, reason}
+      Req.post(base_url <> files_completion_path,
+        form_multipart: multipart_fields,
+        headers: [{"Authorization", "Bearer #{api_key}"}]
+      )
+      |> handle_response(:ocr_upload_failed)
     end
   end
 
   @spec get_url(String.t()) :: {:ok, map()} | {:error, term()}
   defp get_url(id) do
-    config = Application.fetch_env!(:zaimu_tomo, :mistral)
-    base_url = Keyword.fetch!(config, :base_url)
-    api_key = Keyword.fetch!(config, :api_key)
     files_completion_path = "/files"
 
-    Req.get(base_url <> files_completion_path <> "/" <> id <> "/url?expiry=24",
-      headers: [{"Authorization", "Bearer #{api_key}"}]
-    )
-    |> handle_response()
+    with {:ok, base_url, api_key} <- mistral_config(:ocr_url_failed) do
+      Req.get(base_url <> files_completion_path <> "/" <> id <> "/url?expiry=24",
+        headers: [{"Authorization", "Bearer #{api_key}"}]
+      )
+      |> handle_response(:ocr_url_failed)
+    end
   end
 
-  defp handle_response({:ok, %Req.Response{status: 200, body: json_body}}) do
+  defp handle_response({:ok, %Req.Response{status: 200, body: json_body}}, _stage) do
     {:ok, json_body}
   end
 
-  defp handle_response({:ok, %Req.Response{} = response}) do
+  defp handle_response({:ok, %Req.Response{} = response}, stage) do
     # handle non 200 status codes
-    {:error, response.body}
+    {:error, {stage, response.body}}
   end
 
-  defp handle_response({:error, reason}) do
-    {:error, reason}
+  defp handle_response({:error, reason}, stage) do
+    {:error, {stage, reason}}
   end
 
   @spec ocr_request(String.t()) :: {:ok, map()} | {:error, term()}
   defp ocr_request(document_url) do
-    config = Application.fetch_env!(:zaimu_tomo, :mistral)
-    base_url = Keyword.fetch!(config, :base_url)
-    api_key = Keyword.fetch!(config, :api_key)
     ocr_path = "/ocr"
 
     payload = %{
@@ -113,10 +103,31 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
       }
     }
 
-    Req.post(base_url <> ocr_path,
-      json: payload,
-      headers: [{"Authorization", "Bearer #{api_key}"}]
-    )
-    |> handle_response()
+    with {:ok, base_url, api_key} <- mistral_config(:ocr_request_failed) do
+      Req.post(base_url <> ocr_path,
+        json: payload,
+        headers: [{"Authorization", "Bearer #{api_key}"}]
+      )
+      |> handle_response(:ocr_request_failed)
+    end
+  end
+
+  defp mistral_config(stage) do
+    config = Application.fetch_env!(:zaimu_tomo, :mistral)
+    base_url = Keyword.fetch!(config, :base_url)
+    api_key = Keyword.get(config, :api_key)
+
+    if is_binary(api_key) and String.trim(api_key) != "" do
+      {:ok, base_url, api_key}
+    else
+      {:error, {stage, "Missing Mistral API key"}}
+    end
+  end
+
+  defp read_file(filepath, stage) do
+    case File.read(filepath) do
+      {:ok, contents} -> {:ok, contents}
+      {:error, reason} -> {:error, {stage, reason}}
+    end
   end
 end

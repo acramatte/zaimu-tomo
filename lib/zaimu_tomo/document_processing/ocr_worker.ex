@@ -80,8 +80,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       "timestamp" => DateTime.utc_now()
     }
 
-    # For failed extractions, we'll let the changeset handle validation
-    # Pass empty map and let ExtractedData changeset validate required fields
+    # Failed extractions persist an empty extracted-data embed because invoice
+    # fields are unavailable when processing does not complete.
     extraction_params = %{
       document_id: document.id,
       user_id: document.user_id,

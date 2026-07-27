@@ -1,10 +1,11 @@
 defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
-  use ZaimuTomo.DataCase, async: true
+  use ZaimuTomo.DataCase, async: false
 
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Repo
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
-  import ZaimuTomo.DocumentsFixtures
 
   describe "persist_and_emit_success/3" do
     test "includes user_id from document in extracted content and stores raw response" do
@@ -55,5 +56,38 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.status == "success"
       assert content.analysis["verification"] == verification
     end
+  end
+
+  describe "persist_and_emit_failure/2" do
+    test "persists failed OCR attempts without extracted invoice data" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+
+      assert {:ok, content} =
+               Worker.persist_and_emit_failure(
+                 document,
+                 {:ocr_upload_failed, "Missing Mistral API key"}
+               )
+
+      assert content.user_id == user.id
+      assert content.document_id == document.id
+      assert content.status == "failed"
+      assert content.extracted_data.amount_to_pay_cents == nil
+      assert content.extracted_data.invoice_date == nil
+      assert content.error_details["type"] == "ocr_upload_failed"
+      assert content.error_details["message"] == "Missing Mistral API key"
+    end
+  end
+
+  defp document_fixture(scope, attrs) do
+    attrs =
+      Enum.into(attrs, %{
+        filename: "some filename",
+        filepath: "some filepath",
+        user_id: scope.user.id
+      })
+
+    Repo.insert!(struct!(Document, attrs))
   end
 end
