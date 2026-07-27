@@ -3,7 +3,7 @@ defmodule ZaimuTomo.Accounting do
   Context for budget journal entries.
 
   Journal entries are created automatically from approved/amended invoices.
-  A human assigns a budget category to post each entry.
+  A human assigns a budget category and need/want classification to post each entry.
   """
 
   import Ecto.Query, warn: false
@@ -41,17 +41,26 @@ defmodule ZaimuTomo.Accounting do
   # Posting (category assignment)
   # ---------------------------------------------------------------------------
 
-  def post_entry(%JournalEntry{} = entry, user_id, category, notes \\ nil) do
+  def change_journal_entry_posting(%JournalEntry{} = entry, attrs \\ %{}) do
+    JournalEntry.changeset_for_categorize(entry, attrs)
+  end
+
+  def post_entry(%JournalEntry{} = entry, user_id, category, need_or_want, notes \\ nil) do
     true = entry.user_id == user_id
 
     case JournalEntry.changeset_for_categorize(entry, %{
            category: category,
+           need_or_want: need_or_want,
            notes: notes,
            status: "posted"
          })
          |> Repo.update() do
       {:ok, updated} ->
-        write_event_log("journal_entry_posted", entry.id, user_id, %{category: category})
+        write_event_log("journal_entry_posted", entry.id, user_id, %{
+          category: category,
+          need_or_want: need_or_want
+        })
+
         {:ok, updated}
 
       {:error, changeset} ->

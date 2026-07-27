@@ -21,7 +21,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     entry
     |> Ecto.Changeset.change(date: today, amount_cents: 12_345, currency: "USD")
     |> Repo.update!()
-    |> Accounting.post_entry(user.id, "Software")
+    |> Accounting.post_entry(user.id, "Software", "need")
 
     previous_entry = create_entry(scope, user)
 
@@ -32,7 +32,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
       currency: "CHF"
     )
     |> Repo.update!()
-    |> Accounting.post_entry(user.id, "Software")
+    |> Accounting.post_entry(user.id, "Software", "need")
 
     previous_only_entry = create_entry(scope, user)
 
@@ -43,7 +43,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
       currency: "CHF"
     )
     |> Repo.update!()
-    |> Accounting.post_entry(user.id, "Transportation")
+    |> Accounting.post_entry(user.id, "Transportation", "need")
 
     conn = get(conn, ~p"/")
     document = conn |> html_response(200) |> LazyHTML.from_document()
@@ -97,7 +97,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
         currency: "CHF"
       )
       |> Repo.update!()
-      |> Accounting.post_entry(user.id, "Category #{index}")
+      |> Accounting.post_entry(user.id, "Category #{index}", "need")
     end)
 
     document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()

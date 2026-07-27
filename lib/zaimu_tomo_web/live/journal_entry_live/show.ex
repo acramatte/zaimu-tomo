@@ -15,7 +15,8 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
              socket
              |> assign(:page_title, entry_title(entry))
              |> assign(:current_path, "/journal_entries")
-             |> assign(:entry, entry)}
+             |> assign(:entry, entry)
+             |> assign_posting_form(entry)}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/journal_entries")}
@@ -39,35 +40,83 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
         <div class="card-head">
           <div class="card-title">Invoice details</div>
         </div>
-        <div class="detail-row" style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px">
+        <div
+          class="detail-row"
+          style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px"
+        >
           <div class="name">Amount</div>
           <div class="num" style="font-size:20px;font-weight:600">
             {if @entry.amount_cents, do: fmt(@entry.amount_cents / 100), else: "—"}
           </div>
         </div>
-        <div class="detail-row"><div class="name">Issuer</div><div>{@entry.issuer || "—"}</div></div>
-        <div class="detail-row"><div class="name">Date</div><div>{format_date(@entry.date)}</div></div>
-        <div class="detail-row"><div class="name">Invoice #</div><div class="mono dim">{@entry.invoice_number || "—"}</div></div>
-        <div class="detail-row"><div class="name">Currency</div><div>{@entry.currency || "—"}</div></div>
-        <div class="detail-row"><div class="name">Description</div><div>{@entry.description || "—"}</div></div>
+        <div class="detail-row">
+          <div class="name">Issuer</div>
+          <div>{@entry.issuer || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name">Date</div>
+          <div>{format_date(@entry.date)}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name">Invoice #</div>
+          <div class="mono dim">{@entry.invoice_number || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name">Currency</div>
+          <div>{@entry.currency || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name">Description</div>
+          <div>{@entry.description || "—"}</div>
+        </div>
       </div>
 
       <div class="card span-5">
-        <div class="card-head"><div class="card-title">Posting</div></div>
+        <div class="card-head">
+          <div class="card-title">Posting</div>
+        </div>
         <%= if @entry.status == "posted" do %>
-          <div class="detail-row"><div class="name">Category</div><div>{@entry.category || "—"}</div></div>
-          <div class="detail-row"><div class="name">Notes</div><div>{@entry.notes || "—"}</div></div>
+          <div class="detail-row">
+            <div class="name">Category</div>
+            <div>{@entry.category || "—"}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name">Need / Want</div>
+            <div>{need_or_want_label(@entry.need_or_want)}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name">Notes</div>
+            <div>{@entry.notes || "—"}</div>
+          </div>
         <% else %>
           <p class="muted" style="font-size:13px;margin-bottom:12px">
-            Assign a budget category to post this entry to your books.
+            Assign a budget category and mark whether this is a need or a want.
           </p>
-          <.form for={%{}} phx-submit="post_entry">
+          <.form for={@form} id="journal-entry-posting-form" phx-submit="post_entry">
             <div style="display:grid;gap:10px">
-              <.input name="category" value="" label="Budget category" placeholder="e.g. Software, Travel, Office" required />
-              <.input name="notes" value="" label="Notes" type="textarea" />
+              <.input
+                field={@form[:category]}
+                label="Budget category"
+                placeholder="e.g. Software, Travel, Office"
+                required
+              />
+              <.input
+                field={@form[:need_or_want]}
+                label="Need / Want"
+                type="select"
+                prompt="Choose one"
+                options={[Need: "need", Want: "want"]}
+                required
+              />
+              <.input field={@form[:notes]} label="Notes" type="textarea" />
             </div>
             <div style="margin-top:12px">
-              <button type="submit" class="btn sm primary" phx-disable-with="Posting…">
+              <button
+                id="post-entry-button"
+                type="submit"
+                class="btn sm primary"
+                phx-disable-with="Posting…"
+              >
                 Post entry
               </button>
             </div>
@@ -79,31 +128,54 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   end
 
   @impl true
-  def handle_event("post_entry", %{"category" => category} = params, socket) do
+  def handle_event("post_entry", %{"posting" => params}, socket) do
     user_id = socket.assigns.current_scope.user.id
-    notes = case Map.get(params, "notes", "") do
-      "" -> nil
-      n  -> n
-    end
+    category = Map.get(params, "category")
+    need_or_want = Map.get(params, "need_or_want")
 
-    case Accounting.post_entry(socket.assigns.entry, user_id, category, notes) do
+    notes =
+      case Map.get(params, "notes", "") do
+        "" -> nil
+        n -> n
+      end
+
+    case Accounting.post_entry(socket.assigns.entry, user_id, category, need_or_want, notes) do
       {:ok, updated} ->
-        {:noreply, socket |> assign(:entry, updated) |> put_flash(:info, "Entry posted")}
+        {:noreply,
+         socket
+         |> assign(:entry, updated)
+         |> assign_posting_form(updated)
+         |> put_flash(:info, "Entry posted")}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Failed to post entry")}
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:form, to_form(%{changeset | action: :insert}, as: :posting))
+         |> put_flash(:error, "Failed to post entry")}
     end
+  end
+
+  def handle_event("post_entry", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Failed to post entry")}
   end
 
   defp entry_title(%JournalEntry{issuer: issuer, invoice_number: number}) do
     cond do
       issuer && number -> "#{issuer} — #{number}"
-      issuer           -> issuer
-      number           -> "Invoice #{number}"
-      true             -> "Journal entry"
+      issuer -> issuer
+      number -> "Invoice #{number}"
+      true -> "Journal entry"
     end
   end
 
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "—"
+
+  defp assign_posting_form(socket, %JournalEntry{} = entry) do
+    assign(socket, :form, to_form(Accounting.change_journal_entry_posting(entry), as: :posting))
+  end
+
+  defp need_or_want_label("need"), do: "Need"
+  defp need_or_want_label("want"), do: "Want"
+  defp need_or_want_label(_), do: "—"
 end
