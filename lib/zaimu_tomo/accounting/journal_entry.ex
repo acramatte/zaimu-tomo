@@ -25,17 +25,17 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [
-        :review_decision_id,
-        :user_id,
-        :amount_cents,
-        :currency,
-        :date,
-        :description,
-        :issuer,
-        :invoice_number,
-        :status
-      ])
-    |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency])
+      :review_decision_id,
+      :user_id,
+      :amount_cents,
+      :currency,
+      :date,
+      :description,
+      :issuer,
+      :invoice_number,
+      :status
+    ])
+    |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency, :date])
     |> validate_inclusion(:status, ["uncategorized", "posted"])
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)

@@ -1,19 +1,19 @@
-<%
-  nw = @summary.net_worth
-  nw_whole = nw |> trunc() |> abs()
-  nw_cents = round((nw - trunc(nw)) * 100) |> abs()
-  nw_sign  = if nw < 0, do: "−", else: ""
-  nw_w =
-    nw_whole
-    |> Integer.to_string()
-    |> String.graphemes()
-    |> Enum.reverse()
-    |> Enum.chunk_every(3)
-    |> Enum.join(",")
-    |> String.reverse()
-  nw_c = String.pad_leading(Integer.to_string(nw_cents), 2, "0")
-  posted_count = Enum.count(@activity, &(&1.status == "posted"))
-%>
+<% nw = @summary.net_worth
+nw_whole = nw |> trunc() |> abs()
+nw_cents = round((nw - trunc(nw)) * 100) |> abs()
+nw_sign = if nw < 0, do: "−", else: ""
+
+nw_w =
+  nw_whole
+  |> Integer.to_string()
+  |> String.graphemes()
+  |> Enum.reverse()
+  |> Enum.chunk_every(3)
+  |> Enum.join(",")
+  |> String.reverse()
+
+nw_c = String.pad_leading(Integer.to_string(nw_cents), 2, "0")
+posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
 
 <h1 class="view-title">
   Good morning, Sora <span class="accent">—</span> the books are quiet today.
@@ -23,17 +23,18 @@
   · {@in_flight_count} document{if @in_flight_count == 1, do: "", else: "s"} in flight
 </p>
 
-<%= live_render(@conn, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero") %>
+{live_render(@conn, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero")}
 
 <div class="grid grid-12">
   <div class="span-12">
     <div class="grid grid-12">
-
       <div class="card span-12">
         <div class="card-head" style="margin-bottom:6px">
           <div class="label">Net worth</div>
           <div class="card-meta">
-            <span class="dim mono">+ {fmt(@summary.net_worth - List.first(@networth_history))}</span>
+            <span class="dim mono">
+              + {fmt(@summary.net_worth - List.first(@networth_history))}
+            </span>
             <span class="muted"> over 6 months</span>
           </div>
         </div>
@@ -69,33 +70,54 @@
         </div>
       </div>
 
-      <%!-- ── May spending vs budget ── --%>
+      <%!-- ── Current month spending ── --%>
       <div class="card span-7">
-        <div class="card-head">
-          <div class="card-title">May spending</div>
-          <div class="card-meta tnum mono">
-            <span class="dim">{fmt(@summary.month_expenses)}</span>
-            <span class="muted"> / {fmt(@summary.month_budget)}</span>
+        <div class="spending-period-summary">
+          <div>
+            <div class="label">{@spending_month} spending</div>
+            <div class="spending-period-amount tnum mono">
+              {fmt_cents(@spending.total_cents, @spending.currency)}
+            </div>
+          </div>
+          <div class="spending-period-comparison">
+            <div class="label">Compared with {@previous_spending_month}</div>
+            <div class="spending-period-amount tnum mono dim">
+              {fmt_cents(@previous_spending.total_cents, @previous_spending.currency)}
+            </div>
           </div>
         </div>
-        <div class={"budget-bar #{@budget_class}"} style="margin-bottom:14px">
+        <div class={"budget-bar #{@month_comparison_class}"} style="margin-bottom:14px">
           <div class="fill" style={"width:#{Float.round(@month_pct, 1)}%"}></div>
         </div>
-        <div style="margin-top:6px">
-          <%= for cat <- Enum.take(@cats_for_display, 6) do %>
-            <%
-              over = cat.spent > cat.budget
-              diff = cat.spent - cat.budget
-            %>
-            <div class="budget-row">
+        <div :if={@spending_categories == []} id="spending-empty" class="empty-state">
+          <div class="h">No categorized spending yet</div>
+          <div class="muted">Posted journal entries for this month will appear here.</div>
+        </div>
+        <div :if={@spending_categories != []} id="spending-categories" style="margin-top:6px">
+          <div class="budget-row spending-row spending-row-labels" aria-hidden="true">
+            <div class="name">Category</div>
+            <div class="num">{@spending_month}</div>
+            <div class="num">{@previous_spending_month}</div>
+            <div class="num">Change</div>
+          </div>
+          <%= for cat <- @spending_categories do %>
+            <div
+              class="budget-row spending-row"
+              data-category={cat.category}
+              data-total-cents={cat.total_cents}
+              data-previous-total-cents={cat.previous_total_cents}
+              data-delta-cents={cat.delta_cents}
+            >
               <div class="name">
                 <span class="cat-dot" style={"background:#{cat.color}"}></span>
-                {cat.name}
+                {cat.category}
               </div>
-              <div class={"num #{if over, do: "over", else: ""}"}>{fmt(cat.spent)}</div>
-              <div class="num dim">{fmt(cat.budget)}</div>
-              <div class={"num #{if over, do: "over", else: "dim"}"}>
-                {fmt_num(diff)}
+              <div class="num">{fmt_cents(cat.total_cents, @spending.currency)}</div>
+              <div class="num dim">
+                {fmt_cents(cat.previous_total_cents, @previous_spending.currency)}
+              </div>
+              <div class={["num", cat.delta_cents > 0 && "over", cat.delta_cents <= 0 && "dim"]}>
+                {fmt_cents_delta(cat.delta_cents)}
               </div>
             </div>
           <% end %>
@@ -106,28 +128,34 @@
       <div class="card span-5">
         <div class="card-head">
           <div class="card-title">Where it goes</div>
-          <div class="card-meta">May, by category</div>
+          <div class="card-meta">{@spending_month}, by category</div>
         </div>
-        <div class="donut-wrap">
+        <div :if={@spending_categories == []} id="spending-chart-empty" class="empty-state">
+          <div class="h">Nothing to chart</div>
+          <div class="muted">Categorize and post an entry to see the breakdown.</div>
+        </div>
+        <div :if={@spending_categories != []} id="spending-chart" class="donut-wrap">
           <div class="donut">
             <.donut_chart segments={@donut_segments} size={160} />
             <div class="donut-center">
               <div>
-                <div class="v">{fmt(@total_spent) |> String.trim_leading("€")}</div>
-                <div class="l">€ this month</div>
+                <div class="v">{fmt_cents(@spending.total_cents, @spending.currency)}</div>
+                <div class="l">this month</div>
               </div>
             </div>
           </div>
           <div class="cat-list">
-            <%= for cat <- Enum.take(@cats_for_display, 6) do %>
-              <div class="cat-list-row">
+            <%= for cat <- @spending_categories do %>
+              <div class="cat-list-row" data-category={cat.category}>
                 <div class="left">
                   <span class="cat-dot" style={"background:#{cat.color}"}></span>
-                  <span>{cat.name}</span>
-                  <span class="pct">{trunc(cat.spent / @total_spent * 100)}%</span>
+                  <span>{cat.category}</span>
+                  <span class="pct">
+                    {trunc(cat.total_cents / @spending.total_cents * 100)}%
+                  </span>
                 </div>
                 <div></div>
-                <div class="amt">{fmt(cat.spent)}</div>
+                <div class="amt">{fmt_cents(cat.total_cents, @spending.currency)}</div>
               </div>
             <% end %>
           </div>
@@ -140,8 +168,11 @@
           <div class="card-title">Quick add</div>
           <div class="card-meta">drop · paste · click</div>
         </div>
-        <%= live_render(@conn, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload") %>
-        <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:11.5px" class="muted">
+        {live_render(@conn, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
+        <div
+          style="display:flex;justify-content:space-between;margin-top:14px;font-size:11.5px"
+          class="muted"
+        >
           <span>This month: <span class="mono dim">{posted_count}</span> documents posted</span>
           <span class="mono">avg ~3.1s OCR</span>
         </div>
@@ -184,7 +215,6 @@
           <% end %>
         </div>
       </div>
-
     </div>
   </div>
 </div>

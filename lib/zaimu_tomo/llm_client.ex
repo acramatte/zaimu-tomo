@@ -55,6 +55,7 @@ defmodule ZaimuTomo.LLMClient do
     - If #{currency_hint()} is not present, choose the final amount charged or payable.
     - Put the chosen ISO 4217 currency code in currency.
     - Put the chosen amount in amount_to_pay_cents.
+    - Put invoice_date in ISO 8601 YYYY-MM-DD format.
     - Use reason_for_payment for a short payment description.
 
     OCR Text:

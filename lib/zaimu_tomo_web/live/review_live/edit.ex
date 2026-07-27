@@ -22,14 +22,36 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
         <div style="display:grid;gap:12px">
           <.input name="decision_data[issuer]" value={@decision_data.issuer || ""} label="Issuer" />
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <.input name="decision_data[invoice_number]" value={@decision_data.invoice_number || ""} label="Invoice #" />
-            <.input name="decision_data[invoice_date]" value={@decision_data.invoice_date || ""} label="Date" />
+            <.input
+              name="decision_data[invoice_number]"
+              value={@decision_data.invoice_number || ""}
+              label="Invoice #"
+            />
+            <.input
+              name="decision_data[invoice_date]"
+              value={@decision_data.invoice_date || ""}
+              label="Date"
+            />
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <.input name="decision_data[amount_to_pay_cents]" value={@decision_data.amount_to_pay_cents || ""} label="Amount (cents)" type="number" />
-            <.input name="decision_data[currency]" value={@decision_data.currency || ""} label="Currency" />
+            <.input
+              name="decision_data[amount_to_pay_cents]"
+              value={@decision_data.amount_to_pay_cents || ""}
+              label="Amount (cents)"
+              type="number"
+            />
+            <.input
+              name="decision_data[currency]"
+              value={@decision_data.currency || ""}
+              label="Currency"
+            />
           </div>
-          <.input name="decision_data[reason_for_payment]" value={@decision_data.reason_for_payment || ""} label="Reason for payment" type="textarea" />
+          <.input
+            name="decision_data[reason_for_payment]"
+            value={@decision_data.reason_for_payment || ""}
+            label="Reason for payment"
+            type="textarea"
+          />
           <.input field={@form[:review_notes]} label="Internal notes" type="textarea" />
         </div>
 
@@ -50,8 +72,9 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
       %Scope{user: user} ->
         case Review.get_review_decision(id, user.id) do
           {:ok, %ReviewDecision{} = review_decision} ->
-            decision_data = review_decision.original_data || %ZaimuTomo.DocumentProcessing.ExtractedData{}
-            
+            decision_data =
+              review_decision.original_data || %ZaimuTomo.DocumentProcessing.ExtractedData{}
+
             changeset = ReviewDecision.changeset_for_update(review_decision, %{})
 
             {:ok,
@@ -62,10 +85,11 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
              |> assign(:form, to_form(changeset))
              |> assign(:decision_data, decision_data)
              |> assign(:status_options, ["pending", "approved", "rejected", "amended"])}
-          
+
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
         end
+
       _ ->
         {:ok, put_flash(socket, :error, "Not authenticated") |> redirect(to: ~p"/")}
     end
@@ -83,8 +107,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
       case review_status do
         "approved" -> Review.approve_invoice(extracted_content_id, user_id, notes)
         "rejected" -> Review.reject_invoice(extracted_content_id, user_id, notes)
-        "amended"  -> Review.amend_invoice(extracted_content_id, user_id, decision_data, notes)
-        _          -> {:error, "Invalid status"}
+        "amended" -> Review.amend_invoice(extracted_content_id, user_id, decision_data, notes)
+        _ -> {:error, "Invalid status"}
       end
 
     case result do
@@ -92,7 +116,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
         {:noreply, redirect_to_journal_entry(socket, decision, "Review saved successfully")}
 
       {:ok, _} when review_status == "rejected" ->
-        {:noreply, socket |> put_flash(:info, "Review saved successfully") |> redirect(to: ~p"/reviews")}
+        {:noreply,
+         socket |> put_flash(:info, "Review saved successfully") |> redirect(to: ~p"/reviews")}
 
       {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -103,7 +128,17 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   end
 
   defp redirect_to_journal_entry(socket, decision, flash_msg) do
-    {:ok, entry} = Accounting.create_from_decision(decision)
-    socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
+    case Accounting.create_from_decision(decision) do
+      {:ok, entry} ->
+        socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
+
+      {:error, _changeset} ->
+        socket
+        |> put_flash(
+          :error,
+          "Could not create journal entry because the invoice date is missing or invalid"
+        )
+        |> redirect(to: ~p"/reviews/#{decision}")
+    end
   end
 end
