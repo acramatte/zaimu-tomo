@@ -1,11 +1,21 @@
 # ZaimuTomo
 
+ZaimuTomo is a Phoenix web application for AI-assisted bookkeeping and document processing. Authenticated users upload financial documents, run OCR, extract and verify invoice or receipt data with LLM backends, review the results, and turn approved data into accounting journal entries.
+
 To start your Phoenix server:
 
 * Run `mix setup` to install and setup dependencies
 * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+
+## Development database
+
+The application connects to PostgreSQL on `localhost:5432` by default. The bundled Compose service maps its database to host port `55432` to avoid collisions with other local projects, so run development commands with:
+
+```bash
+POSTGRES_PORT=55432 mix phx.server
+```
 
 ## AI/OCR configuration
 
