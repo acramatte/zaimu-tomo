@@ -22,21 +22,34 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
   def changeset(extracted_content, attrs) do
     extracted_content
     |> cast(attrs, [
-        :document_id,
-        :user_id,
-        :status,
-        :raw_llm_response,
-        :error_details,
-        :analysis
-      ])
-    |> cast_embed(:extracted_data, with: &ExtractedData.embedded_changeset/2)
+      :document_id,
+      :user_id,
+      :status,
+      :raw_llm_response,
+      :error_details,
+      :analysis
+    ])
     |> validate_required([:document_id, :status])
     |> validate_inclusion(:status, ["success", "failed"])
-    |> validate_embedded_data_size()
-    |> validate_extracted_data_for_status()
+    |> maybe_cast_extracted_data(attrs)
     |> foreign_key_constraint(:document_id)
     |> foreign_key_constraint(:user_id)
   end
+
+  defp maybe_cast_extracted_data(changeset, attrs) do
+    case status_from_attrs(attrs) do
+      "failed" ->
+        put_embed(changeset, :extracted_data, %ExtractedData{})
+
+      _ ->
+        changeset
+        |> cast_embed(:extracted_data, with: &ExtractedData.embedded_changeset/2)
+        |> validate_embedded_data_size()
+        |> validate_extracted_data_for_status()
+    end
+  end
+
+  defp status_from_attrs(attrs), do: Map.get(attrs, :status) || Map.get(attrs, "status")
 
   defp validate_extracted_data_for_status(changeset) do
     status = get_field(changeset, :status)
@@ -60,9 +73,12 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     extracted_data = get_field(changeset, :extracted_data)
 
     case extracted_data do
-      nil -> changeset
+      nil ->
+        changeset
+
       %ExtractedData{} = data ->
         size = byte_size(Jason.encode!(Map.from_struct(data)))
+
         if size <= 10_000_000 do
           changeset
         else

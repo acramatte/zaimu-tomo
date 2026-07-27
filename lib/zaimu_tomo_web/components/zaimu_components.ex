@@ -14,6 +14,24 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     "€#{sign}#{fmt_integer(euros)}.#{String.pad_leading(Integer.to_string(frac), 2, "0")}"
   end
 
+  def fmt_cents(nil, _currency), do: "—"
+
+  def fmt_cents(cents, currency) when is_integer(cents) do
+    units = div(abs(cents), 100)
+    fraction = rem(abs(cents), 100)
+    sign = if cents < 0, do: "−", else: ""
+
+    "#{currency} #{sign}#{fmt_integer(units)}.#{String.pad_leading(Integer.to_string(fraction), 2, "0")}"
+  end
+
+  def fmt_cents_delta(cents) when is_integer(cents) do
+    units = div(abs(cents), 100)
+    fraction = rem(abs(cents), 100)
+    sign = if cents < 0, do: "−", else: "+"
+
+    "#{sign}#{fmt_integer(units)}.#{String.pad_leading(Integer.to_string(fraction), 2, "0")}"
+  end
+
   def fmt_num(n) when is_number(n) do
     cents = round(n * 100)
     abs_cents = abs(cents)
@@ -64,7 +82,8 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
       <div>
         <div style="display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500">
           <span class="spinner"></span>
-          Reading <span class="mono">{List.first(@documents).filename}</span> · OCR + extraction
+          Reading <span class="mono">{List.first(@documents).filename}</span>
+          · OCR + extraction
           <span :if={length(@documents) > 1} class="muted">
             + {length(@documents) - 1} more
           </span>
@@ -72,7 +91,9 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
         <div class="muted" style="font-size:12px;margin-top:2px">
           Async pipeline · usually <code class="mono">~30s</code>
         </div>
-        <div class="progress"><div class="progress-fill"></div></div>
+        <div class="progress">
+          <div class="progress-fill"></div>
+        </div>
       </div>
     </div>
     """

@@ -19,8 +19,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
          {:ok, extracted_data} <- ZaimuTomo.LLMClient.extract_invoice(markdown),
-         :ok <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
-      persist_and_emit_success(document, extracted_data, raw_llm_response)
+         {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+      persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
     else
       {:error, reason} ->
         Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
@@ -28,8 +28,16 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end
   end
 
-  def persist_and_emit_success(document, extracted_data, raw_llm_response) do
-    analysis = %{"processed_at" => DateTime.utc_now()}
+  def persist_and_emit_success(
+        document,
+        extracted_data,
+        raw_llm_response,
+        verification \\ %{"status" => "not_run"}
+      ) do
+    analysis = %{
+      "processed_at" => DateTime.utc_now(),
+      "verification" => verification
+    }
 
     extraction_params = %{
       document_id: document.id,
@@ -72,8 +80,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       "timestamp" => DateTime.utc_now()
     }
 
-    # For failed extractions, we'll let the changeset handle validation
-    # Pass empty map and let ExtractedData changeset validate required fields
+    # Failed extractions persist an empty extracted-data embed because invoice
+    # fields are unavailable when processing does not complete.
     extraction_params = %{
       document_id: document.id,
       user_id: document.user_id,

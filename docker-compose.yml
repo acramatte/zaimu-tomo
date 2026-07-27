@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: zaimu_tomo_dev
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       # NOTE: in 18+, PGDATA has changed to match the pg_ctlcluster standard directory structure, and the VOLUME has moved from /var/lib/postgresql/data to /var/lib/postgresql
       # see https://github.com/docker-library/postgres/blob/22ca5c8d8e4b37bece4d38dbce1a060583b5308a/18/alpine3.22/Dockerfile#L196

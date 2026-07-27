@@ -45,28 +45,56 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             <a class="btn sm" href={~p"/reviews/#{@review_decision}/edit"}>Amend</a>
           </div>
         </div>
-        <div class="detail-row" style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px">
+        <div
+          class="detail-row"
+          style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px"
+        >
           <div class="name muted">Amount</div>
           <div class="num" style="font-size:20px;font-weight:600">
-            {if @effective_data.amount_to_pay_cents, do: fmt(@effective_data.amount_to_pay_cents / 100), else: "—"}
+            {if @effective_data.amount_to_pay_cents,
+              do: fmt(@effective_data.amount_to_pay_cents / 100),
+              else: "—"}
           </div>
         </div>
-        <div class="detail-row"><div class="name muted">Issuer</div><div>{@effective_data.issuer || "—"}</div></div>
-        <div class="detail-row"><div class="name muted">Date</div><div>{@effective_data.invoice_date || "—"}</div></div>
-        <div class="detail-row"><div class="name muted">Invoice #</div><div class="mono dim">{@effective_data.invoice_number || "—"}</div></div>
-        <div class="detail-row"><div class="name muted">Currency</div><div>{@effective_data.currency || "—"}</div></div>
-        <div class="detail-row"><div class="name muted">Reason</div><div>{@effective_data.reason_for_payment || "—"}</div></div>
-        <div :if={@review_decision.review_notes} class="detail-row" style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:10px">
+        <div class="detail-row">
+          <div class="name muted">Issuer</div>
+          <div>{@effective_data.issuer || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name muted">Date</div>
+          <div>{@effective_data.invoice_date || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name muted">Invoice #</div>
+          <div class="mono dim">{@effective_data.invoice_number || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name muted">Currency</div>
+          <div>{@effective_data.currency || "—"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="name muted">Reason</div>
+          <div>{@effective_data.reason_for_payment || "—"}</div>
+        </div>
+        <div
+          :if={@review_decision.review_notes}
+          class="detail-row"
+          style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:10px"
+        >
           <div class="name muted">Notes</div>
           <div>{@review_decision.review_notes}</div>
         </div>
       </div>
 
       <div class="card span-5">
-        <div class="card-head"><div class="card-title">Decision</div></div>
+        <div class="card-head">
+          <div class="card-title">Decision</div>
+        </div>
         <div class="detail-row">
           <div class="name muted">Submitted</div>
-          <div>{ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@review_decision.inserted_at))}</div>
+          <div>
+            {ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@review_decision.inserted_at))}
+          </div>
         </div>
         <%= if @review_decision.review_status == "pending" do %>
           <div style="margin-top:16px;display:flex;gap:8px">
@@ -112,8 +140,18 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   defp redirect_to_journal_entry(socket, decision, flash_msg) do
-    {:ok, entry} = Accounting.create_from_decision(decision)
-    socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
+    case Accounting.create_from_decision(decision) do
+      {:ok, entry} ->
+        socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
+
+      {:error, _changeset} ->
+        socket
+        |> put_flash(
+          :error,
+          "Could not create journal entry because the invoice date is missing or invalid"
+        )
+        |> redirect(to: ~p"/reviews/#{decision}")
+    end
   end
 
   defp review_title(%ReviewDecision{} = rd) do

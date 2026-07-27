@@ -5,6 +5,7 @@ defmodule ZaimuTomo.LLMClient do
   require Logger
 
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.DocumentProcessing.VerificationResult
 
   @backends [:ollama, :flm, :mistral]
 
@@ -54,6 +55,7 @@ defmodule ZaimuTomo.LLMClient do
     - If #{currency_hint()} is not present, choose the final amount charged or payable.
     - Put the chosen ISO 4217 currency code in currency.
     - Put the chosen amount in amount_to_pay_cents.
+    - Put invoice_date in ISO 8601 YYYY-MM-DD format.
     - Use reason_for_payment for a short payment description.
 
     OCR Text:
@@ -118,21 +120,34 @@ defmodule ZaimuTomo.LLMClient do
   @doc """
   Verifies extraction against the markdown using the configured verifier backend.
   """
-  @spec verify_extraction(String.t(), extraction_payload() | term()) :: :ok | {:error, term()}
+  @spec verify_extraction(String.t(), extraction_payload() | term()) ::
+          {:ok, map()} | {:error, term()}
   def verify_extraction(markdown, json_data) do
     with {:ok, json_payload} <- normalize_json_data(json_data) do
       config = backend_config!(:verifier)
       model = req_llm_model!(config)
-      opts = req_llm_opts(config)
+      opts = Keyword.merge(req_llm_opts(config), max_tokens: 300)
       Logger.info("[LLM] Verifying extraction with #{backend_summary(:verifier, config)}")
+
+      schema = [
+        status: [type: :string, required: true],
+        reason: [type: :string, required: true],
+        field_issues: [type: :string, required: false]
+      ]
 
       prompt = """
       You are an extraction verification judge.
       Verify if the extracted JSON data is fully grounded in the source OCR markdown.
-      Reply with exactly one of these statuses:
-      - VERIFIED: every extracted value is directly supported by the source OCR markdown.
-      - NEEDS_REVIEW: the extraction is plausible but the source OCR markdown is ambiguous or incomplete.
-      - REJECTED: any extracted value is hallucinated, contradicted, or incorrect.
+
+      Return structured output with:
+      - status: one of verified, needs_review, rejected
+      - reason: a concise explanation for the decision
+      - field_issues: optional comma-separated field names that are ambiguous, contradicted, or unsupported
+
+      Status rules:
+      - verified: every extracted value is directly supported by the source OCR markdown.
+      - needs_review: the extraction is plausible but the source OCR markdown is ambiguous or incomplete.
+      - rejected: any extracted value is hallucinated, contradicted, or incorrect.
 
       Extracted JSON:
       #{Jason.encode!(json_payload)}
@@ -141,49 +156,79 @@ defmodule ZaimuTomo.LLMClient do
       #{markdown}
       """
 
-      case ReqLLM.generate_text(model, prompt, opts) do
+      case ReqLLM.generate_object(model, prompt, schema, opts) do
         {:ok, response} ->
-          result =
-            response
-            |> ReqLLM.Response.text()
-            |> verification_result()
+          raw_object = ReqLLM.Response.object(response)
 
-          case result do
-            :ok ->
+          case verification_result(raw_object) do
+            {:ok, %{"status" => "verified"} = verification} ->
               Logger.info(
-                "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}"
+                "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
               )
+
+              {:ok, verification}
+
+            {:ok, %{"status" => status} = verification} ->
+              Logger.warning(
+                "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
+              )
+
+              {:ok, verification}
 
             {:error, reason} ->
-              Logger.error(
-                "[LLM] Extraction verification rejected output with #{backend_summary(:verifier, config)}: #{inspect(reason)}"
-              )
-          end
+              raw_response = verifier_response_payload(response, raw_object)
 
-          result
+              Logger.error(
+                "[LLM] Extraction verification returned invalid structured output with #{backend_summary(:verifier, config)}: #{inspect(raw_response)} (#{inspect(reason)})"
+              )
+
+              {:ok, verification_failure_result(raw_response, reason)}
+          end
 
         {:error, reason} ->
           Logger.error(
             "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(reason)}"
           )
 
-          {:error, reason}
+          {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}
       end
     end
   end
 
   @doc false
-  @spec verification_result(String.t() | nil | term()) :: :ok | {:error, :verification_failed}
-  def verification_result(text) when is_binary(text) do
-    case text |> String.trim() |> String.upcase() do
-      "VERIFIED" -> :ok
-      "NEEDS_REVIEW" -> {:error, :verification_failed}
-      "REJECTED" -> {:error, :verification_failed}
-      _ -> {:error, :verification_failed}
+  @spec verification_result(map() | term()) :: {:ok, map()} | {:error, :verification_failed}
+  def verification_result(%{} = data) do
+    case VerificationResult.parse(data) do
+      {:ok, result} -> {:ok, result}
+      {:error, _changeset} -> {:error, :verification_failed}
     end
   end
 
-  def verification_result(_text), do: {:error, :verification_failed}
+  def verification_result(_data), do: {:error, :verification_failed}
+
+  @doc false
+  @spec verifier_response_payload(ReqLLM.Response.t(), term()) :: map()
+  def verifier_response_payload(response, raw_object) do
+    %{
+      "raw_object" => raw_object,
+      "text" => ReqLLM.Response.text(response),
+      "tool_calls" => ReqLLM.Response.tool_calls(response),
+      "finish_reason" => response.finish_reason,
+      "provider_meta" => response.provider_meta,
+      "usage" => response.usage
+    }
+  end
+
+  @doc false
+  @spec verification_failure_result(term(), term()) :: map()
+  def verification_failure_result(raw_response, reason) do
+    %{
+      "status" => "verification_failed",
+      "reason" => "Verifier did not return valid structured output.",
+      "raw_response" => raw_response,
+      "error" => inspect(reason)
+    }
+  end
 
   @doc false
   @spec backend_for(role()) :: backend()
@@ -232,8 +277,8 @@ defmodule ZaimuTomo.LLMClient do
     })
   end
 
-  @spec req_llm_opts(backend_config()) :: keyword(String.t())
-  defp req_llm_opts(config), do: [api_key: Keyword.fetch!(config, :api_key)]
+  @spec req_llm_opts(backend_config()) :: keyword()
+  defp req_llm_opts(config), do: [api_key: Keyword.fetch!(config, :api_key), temperature: 0.0]
 
   @spec backend_summary(role(), backend_config()) :: String.t()
   defp backend_summary(role, config) do

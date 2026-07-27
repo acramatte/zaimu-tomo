@@ -38,7 +38,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
       :invoice_number,
       :status
     ])
-    |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency])
+    |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency, :date])
     |> validate_inclusion(:status, ["uncategorized", "posted"])
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)
