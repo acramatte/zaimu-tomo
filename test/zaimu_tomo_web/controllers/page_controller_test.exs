@@ -80,6 +80,29 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert has_element?(document, "#spending-chart-empty")
   end
 
+  test "GET / renders a zero-total state instead of a donut for offsetting entries", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    today = Date.utc_today()
+
+    for {amount_cents, category} <- [{5_000, "Software"}, {-5_000, "Refund"}] do
+      entry = create_entry(scope, user)
+
+      entry
+      |> Ecto.Changeset.change(date: today, amount_cents: amount_cents, currency: "CHF")
+      |> Repo.update!()
+      |> Accounting.post_entry(user.id, category, "need")
+    end
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+
+    assert has_element?(document, "#spending-categories")
+    assert has_element?(document, "#spending-chart-zero-total")
+    refute has_element?(document, "#spending-chart")
+  end
+
   test "GET / groups categories beyond the visible limit into Other for both spending views", %{
     conn: conn,
     scope: scope,

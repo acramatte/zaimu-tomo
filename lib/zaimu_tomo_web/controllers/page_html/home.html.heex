@@ -134,7 +134,19 @@ posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
           <div class="h">Nothing to chart</div>
           <div class="muted">Categorize and post an entry to see the breakdown.</div>
         </div>
-        <div :if={@spending_categories != []} id="spending-chart" class="donut-wrap">
+        <div
+          :if={@spending_categories != [] and @spending.total_cents <= 0}
+          id="spending-chart-zero-total"
+          class="empty-state"
+        >
+          <div class="h">Nothing to chart</div>
+          <div class="muted">Categorized entries net to zero or a credit this month.</div>
+        </div>
+        <div
+          :if={@spending_categories != [] and @spending.total_cents > 0}
+          id="spending-chart"
+          class="donut-wrap"
+        >
           <div class="donut">
             <.donut_chart segments={@donut_segments} size={160} />
             <div class="donut-center">
