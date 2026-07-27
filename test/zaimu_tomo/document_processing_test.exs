@@ -1,8 +1,9 @@
 defmodule ZaimuTomo.DocumentProcessingTest do
-  use ZaimuTomo.DataCase, async: true
+  use ZaimuTomo.DataCase, async: false
 
   alias ZaimuTomo.DocumentProcessing
-  alias ZaimuTomo.Documents
+  alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.AccountsFixtures
 
   describe "document processing workflow" do
@@ -26,11 +27,16 @@ defmodule ZaimuTomo.DocumentProcessingTest do
       scope = AccountsFixtures.user_scope_fixture()
 
       # Create a test document
-      {:ok, document} =
-        Documents.create_document(scope, %{
-          filename: "test_invoice.pdf",
-          filepath: "uploads/test_invoice.pdf"
-        })
+      document =
+        %Document{}
+        |> Document.changeset(
+          %{
+            filename: "test_invoice.pdf",
+            filepath: "uploads/test_invoice.pdf"
+          },
+          scope
+        )
+        |> Repo.insert!()
 
       # Verify the document was created
       assert document.filename == "test_invoice.pdf"
@@ -40,7 +46,10 @@ defmodule ZaimuTomo.DocumentProcessingTest do
       # (the task itself will handle the file not found error)
       result = DocumentProcessing.process_document(document)
       # Should start task successfully
-      assert match?({:ok, _pid}, result)
+      assert {:ok, pid} = result
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
     end
   end
 
