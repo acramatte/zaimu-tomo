@@ -331,6 +331,9 @@ defmodule ZaimuTomoWeb.PageController do
     cash_accounts =
       FinancialAccounts.list_cash_accounts_with_latest_balance(conn.assigns.current_scope)
 
+    investment_accounts =
+      FinancialAccounts.list_investment_accounts_with_latest_balance(conn.assigns.current_scope)
+
     savings_accounts =
       FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
 
@@ -349,6 +352,7 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:page_title, "Dashboard")
     |> assign(:summary, @summary)
     |> assign(:cash_accounts, cash_accounts)
+    |> assign(:investment_accounts, investment_accounts)
     |> assign(:savings_accounts, savings_accounts)
     |> assign(:networth_history, @networth_history)
     |> assign(:categories, @categories)
