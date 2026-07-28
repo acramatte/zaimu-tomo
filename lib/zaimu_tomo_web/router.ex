@@ -64,6 +64,9 @@ defmodule ZaimuTomoWeb.Router do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
 
+      live "/accounts", FinancialAccountLive.Index, :index
+      live "/accounts/:id", FinancialAccountLive.Show, :show
+
       live "/activity", ActivityLive.Index, :index
 
       live "/documents", DocumentLive.Index, :index

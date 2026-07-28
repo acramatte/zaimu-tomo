@@ -59,8 +59,13 @@ posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
           </div>
           <div class="hero-stat">
             <div class="label">Savings</div>
-            <div class="v">{fmt(@summary.savings)}</div>
-            <div class="delta up">▲ €100 wk</div>
+            <div :if={@savings_accounts == []} class="v">—</div>
+            <div :if={@savings_accounts == []} class="delta muted">Add a savings account</div>
+            <div :for={%{account: account, balance_snapshot: snapshot} <- @savings_accounts} id={"dashboard-savings-#{account.id}"}>
+              <div class="v">{if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}</div>
+              <div class="delta muted">{account.name}{if snapshot, do: " · #{snapshot.recorded_on}", else: " · no balance"}</div>
+            </div>
+            <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
           </div>
           <div class="hero-stat">
             <div class="label">Projected EoM</div>
