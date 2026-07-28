@@ -1,7 +1,7 @@
 defmodule ZaimuTomoWeb.PageController do
   use ZaimuTomoWeb, :controller
 
-  alias ZaimuTomo.Accounting
+  alias ZaimuTomo.{Accounting, FinancialAccounts}
 
   @category_colors [
     "oklch(0.55 0.08 240)",
@@ -327,6 +327,7 @@ defmodule ZaimuTomoWeb.PageController do
 
     spending = Accounting.monthly_spending(conn.assigns.current_scope, today)
     previous_spending = Accounting.monthly_spending(conn.assigns.current_scope, previous_month)
+    savings_accounts = FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
 
     spending_categories =
       spending.categories
@@ -342,6 +343,7 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:current_path, "/")
     |> assign(:page_title, "Dashboard")
     |> assign(:summary, @summary)
+    |> assign(:savings_accounts, savings_accounts)
     |> assign(:networth_history, @networth_history)
     |> assign(:categories, @categories)
     |> assign(:spending, spending)

@@ -36,6 +36,12 @@
           </svg>
           Dashboard
         </.nav_item>
+        <.nav_item navigate={~p"/accounts"} current_path={@current_path}>
+          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 13h12M4 13V7M7 13V4M10 13V9M13 13V6" />
+          </svg>
+          Accounts
+        </.nav_item>
         <.nav_item navigate={~p"/activity"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 8h2.5l1.5-4 3 8 1.5-4H14" />
@@ -77,7 +83,7 @@
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="8" cy="6" r="3" /><path d="M2.5 14a5.5 5.5 0 0 1 11 0" />
           </svg>
-          Account
+          Settings
         </.nav_item>
         <.nav_item current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">

@@ -2,6 +2,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
   use ZaimuTomoWeb.ConnCase
 
   import ZaimuTomo.ReviewFixtures
+  import ZaimuTomo.FinancialAccountsFixtures
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Documents.Document
@@ -78,6 +79,17 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
     assert has_element?(document, "#spending-empty")
     assert has_element?(document, "#spending-chart-empty")
+  end
+
+  test "GET / renders the latest savings account balance in its source currency", %{conn: conn, scope: scope} do
+    account = financial_account_fixture(scope, %{name: "Emergency fund", currency: "USD", amount_cents: 12_345})
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#dashboard-savings-#{account.id}")
+    assert html =~ "USD 123.45"
+    assert html =~ "Emergency fund"
   end
 
   test "GET / renders a zero-total state instead of a donut for offsetting entries", %{
