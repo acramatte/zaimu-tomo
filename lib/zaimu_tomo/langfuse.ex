@@ -66,6 +66,7 @@ defmodule ZaimuTomo.Langfuse do
   defp initial_attributes(document_id, user_id) do
     %{
       "langfuse.trace.name" => "process-invoice",
+      "langfuse.environment" => environment(),
       "langfuse.user.id" => to_string(user_id),
       "langfuse.release" => application_version(),
       "langfuse.trace.tags" => ["document-processing", environment()],
@@ -78,6 +79,7 @@ defmodule ZaimuTomo.Langfuse do
   defp generation_attributes(model, prompt) do
     %{
       "langfuse.observation.type" => "generation",
+      "langfuse.environment" => environment(),
       "langfuse.observation.model.name" => model,
       "gen_ai.request.model" => model,
       "langfuse.observation.input" => encode_json(%{"prompt" => prompt})
@@ -104,16 +106,28 @@ defmodule ZaimuTomo.Langfuse do
           "text" => ReqLLM.Response.text(response)
         }),
       "gen_ai.usage.input_tokens" => usage_value(response, :input),
-      "gen_ai.usage.output_tokens" => usage_value(response, :output)
+      "gen_ai.usage.output_tokens" => usage_value(response, :output),
+      "gen_ai.usage.cost" => usage_value(response, :total_cost)
     }
     |> compact_attributes()
   end
 
-  defp usage_value(response, key) do
+  defp usage_value(response, :total_cost) do
+    usage = Map.get(response, :usage, %{})
+
+    Map.get(usage, :total_cost) || Map.get(usage, "total_cost")
+  end
+
+  defp usage_value(response, key) when key in [:input, :output] do
     usage = Map.get(response, :usage, %{})
     tokens = Map.get(usage, :tokens, usage)
 
-    Map.get(tokens, key) || Map.get(tokens, "#{key}_tokens")
+    token_key = if key == :input, do: :input_tokens, else: :output_tokens
+
+    Map.get(tokens, key) ||
+      Map.get(tokens, "#{key}") ||
+      Map.get(tokens, token_key) ||
+      Map.get(tokens, "#{key}_tokens")
   end
 
   defp record_result(span, {:ok, %{status: "success"}}) do
