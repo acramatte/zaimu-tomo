@@ -46,6 +46,51 @@ config :zaimu_tomo, :flm,
   model: System.get_env("FLM_MODEL", "gemma4-it:e4b"),
   api_key: System.get_env("FLM_API_KEY", "ollama")
 
+langfuse_public_key = System.get_env("LANGFUSE_PUBLIC_KEY")
+langfuse_secret_key = System.get_env("LANGFUSE_SECRET_KEY")
+
+langfuse_enabled? =
+  case {langfuse_public_key, langfuse_secret_key} do
+    {nil, nil} ->
+      false
+
+    {"", ""} ->
+      false
+
+    {public_key, secret_key} when is_binary(public_key) and is_binary(secret_key) ->
+      true
+
+    _ ->
+      raise "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must either both be set or both be unset"
+  end
+
+config :zaimu_tomo, :langfuse,
+  enabled: langfuse_enabled?,
+  environment: Atom.to_string(config_env())
+
+if langfuse_enabled? do
+  langfuse_host =
+    System.get_env("LANGFUSE_HOST", "https://cloud.langfuse.com") |> String.trim_trailing("/")
+
+  langfuse_authorization = Base.encode64("#{langfuse_public_key}:#{langfuse_secret_key}")
+
+  config :opentelemetry, :processors,
+    otel_batch_processor: %{
+      exporter:
+        {:opentelemetry_exporter,
+         %{
+           # `opentelemetry_exporter` appends `/v1/traces` to configured endpoints.
+           endpoints: ["#{langfuse_host}/api/public/otel"],
+           headers: [
+             {"authorization", "Basic #{langfuse_authorization}"},
+             {"x-langfuse-ingestion-version", "4"}
+           ]
+         }}
+    }
+else
+  config :opentelemetry, traces_exporter: :none
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

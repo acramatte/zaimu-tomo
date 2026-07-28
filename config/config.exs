@@ -48,6 +48,10 @@ config :zaimu_tomo, :flm,
   model: "gemma4-it:e4b",
   api_key: "ollama"
 
+config :zaimu_tomo, :langfuse,
+  enabled: false,
+  environment: "development"
+
 # Configure the endpoint
 config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   url: [host: "localhost"],
