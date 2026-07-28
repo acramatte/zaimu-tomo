@@ -62,10 +62,14 @@ env:
     AI_CURRENCY_HINT: "CHF"
     MISTRAL_URL: "https://api.mistral.ai/v1"
     MISTRAL_LLM_MODEL: "mistral-small-latest"
+    LANGFUSE_HOST: <%= ENV.fetch("LANGFUSE_HOST", "https://cloud.langfuse.com") %>
+    OTEL_SERVICE_NAME: "zaimu-tomo"
   secret:
     - SECRET_KEY_BASE
     - DATABASE_URL
     - MISTRAL_API_KEY
+    - LANGFUSE_PUBLIC_KEY
+    - LANGFUSE_SECRET_KEY
 
 # Uploaded documents are written under :code.priv_dir(:zaimu_tomo)/uploads.
 # This path includes the application version from mix.exs; update it when bumping the release version.

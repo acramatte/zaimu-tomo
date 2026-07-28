@@ -42,6 +42,8 @@ defmodule ZaimuTomo.MixProject do
   defp deps do
     [
       {:bcrypt_elixir, "~> 3.0"},
+      {:opentelemetry_exporter, "~> 1.10"},
+      {:opentelemetry, "~> 1.7"},
       {:phoenix, "~> 1.8.3"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},

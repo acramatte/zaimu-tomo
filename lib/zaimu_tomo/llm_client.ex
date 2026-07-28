@@ -6,6 +6,7 @@ defmodule ZaimuTomo.LLMClient do
 
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.VerificationResult
+  alias ZaimuTomo.Langfuse
 
   @backends [:ollama, :flm, :mistral]
 
@@ -62,7 +63,9 @@ defmodule ZaimuTomo.LLMClient do
     #{markdown}
     """
 
-    case ReqLLM.generate_object(model, prompt, schema, opts) do
+    case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
+           ReqLLM.generate_object(model, prompt, schema, opts)
+         end) do
       {:ok, response} ->
         response
         |> ReqLLM.Response.object()
@@ -156,7 +159,9 @@ defmodule ZaimuTomo.LLMClient do
       #{markdown}
       """
 
-      case ReqLLM.generate_object(model, prompt, schema, opts) do
+      case Langfuse.trace_llm_generation("verify-extraction", model.id, prompt, fn ->
+             ReqLLM.generate_object(model, prompt, schema, opts)
+           end) do
         {:ok, response} ->
           raw_object = ReqLLM.Response.object(response)
 
@@ -278,7 +283,13 @@ defmodule ZaimuTomo.LLMClient do
   end
 
   @spec req_llm_opts(backend_config()) :: keyword()
-  defp req_llm_opts(config), do: [api_key: Keyword.fetch!(config, :api_key), temperature: 0.0]
+  defp req_llm_opts(config) do
+    [
+      api_key: Keyword.fetch!(config, :api_key),
+      temperature: 0.0,
+      telemetry: [payloads: :none]
+    ]
+  end
 
   @spec backend_summary(role(), backend_config()) :: String.t()
   defp backend_summary(role, config) do

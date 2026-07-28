@@ -7,6 +7,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   use Task
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Review
   require Logger
 
@@ -15,17 +16,19 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   end
 
   def process(%{filepath: filepath} = document) do
-    full_path = build_document_path(filepath)
+    Langfuse.trace_document_processing(document, fn ->
+      full_path = build_document_path(filepath)
 
-    with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
-         {:ok, extracted_data} <- ZaimuTomo.LLMClient.extract_invoice(markdown),
-         {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
-      persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
-    else
-      {:error, reason} ->
-        Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
-        persist_and_emit_failure(document, reason)
-    end
+      with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
+           {:ok, extracted_data} <- ZaimuTomo.LLMClient.extract_invoice(markdown),
+           {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+        persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
+      else
+        {:error, reason} ->
+          Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
+          persist_and_emit_failure(document, reason)
+      end
+    end)
   end
 
   def persist_and_emit_success(
