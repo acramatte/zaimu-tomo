@@ -140,6 +140,26 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "Brokerage"
   end
 
+  test "GET / renders net worth grouped by source currency", %{conn: conn, scope: scope} do
+    financial_account_fixture(scope, %{name: "Savings", amount_cents: 12_345})
+    financial_account_fixture(scope, %{name: "Wallet", account_type: :cash, amount_cents: 10_000})
+
+    financial_account_fixture(scope, %{
+      name: "Brokerage",
+      account_type: :investment,
+      currency: "USD",
+      amount_cents: 5_000
+    })
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#dashboard-net-worth-EUR")
+    assert has_element?(document, "#dashboard-net-worth-USD")
+    assert html =~ "EUR 223.45"
+    assert html =~ "USD 50.00"
+  end
+
   test "GET / renders a zero-total state instead of a donut for offsetting entries", %{
     conn: conn,
     scope: scope,

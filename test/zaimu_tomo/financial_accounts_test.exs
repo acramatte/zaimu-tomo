@@ -98,6 +98,29 @@ defmodule ZaimuTomo.FinancialAccountsTest do
              FinancialAccounts.list_investment_accounts_with_latest_balance(scope)
   end
 
+  test "groups the latest account balances by their source currency for net worth" do
+    scope = user_scope_fixture()
+    eur_account = financial_account_fixture(scope, %{name: "Savings", amount_cents: 12_345})
+    financial_account_fixture(scope, %{name: "Wallet", account_type: :cash, amount_cents: 10_000})
+
+    financial_account_fixture(scope, %{
+      name: "Brokerage",
+      account_type: :investment,
+      currency: "USD",
+      amount_cents: 5_000
+    })
+
+    balance_snapshot_fixture(scope, eur_account, %{
+      amount_cents: 20_000,
+      recorded_on: ~D[2026-07-29]
+    })
+
+    assert [
+             %{currency: "EUR", total_cents: 30_000, account_count: 2},
+             %{currency: "USD", total_cents: 5_000, account_count: 1}
+           ] = FinancialAccounts.list_net_worth_by_currency(scope)
+  end
+
   test "records balance snapshots only for the account owner" do
     scope = user_scope_fixture()
     other_scope = user_scope_fixture()

@@ -32,6 +32,21 @@ defmodule ZaimuTomo.FinancialAccounts do
     end)
   end
 
+  def list_net_worth_by_currency(%Scope{} = scope) do
+    scope
+    |> list_financial_accounts_with_latest_balance()
+    |> Enum.reject(&is_nil(&1.balance_snapshot))
+    |> Enum.group_by(& &1.account.currency)
+    |> Enum.map(fn {currency, accounts} ->
+      %{
+        currency: currency,
+        total_cents: Enum.sum_by(accounts, & &1.balance_snapshot.amount_cents),
+        account_count: length(accounts)
+      }
+    end)
+    |> Enum.sort_by(& &1.currency)
+  end
+
   def list_savings_accounts_with_latest_balance(%Scope{} = scope) do
     scope
     |> list_financial_accounts_with_latest_balance()

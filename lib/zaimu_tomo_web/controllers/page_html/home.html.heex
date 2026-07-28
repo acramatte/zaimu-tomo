@@ -1,19 +1,4 @@
-<% nw = @summary.net_worth
-nw_whole = nw |> trunc() |> abs()
-nw_cents = round((nw - trunc(nw)) * 100) |> abs()
-nw_sign = if nw < 0, do: "−", else: ""
-
-nw_w =
-  nw_whole
-  |> Integer.to_string()
-  |> String.graphemes()
-  |> Enum.reverse()
-  |> Enum.chunk_every(3)
-  |> Enum.join(",")
-  |> String.reverse()
-
-nw_c = String.pad_leading(Integer.to_string(nw_cents), 2, "0")
-posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
+<% posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
 
 <h1 class="view-title">
   Good morning, Sora <span class="accent">—</span> the books are quiet today.
@@ -31,20 +16,15 @@ posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
       <div class="card span-12">
         <div class="card-head" style="margin-bottom:6px">
           <div class="label">Net worth</div>
-          <div class="card-meta">
-            <span class="dim mono">
-              + {fmt(@summary.net_worth - List.first(@networth_history))}
-            </span>
-            <span class="muted"> over 6 months</span>
-          </div>
+          <div class="card-meta">Latest account balances, grouped by source currency</div>
         </div>
-        <div class="hero-num">
-          <span class="cur">€{nw_sign}</span>
-          <span>{nw_w}</span>
-          <span class="cents">.{nw_c}</span>
+        <div :if={@net_worth_by_currency == []} class="empty-state" id="dashboard-net-worth-empty">
+          <div class="h">No account balances yet</div>
+          <div class="muted">Add an account and its balance to see net worth.</div>
         </div>
-        <div style="margin-top:10px">
-          <.sparkline values={@networth_history} w={800} h={56} />
+        <div :for={total <- @net_worth_by_currency} class="hero-num" id={"dashboard-net-worth-#{total.currency}"}>
+          <span>{fmt_cents(total.total_cents, total.currency)}</span>
+          <span class="cents"> · {total.account_count} account{if total.account_count == 1, do: "", else: "s"}</span>
         </div>
         <div class="hero-row">
           <div class="hero-stat">
