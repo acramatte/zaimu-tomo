@@ -280,46 +280,7 @@ defmodule ZaimuTomoWeb.PageController do
     %{d: 3, m: "JUN", name: "Tax prepayment Q2", sub: "Scheduled", amt: 482.00}
   ]
 
-  @networth_history [
-    41_200,
-    41_850,
-    41_100,
-    42_400,
-    43_020,
-    43_180,
-    43_900,
-    43_700,
-    44_320,
-    44_600,
-    45_100,
-    44_800,
-    45_400,
-    45_900,
-    46_300,
-    46_150,
-    46_700,
-    47_100,
-    46_900,
-    47_350,
-    47_500,
-    47_200,
-    47_600,
-    47_900,
-    47_720,
-    47_328
-  ]
-
-  @summary %{
-    net_worth: 47_328.42,
-    cash: 8_978.42,
-    investments: 18_450.00,
-    savings: 19_900.00,
-    month_income: 4_280.00,
-    month_expenses: 1_914.27,
-    month_budget: 2_240.00,
-    month_delta: 325.73,
-    projection_eom: 47_640.00
-  }
+  @summary %{projection_eom: 47_640.00}
 
   def home(conn, _params) do
     today = Date.utc_today()
@@ -336,6 +297,9 @@ defmodule ZaimuTomoWeb.PageController do
 
     savings_accounts =
       FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
+
+    net_worth_by_currency =
+      FinancialAccounts.list_net_worth_by_currency(conn.assigns.current_scope)
 
     spending_categories =
       spending.categories
@@ -354,7 +318,7 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:cash_accounts, cash_accounts)
     |> assign(:investment_accounts, investment_accounts)
     |> assign(:savings_accounts, savings_accounts)
-    |> assign(:networth_history, @networth_history)
+    |> assign(:net_worth_by_currency, net_worth_by_currency)
     |> assign(:categories, @categories)
     |> assign(:spending, spending)
     |> assign(:previous_spending, previous_spending)
