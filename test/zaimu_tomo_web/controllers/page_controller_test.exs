@@ -81,8 +81,16 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert has_element?(document, "#spending-chart-empty")
   end
 
-  test "GET / renders the latest savings account balance in its source currency", %{conn: conn, scope: scope} do
-    account = financial_account_fixture(scope, %{name: "Emergency fund", currency: "USD", amount_cents: 12_345})
+  test "GET / renders the latest savings account balance in its source currency", %{
+    conn: conn,
+    scope: scope
+  } do
+    account =
+      financial_account_fixture(scope, %{
+        name: "Emergency fund",
+        currency: "USD",
+        amount_cents: 12_345
+      })
 
     document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
     html = LazyHTML.to_html(document)
@@ -90,6 +98,26 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert has_element?(document, "#dashboard-savings-#{account.id}")
     assert html =~ "USD 123.45"
     assert html =~ "Emergency fund"
+  end
+
+  test "GET / renders the latest cash account balance in its source currency", %{
+    conn: conn,
+    scope: scope
+  } do
+    account =
+      financial_account_fixture(scope, %{
+        name: "Travel wallet",
+        account_type: :cash,
+        currency: "CHF",
+        amount_cents: 9_876
+      })
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#dashboard-cash-#{account.id}")
+    assert html =~ "CHF 98.76"
+    assert html =~ "Travel wallet"
   end
 
   test "GET / renders a zero-total state instead of a donut for offsetting entries", %{

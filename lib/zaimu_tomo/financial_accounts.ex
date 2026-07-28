@@ -38,6 +38,12 @@ defmodule ZaimuTomo.FinancialAccounts do
     |> Enum.filter(&(&1.account.account_type == :savings))
   end
 
+  def list_cash_accounts_with_latest_balance(%Scope{} = scope) do
+    scope
+    |> list_financial_accounts_with_latest_balance()
+    |> Enum.filter(&(&1.account.account_type == :cash))
+  end
+
   def get_financial_account!(%Scope{} = scope, id) do
     Repo.get_by!(FinancialAccount, id: id, user_id: scope.user.id)
   end

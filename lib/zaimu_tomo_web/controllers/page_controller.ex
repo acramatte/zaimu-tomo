@@ -327,7 +327,12 @@ defmodule ZaimuTomoWeb.PageController do
 
     spending = Accounting.monthly_spending(conn.assigns.current_scope, today)
     previous_spending = Accounting.monthly_spending(conn.assigns.current_scope, previous_month)
-    savings_accounts = FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
+
+    cash_accounts =
+      FinancialAccounts.list_cash_accounts_with_latest_balance(conn.assigns.current_scope)
+
+    savings_accounts =
+      FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
 
     spending_categories =
       spending.categories
@@ -343,6 +348,7 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:current_path, "/")
     |> assign(:page_title, "Dashboard")
     |> assign(:summary, @summary)
+    |> assign(:cash_accounts, cash_accounts)
     |> assign(:savings_accounts, savings_accounts)
     |> assign(:networth_history, @networth_history)
     |> assign(:categories, @categories)
