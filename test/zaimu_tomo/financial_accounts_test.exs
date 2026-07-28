@@ -83,6 +83,21 @@ defmodule ZaimuTomo.FinancialAccountsTest do
              FinancialAccounts.list_cash_accounts_with_latest_balance(scope)
   end
 
+  test "lists only investment accounts for the dashboard" do
+    scope = user_scope_fixture()
+
+    financial_account_fixture(scope, %{
+      name: "Brokerage",
+      account_type: :investment,
+      currency: "USD"
+    })
+
+    financial_account_fixture(scope, %{name: "Wallet", account_type: :cash})
+
+    assert [%{account: %{name: "Brokerage", account_type: :investment}}] =
+             FinancialAccounts.list_investment_accounts_with_latest_balance(scope)
+  end
+
   test "records balance snapshots only for the account owner" do
     scope = user_scope_fixture()
     other_scope = user_scope_fixture()
