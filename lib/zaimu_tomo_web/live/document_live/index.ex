@@ -55,7 +55,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
                 <% "processing" -> %>
                   Sent to OCR · extraction in progress
                 <% "review" -> %>
-                  <span class="amt">{if data && data.amount_to_pay_cents, do: fmt(data.amount_to_pay_cents / 100), else: "—"}</span>
+                  <span class="amt">{if data && data.amount_to_pay_cents && data.currency, do: fmt_cents(data.amount_to_pay_cents, data.currency), else: "—"}</span>
                   {if data && data.invoice_number, do: " · #{data.invoice_number}", else: ""}
                   · ready to verify
                 <% "failed" -> %>

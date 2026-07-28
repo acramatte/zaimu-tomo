@@ -51,8 +51,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
         >
           <div class="name muted">Amount</div>
           <div class="num" style="font-size:20px;font-weight:600">
-            {if @effective_data.amount_to_pay_cents,
-              do: fmt(@effective_data.amount_to_pay_cents / 100),
+            {if @effective_data.amount_to_pay_cents && @effective_data.currency,
+              do: fmt_cents(@effective_data.amount_to_pay_cents, @effective_data.currency),
               else: "—"}
           </div>
         </div>

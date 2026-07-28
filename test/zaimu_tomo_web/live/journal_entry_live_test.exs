@@ -67,6 +67,24 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       assert html =~ "Subscriptions"
       assert html =~ "Want"
+      assert html =~ "EUR 42.00"
+      refute html =~ "€42.00"
+    end
+
+    test "displays the invoice amount with the journal entry currency", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      entry =
+        create_entry(scope, user)
+        |> Ecto.Changeset.change(amount_cents: 12_345, currency: "USD")
+        |> Repo.update!()
+
+      {:ok, _live, html} = live(conn, ~p"/journal_entries/#{entry}")
+
+      assert html =~ "USD 123.45"
+      refute html =~ "€123.45"
     end
   end
 
