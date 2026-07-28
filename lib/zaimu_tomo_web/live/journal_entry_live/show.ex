@@ -46,7 +46,9 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
         >
           <div class="name">Amount</div>
           <div class="num" style="font-size:20px;font-weight:600">
-            {if @entry.amount_cents, do: fmt(@entry.amount_cents / 100), else: "—"}
+            {if @entry.amount_cents && @entry.currency,
+              do: fmt_cents(@entry.amount_cents, @entry.currency),
+              else: "—"}
           </div>
         </div>
         <div class="detail-row">

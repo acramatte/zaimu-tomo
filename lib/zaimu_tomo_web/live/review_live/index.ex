@@ -33,7 +33,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
               <.status_pill status={pill_status(review.review_status)} />
             </div>
             <div class="desc">
-              <span class="amt">{if data.amount_to_pay_cents, do: fmt(data.amount_to_pay_cents / 100), else: "—"}</span>
+              <span class="amt">{if data.amount_to_pay_cents && data.currency, do: fmt_cents(data.amount_to_pay_cents, data.currency), else: "—"}</span>
               {if data.invoice_number, do: " · #{data.invoice_number}", else: ""}
               · <span class="muted">{data.invoice_date || "—"}</span>
             </div>

@@ -64,6 +64,28 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ "Needs review"
     end
 
+    test "needs review — displays the extracted currency", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+
+      ec =
+        extracted_content_fixture(doc, user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 12_345,
+            invoice_date: "2026-05-08",
+            invoice_number: "INV-USD-001",
+            currency: "USD",
+            reason_for_payment: "Software subscription",
+            issuer: "Example Corp"
+          }
+        })
+
+      pending_review_fixture(ec)
+
+      {:ok, _live, html} = live(conn, ~p"/documents")
+      assert html =~ "USD 123.45"
+      refute html =~ "€123.45"
+    end
+
     test "posted — review approved", %{conn: conn, scope: scope, user: user} do
       doc = document_fixture(scope)
       ec = extracted_content_fixture(doc, user)

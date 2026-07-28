@@ -32,7 +32,9 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
             </div>
             <div class="desc">
               <span class="amt">
-                {if entry.amount_cents, do: fmt(entry.amount_cents / 100), else: "—"}
+                {if entry.amount_cents && entry.currency,
+                  do: fmt_cents(entry.amount_cents, entry.currency),
+                  else: "—"}
               </span>
               {if entry.invoice_number, do: " · #{entry.invoice_number}", else: ""} ·
               <span class="muted">{format_date(entry.date)}</span>
