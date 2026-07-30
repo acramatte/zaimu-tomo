@@ -46,36 +46,31 @@ defmodule ZaimuTomo.LLMClient do
       issuer: [type: :string, required: true]
     ]
 
-    prompt = """
-    Extract invoice fields from the OCR text.
+    with {:ok, prompt} <-
+           Langfuse.fetch_prompt("extract-invoice", %{
+             currency_hint: currency_hint(),
+             ocr_markdown: markdown
+           }) do
+      case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
+             ReqLLM.generate_object(model, prompt.content, schema, opts)
+           end) do
+        {:ok, response} ->
+          response
+          |> ReqLLM.Response.object()
+          |> parse_extracted_data(config)
 
-    Rules:
-    - Return only structured output matching the schema.
-    - Never ask a question and never request clarification.
-    - If multiple currencies appear, choose #{currency_hint()} when present.
-    - If #{currency_hint()} is not present, choose the final amount charged or payable.
-    - Put the chosen ISO 4217 currency code in currency.
-    - Put the chosen amount in amount_to_pay_cents.
-    - Put invoice_date in ISO 8601 YYYY-MM-DD format.
-    - Use reason_for_payment for a short payment description.
+        {:error, reason} ->
+          failure = request_failure(reason)
 
-    OCR Text:
-    #{markdown}
-    """
+          Logger.error(
+            "[LLM] Invoice extraction request failed with #{backend_summary(:extractor, config)}: #{inspect(failure)}"
+          )
 
-    case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
-           ReqLLM.generate_object(model, prompt, schema, opts)
-         end) do
-      {:ok, response} ->
-        response
-        |> ReqLLM.Response.object()
-        |> parse_extracted_data(config)
-
+          {:error, failure}
+      end
+    else
       {:error, reason} ->
-        Logger.error(
-          "[LLM] Invoice extraction request failed with #{backend_summary(:extractor, config)}: #{inspect(reason)}"
-        )
-
+        Logger.error("[LLM] Invoice extraction prompt fetch failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -138,63 +133,54 @@ defmodule ZaimuTomo.LLMClient do
         field_issues: [type: :string, required: false]
       ]
 
-      prompt = """
-      You are an extraction verification judge.
-      Verify if the extracted JSON data is fully grounded in the source OCR markdown.
+      with {:ok, prompt} <-
+             Langfuse.fetch_prompt("verify-extraction", %{
+               extracted_json: Jason.encode!(json_payload),
+               ocr_markdown: markdown
+             }) do
+        case Langfuse.trace_llm_generation("verify-extraction", model.id, prompt, fn ->
+               ReqLLM.generate_object(model, prompt.content, schema, opts)
+             end) do
+          {:ok, response} ->
+            raw_object = ReqLLM.Response.object(response)
 
-      Return structured output with:
-      - status: one of verified, needs_review, rejected
-      - reason: a concise explanation for the decision
-      - field_issues: optional comma-separated field names that are ambiguous, contradicted, or unsupported
+            case verification_result(raw_object) do
+              {:ok, %{"status" => "verified"} = verification} ->
+                Logger.info(
+                  "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
+                )
 
-      Status rules:
-      - verified: every extracted value is directly supported by the source OCR markdown.
-      - needs_review: the extraction is plausible but the source OCR markdown is ambiguous or incomplete.
-      - rejected: any extracted value is hallucinated, contradicted, or incorrect.
+                {:ok, verification}
 
-      Extracted JSON:
-      #{Jason.encode!(json_payload)}
+              {:ok, %{"status" => status} = verification} ->
+                Logger.warning(
+                  "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
+                )
 
-      Source OCR Markdown:
-      #{markdown}
-      """
+                {:ok, verification}
 
-      case Langfuse.trace_llm_generation("verify-extraction", model.id, prompt, fn ->
-             ReqLLM.generate_object(model, prompt, schema, opts)
-           end) do
-        {:ok, response} ->
-          raw_object = ReqLLM.Response.object(response)
+              {:error, reason} ->
+                raw_response = verifier_response_payload(response, raw_object)
 
-          case verification_result(raw_object) do
-            {:ok, %{"status" => "verified"} = verification} ->
-              Logger.info(
-                "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
-              )
+                Logger.error(
+                  "[LLM] Extraction verification returned invalid structured output with #{backend_summary(:verifier, config)}: #{inspect(raw_response)} (#{inspect(reason)})"
+                )
 
-              {:ok, verification}
+                {:ok, verification_failure_result(raw_response, reason)}
+            end
 
-            {:ok, %{"status" => status} = verification} ->
-              Logger.warning(
-                "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
-              )
+          {:error, reason} ->
+            failure = request_failure(reason)
 
-              {:ok, verification}
+            Logger.error(
+              "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(failure)}"
+            )
 
-            {:error, reason} ->
-              raw_response = verifier_response_payload(response, raw_object)
-
-              Logger.error(
-                "[LLM] Extraction verification returned invalid structured output with #{backend_summary(:verifier, config)}: #{inspect(raw_response)} (#{inspect(reason)})"
-              )
-
-              {:ok, verification_failure_result(raw_response, reason)}
-          end
-
+            {:ok, verification_failure_result(%{"error" => inspect(failure)}, failure)}
+        end
+      else
         {:error, reason} ->
-          Logger.error(
-            "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(reason)}"
-          )
-
+          Logger.error("[LLM] Extraction verification prompt fetch failed: #{inspect(reason)}")
           {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}
       end
     end
@@ -234,6 +220,19 @@ defmodule ZaimuTomo.LLMClient do
       "error" => inspect(reason)
     }
   end
+
+  @doc false
+  @spec request_failure(term()) :: {:llm_request_failed, String.t()}
+  def request_failure(%ReqLLM.Error.API.Request{reason: reason}) when is_binary(reason),
+    do: {:llm_request_failed, reason}
+
+  def request_failure(%ReqLLM.Error.API.Request{reason: reason}) when is_atom(reason),
+    do: {:llm_request_failed, Atom.to_string(reason)}
+
+  def request_failure(%ReqLLM.Error.API.Request{}),
+    do: {:llm_request_failed, "unknown request error"}
+
+  def request_failure(_error), do: {:llm_request_failed, "unknown request error"}
 
   @doc false
   @spec backend_for(role()) :: backend()

@@ -29,9 +29,11 @@ config :zaimu_tomo, :mistral,
   model: System.get_env("MISTRAL_LLM_MODEL", "mistral-small-latest"),
   api_key: System.get_env("MISTRAL_API_KEY")
 
+default_ai_backend = if config_env() == :prod, do: "mistral", else: "flm"
+
 config :zaimu_tomo, :ai_workflow,
-  extractor: System.get_env("AI_EXTRACTOR", "flm"),
-  verifier: System.get_env("AI_VERIFIER", "flm"),
+  extractor: System.get_env("AI_EXTRACTOR", default_ai_backend),
+  verifier: System.get_env("AI_VERIFIER", default_ai_backend),
   currency_hint: System.get_env("AI_CURRENCY_HINT", "CHF")
 
 config :zaimu_tomo, :ollama,
@@ -48,6 +50,13 @@ config :zaimu_tomo, :flm,
 
 langfuse_public_key = System.get_env("LANGFUSE_PUBLIC_KEY")
 langfuse_secret_key = System.get_env("LANGFUSE_SECRET_KEY")
+
+langfuse_base_url =
+  System.get_env(
+    "LANGFUSE_BASE_URL",
+    System.get_env("LANGFUSE_HOST", "https://cloud.langfuse.com")
+  )
+  |> String.trim_trailing("/")
 
 langfuse_enabled? =
   case {langfuse_public_key, langfuse_secret_key} do
@@ -66,12 +75,12 @@ langfuse_enabled? =
 
 config :zaimu_tomo, :langfuse,
   enabled: langfuse_enabled?,
-  environment: Atom.to_string(config_env())
+  environment: Atom.to_string(config_env()),
+  public_key: langfuse_public_key,
+  secret_key: langfuse_secret_key,
+  base_url: langfuse_base_url
 
 if langfuse_enabled? do
-  langfuse_host =
-    System.get_env("LANGFUSE_HOST", "https://cloud.langfuse.com") |> String.trim_trailing("/")
-
   langfuse_authorization = Base.encode64("#{langfuse_public_key}:#{langfuse_secret_key}")
 
   config :opentelemetry, :processors,
@@ -80,7 +89,7 @@ if langfuse_enabled? do
         {:opentelemetry_exporter,
          %{
            # `opentelemetry_exporter` appends `/v1/traces` to configured endpoints.
-           endpoints: ["#{langfuse_host}/api/public/otel"],
+           endpoints: ["#{langfuse_base_url}/api/public/otel"],
            headers: [
              {"authorization", "Basic #{langfuse_authorization}"},
              {"x-langfuse-ingestion-version", "4"}

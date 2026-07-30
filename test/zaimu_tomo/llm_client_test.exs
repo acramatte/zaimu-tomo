@@ -98,6 +98,19 @@ defmodule ZaimuTomo.LLMClientTest do
     end
   end
 
+  describe "request_failure/1" do
+    test "does not retain provider request bodies in request failures" do
+      error =
+        struct(ReqLLM.Error.API.Request,
+          reason: "connection refused",
+          request_body: "OCR text containing sensitive document data"
+        )
+
+      assert LLMClient.request_failure(error) ==
+               {:llm_request_failed, "connection refused"}
+    end
+  end
+
   describe "backend_for/1" do
     test "resolves string workflow config to known backend atoms" do
       Application.put_env(:zaimu_tomo, :ai_workflow, extractor: "ollama", verifier: "flm")

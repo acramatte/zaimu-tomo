@@ -36,7 +36,7 @@ defmodule ZaimuTomo.Review do
       user_id: content.user_id,
       review_status: "failed",
       decision_type: "failed",
-      review_notes: "Automatically marked as failed: #{inspect(error)}"
+      review_notes: failure_review_note(error)
     })
     |> Repo.insert()
   end
@@ -47,12 +47,13 @@ defmodule ZaimuTomo.Review do
 
   def approve_invoice(extracted_content_id, user_id, notes \\ nil) do
     with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <- update_review_decision(decision, %{
-           review_status: "approved",
-           decision_type: "approved",
-           review_notes: notes,
-           review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         }) do
+         {:ok, updated} <-
+           update_review_decision(decision, %{
+             review_status: "approved",
+             decision_type: "approved",
+             review_notes: notes,
+             review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+           }) do
       write_event_log("invoice_approved", extracted_content_id, user_id, %{notes: notes})
       emit_review_completed_event(updated, "approved")
       {:ok, updated}
@@ -61,12 +62,13 @@ defmodule ZaimuTomo.Review do
 
   def reject_invoice(extracted_content_id, user_id, notes \\ nil) do
     with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <- update_review_decision(decision, %{
-           review_status: "rejected",
-           decision_type: "rejected",
-           review_notes: notes,
-           review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         }) do
+         {:ok, updated} <-
+           update_review_decision(decision, %{
+             review_status: "rejected",
+             decision_type: "rejected",
+             review_notes: notes,
+             review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+           }) do
       write_event_log("invoice_rejected", extracted_content_id, user_id, %{notes: notes})
       emit_review_completed_event(updated, "rejected")
       {:ok, updated}
@@ -75,18 +77,20 @@ defmodule ZaimuTomo.Review do
 
   def amend_invoice(extracted_content_id, user_id, amended_data, notes \\ nil) do
     with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <- update_review_decision(decision, %{
-           review_status: "amended",
-           decision_type: "amended",
-           status: "completed",
-           decision_data: amended_data,
-           review_notes: notes,
-           review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-         }) do
+         {:ok, updated} <-
+           update_review_decision(decision, %{
+             review_status: "amended",
+             decision_type: "amended",
+             status: "completed",
+             decision_data: amended_data,
+             review_notes: notes,
+             review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+           }) do
       write_event_log("invoice_amended", extracted_content_id, user_id, %{
         amended_data: amended_data,
         notes: notes
       })
+
       emit_review_completed_event(updated, "amended")
       {:ok, updated}
     end
@@ -99,9 +103,10 @@ defmodule ZaimuTomo.Review do
   def list_review_decisions(user_id) do
     query =
       from rd in ReviewDecision,
-      join: ec in ExtractedContent, on: ec.id == rd.extracted_content_id,
-      where: ec.user_id == ^user_id,
-      order_by: [desc: rd.review_status == "pending", desc: rd.inserted_at]
+        join: ec in ExtractedContent,
+        on: ec.id == rd.extracted_content_id,
+        where: ec.user_id == ^user_id,
+        order_by: [desc: rd.review_status == "pending", desc: rd.inserted_at]
 
     Repo.all(query)
   end
@@ -109,9 +114,10 @@ defmodule ZaimuTomo.Review do
   def get_review_decision(id, user_id) do
     query =
       from rd in ReviewDecision,
-      join: ec in ExtractedContent, on: ec.id == rd.extracted_content_id,
-      where: rd.id == ^id,
-      where: ec.user_id == ^user_id
+        join: ec in ExtractedContent,
+        on: ec.id == rd.extracted_content_id,
+        where: rd.id == ^id,
+        where: ec.user_id == ^user_id
 
     case Repo.one(query) do
       nil -> {:error, "Review decision not found or not owned by user"}
@@ -122,7 +128,11 @@ defmodule ZaimuTomo.Review do
   def get_review_status_counts(user_id) do
     ReviewDecision
     |> join(:left, [rd], ec in ExtractedContent, on: ec.id == rd.extracted_content_id)
-    |> where([rd, ec], ec.user_id == ^user_id and rd.review_status in ["pending", "approved", "rejected", "amended"])
+    |> where(
+      [rd, ec],
+      ec.user_id == ^user_id and
+        rd.review_status in ["pending", "approved", "rejected", "amended"]
+    )
     |> group_by([rd, _], rd.review_status)
     |> select([rd, _], %{status: rd.review_status, count: count(rd.id)})
     |> Repo.all()
@@ -139,13 +149,22 @@ defmodule ZaimuTomo.Review do
   # Private helpers
   # ---------------------------------------------------------------------------
 
+  defp failure_review_note({type, _reason}) when is_atom(type),
+    do: "Automatically marked as failed: #{type}"
+
+  defp failure_review_note(type) when is_atom(type),
+    do: "Automatically marked as failed: #{type}"
+
+  defp failure_review_note(_error), do: "Automatically marked as failed: unknown error"
+
   defp get_pending_decision(extracted_content_id, user_id) do
     query =
       from rd in ReviewDecision,
-      join: ec in ExtractedContent, on: ec.id == rd.extracted_content_id,
-      where: rd.extracted_content_id == ^extracted_content_id,
-      where: ec.user_id == ^user_id,
-      where: rd.review_status == "pending"
+        join: ec in ExtractedContent,
+        on: ec.id == rd.extracted_content_id,
+        where: rd.extracted_content_id == ^extracted_content_id,
+        where: ec.user_id == ^user_id,
+        where: rd.review_status == "pending"
 
     case Repo.one(query) do
       nil -> {:error, "No pending review found for this invoice"}
@@ -165,7 +184,9 @@ defmodule ZaimuTomo.Review do
       |> Repo.insert()
 
     case result do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
         :ok

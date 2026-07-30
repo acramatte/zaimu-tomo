@@ -42,13 +42,16 @@ export AI_EXTRACTOR=flm      # flm | ollama | mistral
 export AI_VERIFIER=flm       # flm | ollama | mistral
 ```
 
-Defaults are:
+In development, defaults are:
 
 ```bash
 AI_EXTRACTOR=flm
 AI_VERIFIER=flm
 AI_CURRENCY_HINT=CHF
 ```
+
+In production, both the extractor and verifier default to `mistral`. Set
+`AI_EXTRACTOR` or `AI_VERIFIER` only to override that default.
 
 `AI_CURRENCY_HINT` helps the extractor choose the intended currency when several currencies appear in a document.
 
