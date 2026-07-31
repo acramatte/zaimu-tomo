@@ -4,6 +4,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Repo
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
 
@@ -77,6 +78,23 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.extracted_data.invoice_date == nil
       assert content.error_details["type"] == "ocr_upload_failed"
       assert content.error_details["message"] == "Missing Mistral API key"
+    end
+
+    test "persists a failed review when the error reason exceeds the review notes limit" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+
+      assert {:ok, content} =
+               Worker.persist_and_emit_failure(
+                 document,
+                 {:llm_request_failed, String.duplicate("connection refused ", 100)}
+               )
+
+      review_decision = Repo.get_by!(ReviewDecision, extracted_content_id: content.id)
+
+      assert review_decision.review_notes ==
+               "Automatically marked as failed: llm_request_failed"
     end
   end
 

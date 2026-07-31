@@ -50,7 +50,10 @@ config :zaimu_tomo, :flm,
 
 config :zaimu_tomo, :langfuse,
   enabled: false,
-  environment: "development"
+  environment: "development",
+  public_key: nil,
+  secret_key: nil,
+  base_url: "https://cloud.langfuse.com"
 
 # Configure the endpoint
 config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
