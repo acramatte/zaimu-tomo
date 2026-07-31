@@ -19,6 +19,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
     %__MODULE__{}
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
+    |> update_change(:currency, &String.upcase/1)
+    |> validate_format(:currency, ~r/\A[A-Z]{3}\z/,
+      message: "must be a three-letter ISO 4217 code"
+    )
   end
 
   def embedded_changeset(_struct, attrs) do
@@ -28,6 +32,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
       %__MODULE__{}
       |> cast(attrs, @required_fields ++ @optional_fields)
       |> validate_required(@required_fields)
+      |> update_change(:currency, &String.upcase/1)
+      |> validate_format(:currency, ~r/\A[A-Z]{3}\z/,
+        message: "must be a three-letter ISO 4217 code"
+      )
     end
   end
 
