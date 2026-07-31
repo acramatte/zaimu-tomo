@@ -95,11 +95,24 @@ defmodule ZaimuTomo.Langfuse do
   end
 
   defp fetch_prompt_source(name, label) do
-    if enabled?() do
+    fetch_prompt_source(enabled?(), name, label)
+  end
+
+  defp fetch_prompt_source(true, name, label) do
+    name
+    |> fetch_prompt_result(label)
+    |> parse_prompt_response()
+  end
+
+  defp fetch_prompt_source(false, name, _label), do: fetch_local_prompt(name)
+
+  defp fetch_prompt_result(name, label) do
+    try do
       prompt_fetcher().(name, label)
-      |> parse_prompt_response()
-    else
-      fetch_local_prompt(name)
+    rescue
+      _exception -> {:error, :prompt_fetcher_failed}
+    catch
+      _kind, _reason -> {:error, :prompt_fetcher_failed}
     end
   end
 
@@ -118,6 +131,7 @@ defmodule ZaimuTomo.Langfuse do
 
   defp parse_prompt_response({:ok, _prompt}), do: {:error, :invalid_langfuse_prompt_response}
   defp parse_prompt_response({:error, _reason} = error), do: error
+  defp parse_prompt_response(_response), do: {:error, :invalid_langfuse_prompt_response}
 
   defp fetch_local_prompt("extract-invoice") do
     {:ok,

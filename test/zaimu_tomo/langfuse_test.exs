@@ -105,6 +105,28 @@ defmodule ZaimuTomo.LangfuseTest do
              Langfuse.fetch_prompt("extract-invoice", %{})
   end
 
+  test "returns a controlled error when a prompt fetcher returns an unexpected value" do
+    Application.put_env(:zaimu_tomo, :langfuse,
+      enabled: true,
+      environment: "test",
+      prompt_fetcher: fn "extract-invoice", "production" -> :unexpected end
+    )
+
+    assert {:error, :invalid_langfuse_prompt_response} =
+             Langfuse.fetch_prompt("extract-invoice", %{})
+  end
+
+  test "returns a controlled error when a prompt fetcher raises" do
+    Application.put_env(:zaimu_tomo, :langfuse,
+      enabled: true,
+      environment: "test",
+      prompt_fetcher: fn "extract-invoice", "production" -> raise "unavailable" end
+    )
+
+    assert {:error, :prompt_fetcher_failed} =
+             Langfuse.fetch_prompt("extract-invoice", %{})
+  end
+
   test "records a document-processing span without changing the workflow result" do
     Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
 
