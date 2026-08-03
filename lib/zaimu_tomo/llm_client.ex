@@ -219,6 +219,10 @@ defmodule ZaimuTomo.LLMClient do
     }
   end
 
+  # FastFlowLM lacks response_format support and can emit malformed tool-call
+  # arguments when producing structured output. Revisit this fallback if grammar
+  # support lands: https://github.com/FastFlowLM/FastFlowLM/issues/554 and
+  # https://github.com/FastFlowLM/FastFlowLM/pull/487.
   defp structured_output_args(tool_calls) do
     Enum.find_value(tool_calls, fn
       %ReqLLM.ToolCall{} = tool_call ->
