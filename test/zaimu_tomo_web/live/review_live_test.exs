@@ -64,4 +64,26 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert html =~ "amount_to_pay_cents,currency"
     assert html =~ "The OCR shows a total amount of 0.00 in both USD and CHF."
   end
+
+  test "shows a verifier failure that needs human review", %{conn: conn, scope: scope, user: user} do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        analysis: %{
+          "verification" => %{
+            "status" => "verification_failed",
+            "reason" => "Verifier did not return valid structured output."
+          }
+        }
+      })
+
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, _show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+    assert html =~ "Verifier flagged this extraction"
+    assert html =~ "Could not verify"
+    assert html =~ "Verifier did not return valid structured output."
+  end
 end

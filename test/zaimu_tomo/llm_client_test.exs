@@ -4,6 +4,7 @@ defmodule ZaimuTomo.LLMClientTest do
   alias ReqLLM.Message
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.Response
+  alias ReqLLM.ToolCall
   alias ZaimuTomo.LLMClient
 
   setup do
@@ -51,6 +52,34 @@ defmodule ZaimuTomo.LLMClientTest do
 
     test "rejects missing result" do
       assert LLMClient.verification_result(nil) == {:error, :verification_failed}
+    end
+
+    test "recovers structured output from a tool call when the response object is absent" do
+      response = %Response{
+        id: "resp-1",
+        model: "gemma4-it:e4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [],
+          tool_calls: [
+            ToolCall.new(
+              "call-1",
+              "structured_output",
+              ~s({"status":"needs_review","reason":"The invoice amount is 0.00.","field_issues":"amount_to_pay_cents"})
+            )
+          ]
+        },
+        object: nil,
+        finish_reason: :tool_calls,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:ok, %{"status" => "needs_review", "field_issues" => "amount_to_pay_cents"}} =
+               response
+               |> LLMClient.verifier_object()
+               |> LLMClient.verification_result()
     end
 
     test "builds auditable verifier failure results from malformed responses" do
