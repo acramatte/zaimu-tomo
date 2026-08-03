@@ -82,6 +82,34 @@ defmodule ZaimuTomo.LLMClientTest do
                |> LLMClient.verification_result()
     end
 
+    test "recovers structured output containing Gemma's invalid markdown escapes" do
+      response = %Response{
+        id: "resp-1",
+        model: "gemma4-it:e4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [],
+          tool_calls: [
+            ToolCall.new(
+              "call-1",
+              "structured_output",
+              ~s({"status":"needs_review","reason":"The invoice\\_date is ambiguous.","field_issues":"invoice_date"})
+            )
+          ]
+        },
+        object: nil,
+        finish_reason: :tool_calls,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:ok, %{"reason" => "The invoice_date is ambiguous."}} =
+               response
+               |> LLMClient.verifier_object()
+               |> LLMClient.verification_result()
+    end
+
     test "builds auditable verifier failure results from malformed responses" do
       response = %Response{
         id: "resp-1",
