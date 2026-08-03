@@ -194,10 +194,10 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             </.form>
           <% else %>
             <div style="display:flex;gap:8px">
-              <button class="btn sm" phx-click="select_feedback" phx-value-value="1">
+              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="1">
                 👍 Correct
               </button>
-              <button class="btn sm" phx-click="select_feedback" phx-value-value="0">
+              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="0">
                 👎 Incorrect
               </button>
             </div>
@@ -254,7 +254,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   @impl true
-  def handle_event("select_feedback", %{"value" => value}, socket)
+  def handle_event("select_feedback", %{"thumbs" => value}, socket)
       when value in ["0", "1"] do
     feedback = socket.assigns.feedback
     {:noreply, assign(socket, :feedback, %{feedback | value: String.to_integer(value)})}
