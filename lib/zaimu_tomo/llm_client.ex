@@ -223,7 +223,7 @@ defmodule ZaimuTomo.LLMClient do
     Enum.find_value(tool_calls, fn
       %ReqLLM.ToolCall{} = tool_call ->
         if ReqLLM.ToolCall.matches_name?(tool_call, "structured_output") do
-          ReqLLM.ToolCall.args_map(tool_call)
+          decode_structured_output_args(tool_call)
         end
 
       %{name: "structured_output", arguments: arguments} when is_map(arguments) ->
@@ -235,6 +235,23 @@ defmodule ZaimuTomo.LLMClient do
       _ ->
         nil
     end)
+  end
+
+  defp decode_structured_output_args(tool_call) do
+    case ReqLLM.ToolCall.args_map(tool_call) do
+      %{} = arguments -> arguments
+      nil -> decode_json_with_unescaped_markdown(ReqLLM.ToolCall.args_json(tool_call))
+    end
+  end
+
+  defp decode_json_with_unescaped_markdown(arguments_json) do
+    arguments_json
+    |> then(&Regex.replace(~r/\\([^"\\\/bfnrtu])/, &1, fn _, character -> character end))
+    |> Jason.decode()
+    |> case do
+      {:ok, arguments} when is_map(arguments) -> arguments
+      {:error, _reason} -> nil
+    end
   end
 
   @doc false
