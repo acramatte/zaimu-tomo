@@ -142,7 +142,7 @@ defmodule ZaimuTomo.LLMClient do
                ReqLLM.generate_object(model, prompt.content, schema, opts)
              end) do
           {:ok, response} ->
-            raw_object = ReqLLM.Response.object(response)
+            raw_object = verifier_object(response)
 
             case verification_result(raw_object) do
               {:ok, %{"status" => "verified"} = verification} ->
@@ -198,6 +198,15 @@ defmodule ZaimuTomo.LLMClient do
   def verification_result(_data), do: {:error, :verification_failed}
 
   @doc false
+  @spec verifier_object(ReqLLM.Response.t()) :: map() | nil
+  def verifier_object(response) do
+    case ReqLLM.Response.object(response) do
+      %{} = object -> object
+      _ -> structured_output_args(ReqLLM.Response.tool_calls(response))
+    end
+  end
+
+  @doc false
   @spec verifier_response_payload(ReqLLM.Response.t(), term()) :: map()
   def verifier_response_payload(response, raw_object) do
     %{
@@ -208,6 +217,24 @@ defmodule ZaimuTomo.LLMClient do
       "provider_meta" => response.provider_meta,
       "usage" => response.usage
     }
+  end
+
+  defp structured_output_args(tool_calls) do
+    Enum.find_value(tool_calls, fn
+      %ReqLLM.ToolCall{} = tool_call ->
+        if ReqLLM.ToolCall.matches_name?(tool_call, "structured_output") do
+          ReqLLM.ToolCall.args_map(tool_call)
+        end
+
+      %{name: "structured_output", arguments: arguments} when is_map(arguments) ->
+        arguments
+
+      %{"name" => "structured_output", "arguments" => arguments} when is_map(arguments) ->
+        arguments
+
+      _ ->
+        nil
+    end)
   end
 
   @doc false

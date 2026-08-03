@@ -193,11 +193,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   defp verifier_feedback(%ReviewDecision{
          extracted_content: %{analysis: %{"verification" => %{"status" => status} = verification}}
        })
-       when status in ["needs_review", "rejected"],
+       when status in ["needs_review", "rejected", "verification_failed"],
        do: verification
 
   defp verifier_feedback(_review_decision), do: nil
 
   defp verification_status_label("rejected"), do: "Rejected"
   defp verification_status_label("needs_review"), do: "Needs review"
+  defp verification_status_label("verification_failed"), do: "Could not verify"
 end
