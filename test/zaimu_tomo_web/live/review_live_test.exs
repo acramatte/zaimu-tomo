@@ -86,4 +86,20 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert html =~ "Could not verify"
     assert html =~ "Verifier did not return valid structured output."
   end
+
+  test "asks for a rejection reason before rejecting", %{conn: conn, scope: scope, user: user} do
+    document = document_fixture(scope)
+    extracted_content = extracted_content_fixture(document, user)
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, show_live, _html} = live(conn, ~p"/reviews/#{review}")
+
+    assert show_live
+           |> element("button", "Reject")
+           |> render_click() =~ "Why are you rejecting this invoice?"
+
+    assert show_live
+           |> form("#rejection_form", review_decision: %{rejection_reason: ""})
+           |> render_submit() =~ "can&#39;t be blank"
+  end
 end

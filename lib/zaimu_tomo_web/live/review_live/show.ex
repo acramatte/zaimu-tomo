@@ -18,6 +18,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:current_path, "/reviews")
              |> assign(:review_decision, rd)
              |> assign(:verification, verifier_feedback(rd))
+             |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
+             |> assign(:show_rejection_form, false)
              |> assign(:effective_data, rd.decision_data || rd.original_data)}
 
           {:error, reason} ->
@@ -116,15 +118,38 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             {ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@review_decision.inserted_at))}
           </div>
         </div>
+        <div :if={@review_decision.rejection_reason} class="detail-row">
+          <div class="name muted">Rejection reason</div>
+          <div>{@review_decision.rejection_reason}</div>
+        </div>
         <%= if @review_decision.review_status == "pending" do %>
-          <div style="margin-top:16px;display:flex;gap:8px">
-            <button class="btn sm primary" phx-click="approve" phx-disable-with="Approving…">
-              Approve &amp; post
-            </button>
-            <button class="btn sm" phx-click="reject" phx-disable-with="Rejecting…">
-              Reject
-            </button>
-          </div>
+          <%= if @show_rejection_form do %>
+            <.form
+              for={@rejection_form}
+              phx-submit="reject"
+              id="rejection_form"
+              style="margin-top:16px"
+            >
+              <.input
+                field={@rejection_form[:rejection_reason]}
+                label="Why are you rejecting this invoice?"
+                type="textarea"
+                placeholder="For example: duplicate invoice or incorrect extraction"
+                required
+              />
+              <div style="display:flex;gap:8px">
+                <.button type="submit" phx-disable-with="Rejecting…">Reject invoice</.button>
+                <button class="btn sm" type="button" phx-click="hide_rejection_form">Cancel</button>
+              </div>
+            </.form>
+          <% else %>
+            <div style="margin-top:16px;display:flex;gap:8px">
+              <button class="btn sm primary" phx-click="approve" phx-disable-with="Approving…">
+                Approve &amp; post
+              </button>
+              <button class="btn sm" phx-click="show_rejection_form">Reject</button>
+            </div>
+          <% end %>
         <% end %>
       </div>
     </div>
@@ -146,15 +171,32 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   @impl true
-  def handle_event("reject", _params, socket) do
+  def handle_event("show_rejection_form", _params, socket) do
+    {:noreply, assign(socket, :show_rejection_form, true)}
+  end
+
+  @impl true
+  def handle_event("hide_rejection_form", _params, socket) do
+    {:noreply, assign(socket, :show_rejection_form, false)}
+  end
+
+  @impl true
+  def handle_event("reject", %{"review_decision" => params}, socket) do
     user_id = socket.assigns.current_scope.user.id
     extracted_content_id = socket.assigns.review_decision.extracted_content_id
+    rejection_reason = params["rejection_reason"]
 
-    case Review.reject_invoice(extracted_content_id, user_id) do
+    case Review.reject_invoice(extracted_content_id, user_id, rejection_reason) do
       {:ok, _} ->
         {:noreply, socket |> put_flash(:info, "Invoice rejected") |> redirect(to: ~p"/reviews")}
 
-      {:error, reason} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(:rejection_form, to_form(changeset))
+         |> assign(:show_rejection_form, true)}
+
+      {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
     end
   end

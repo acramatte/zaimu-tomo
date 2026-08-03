@@ -60,7 +60,7 @@ defmodule ZaimuTomo.ReviewFixtures do
 
   def rejected_review_fixture(extracted_content, user) do
     {:ok, _} = Review.create_initial_decision(extracted_content)
-    {:ok, decision} = Review.reject_invoice(extracted_content.id, user.id)
+    {:ok, decision} = Review.reject_invoice(extracted_content.id, user.id, "Duplicate invoice")
     decision
   end
 

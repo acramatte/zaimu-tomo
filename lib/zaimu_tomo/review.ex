@@ -60,16 +60,21 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  def reject_invoice(extracted_content_id, user_id, notes \\ nil) do
+  def reject_invoice(extracted_content_id, user_id, rejection_reason, notes \\ nil) do
     with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
          {:ok, updated} <-
            update_review_decision(decision, %{
              review_status: "rejected",
              decision_type: "rejected",
+             rejection_reason: rejection_reason,
              review_notes: notes,
              review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
            }) do
-      write_event_log("invoice_rejected", extracted_content_id, user_id, %{notes: notes})
+      write_event_log("invoice_rejected", extracted_content_id, user_id, %{
+        rejection_reason: rejection_reason,
+        notes: notes
+      })
+
       emit_review_completed_event(updated, "rejected")
       {:ok, updated}
     end
