@@ -21,6 +21,73 @@ defmodule ZaimuTomo.Langfuse do
   @spec setup() :: :ok
   def setup, do: :ok
 
+  @user_feedback_score_name "user-extraction-thumbs"
+
+  @doc """
+  Returns the hex trace ID of the currently active span, or nil when no span
+  is active (e.g. Langfuse is disabled or the call is outside a trace).
+  """
+  @spec current_trace_id() :: String.t() | nil
+  def current_trace_id do
+    case :otel_tracer.current_span_ctx() do
+      :undefined -> nil
+      span_ctx -> :otel_span.hex_trace_id(span_ctx)
+    end
+  end
+
+  @doc """
+  Records user feedback about extraction quality as a boolean score on the
+  given trace. `value` is `1` for correct, `0` for incorrect.
+
+  No-op (returns `:ok`) when Langfuse is not configured.
+  """
+  @spec create_user_score(String.t(), 0 | 1, String.t() | nil) :: :ok | {:error, term()}
+  def create_user_score(trace_id, value, comment \\ nil)
+      when is_binary(trace_id) and value in [0, 1] do
+    create_user_score(enabled?(), trace_id, value, comment)
+  end
+
+  defp create_user_score(false, _trace_id, _value, _comment), do: :ok
+
+  defp create_user_score(true, trace_id, value, comment) do
+    payload =
+      %{
+        id: "user-extraction-thumbs-#{trace_id}",
+        traceId: trace_id,
+        name: @user_feedback_score_name,
+        value: value,
+        dataType: "BOOLEAN"
+      }
+      |> maybe_put_comment(comment)
+
+    case score_sender().(payload) do
+      {:ok, _response} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_put_comment(payload, comment) when is_binary(comment) and comment != "",
+    do: Map.put(payload, :comment, comment)
+
+  defp maybe_put_comment(payload, _comment), do: payload
+
+  defp score_sender, do: config() |> Keyword.get(:score_sender, &send_score/1)
+
+  defp send_score(payload) do
+    with {:ok, base_url, public_key, secret_key} <- prompt_api_config() do
+      case Req.post("#{base_url}/api/public/scores",
+             json: payload,
+             headers: [{"authorization", basic_auth(public_key, secret_key)}]
+           ) do
+        {:ok, %Req.Response{status: status}} when status in 200..299 -> {:ok, :score_created}
+        {:ok, %Req.Response{status: status}} -> {:error, {:score_creation_failed, status}}
+        {:error, reason} -> {:error, {:score_creation_failed, reason}}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec fetch_prompt(String.t(), map()) :: {:ok, Prompt.t()} | {:error, term()}
   def fetch_prompt(name, variables) when is_binary(name) and is_map(variables) do
     label = "production"

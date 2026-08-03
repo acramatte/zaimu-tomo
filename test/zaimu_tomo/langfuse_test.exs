@@ -140,4 +140,82 @@ defmodule ZaimuTomo.LangfuseTest do
     assert result == {:ok, %{status: "failed"}}
     assert Langfuse.enabled?()
   end
+
+  describe "current_trace_id/0" do
+    test "returns nil when no span is active" do
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
+      assert Langfuse.current_trace_id() == nil
+    end
+
+    test "returns the hex trace id inside a traced document-processing span" do
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
+
+      trace_id =
+        Langfuse.trace_document_processing(%{id: 123, user_id: 456}, fn ->
+          Langfuse.current_trace_id()
+        end)
+
+      assert is_binary(trace_id)
+      assert String.length(trace_id) == 32
+    end
+  end
+
+  describe "create_user_score/3" do
+    test "is a no-op when Langfuse is not configured" do
+      assert Langfuse.create_user_score("trace-123", 1, "looks good") == :ok
+    end
+
+    test "sends a boolean score for correct extraction with a comment" do
+      parent = self()
+
+      Application.put_env(:zaimu_tomo, :langfuse,
+        enabled: true,
+        environment: "test",
+        score_sender: fn payload ->
+          send(parent, {:score_payload, payload})
+          {:ok, %{status: 200}}
+        end
+      )
+
+      assert :ok = Langfuse.create_user_score("trace-123", 1, "Amount matched the PDF")
+
+      assert_received {:score_payload, payload}
+      assert payload.traceId == "trace-123"
+      assert payload.name == "user-extraction-thumbs"
+      assert payload.value == 1
+      assert payload.dataType == "BOOLEAN"
+      assert payload.comment == "Amount matched the PDF"
+    end
+
+    test "sends a boolean score for incorrect extraction and omits empty comments" do
+      parent = self()
+
+      Application.put_env(:zaimu_tomo, :langfuse,
+        enabled: true,
+        environment: "test",
+        score_sender: fn payload ->
+          send(parent, {:score_payload, payload})
+          {:ok, %{status: 200}}
+        end
+      )
+
+      assert :ok = Langfuse.create_user_score("trace-456", 0, "")
+
+      assert_received {:score_payload, payload}
+      assert payload.traceId == "trace-456"
+      assert payload.value == 0
+      refute Map.has_key?(payload, :comment)
+    end
+
+    test "propagates a non-2xx response from the score sender" do
+      Application.put_env(:zaimu_tomo, :langfuse,
+        enabled: true,
+        environment: "test",
+        score_sender: fn _payload -> {:error, {:score_creation_failed, 500}} end
+      )
+
+      assert {:error, {:score_creation_failed, 500}} =
+               Langfuse.create_user_score("trace-789", 0, "wrong amount")
+    end
+  end
 end

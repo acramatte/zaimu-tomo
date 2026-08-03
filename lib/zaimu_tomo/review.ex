@@ -13,6 +13,7 @@ defmodule ZaimuTomo.Review do
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
+  alias ZaimuTomo.Langfuse
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
 
   # ---------------------------------------------------------------------------
@@ -101,6 +102,24 @@ defmodule ZaimuTomo.Review do
     end
   end
 
+  @doc """
+  Records user feedback about extraction quality on the Langfuse trace
+  associated with the given extracted content.
+
+  `value` is `1` for correct, `0` for incorrect. Returns `:ok` when the score
+  was recorded (or Langfuse is not configured, in which case it is a no-op).
+  """
+  def submit_extraction_feedback(extracted_content_id, user_id, value, comment \\ nil) do
+    with {:ok, content} <- get_owned_extracted_content(extracted_content_id, user_id),
+         true <- is_binary(content.trace_id) do
+      Langfuse.create_user_score(content.trace_id, value, comment)
+    else
+      nil -> {:error, "Extracted content not found or not owned by user"}
+      false -> {:error, "No Langfuse trace recorded for this extraction"}
+      {:error, _reason} = error -> error
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Queries
   # ---------------------------------------------------------------------------
@@ -175,6 +194,13 @@ defmodule ZaimuTomo.Review do
     case Repo.one(query) do
       nil -> {:error, "No pending review found for this invoice"}
       decision -> {:ok, decision}
+    end
+  end
+
+  defp get_owned_extracted_content(extracted_content_id, user_id) do
+    case Repo.get_by(ExtractedContent, id: extracted_content_id, user_id: user_id) do
+      nil -> nil
+      content -> {:ok, content}
     end
   end
 
