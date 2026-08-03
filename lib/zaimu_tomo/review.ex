@@ -117,7 +117,8 @@ defmodule ZaimuTomo.Review do
         join: ec in ExtractedContent,
         on: ec.id == rd.extracted_content_id,
         where: rd.id == ^id,
-        where: ec.user_id == ^user_id
+        where: ec.user_id == ^user_id,
+        preload: [extracted_content: ec]
 
     case Repo.one(query) do
       nil -> {:error, "Review decision not found or not owned by user"}

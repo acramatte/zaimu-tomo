@@ -17,6 +17,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:page_title, review_title(rd))
              |> assign(:current_path, "/reviews")
              |> assign(:review_decision, rd)
+             |> assign(:verification, verifier_feedback(rd))
              |> assign(:effective_data, rd.decision_data || rd.original_data)}
 
           {:error, reason} ->
@@ -36,6 +37,25 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
       <.status_pill status={pill_status(@review_decision.review_status)} />
     </div>
     <h1 class="view-title" style="margin-top:8px">{@page_title}</h1>
+
+    <section :if={@verification} class="card" style="margin:16px 0;border-color:var(--warn)">
+      <div class="card-head" style="margin-bottom:10px">
+        <div class="card-title">Verifier flagged this extraction</div>
+        <.status_pill status="review" />
+      </div>
+      <div class="detail-row">
+        <div class="name muted">Verifier result</div>
+        <div>{verification_status_label(@verification["status"])}</div>
+      </div>
+      <div :if={@verification["field_issues"]} class="detail-row">
+        <div class="name muted">Flagged fields</div>
+        <div class="mono dim">{@verification["field_issues"]}</div>
+      </div>
+      <div class="detail-row">
+        <div class="name muted">Reason</div>
+        <div>{@verification["reason"]}</div>
+      </div>
+    </section>
 
     <div class="grid grid-12">
       <div class="card span-7">
@@ -169,4 +189,15 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   defp pill_status(s) when s in ["approved", "amended"], do: "posted"
   defp pill_status("rejected"), do: "failed"
   defp pill_status(other), do: other
+
+  defp verifier_feedback(%ReviewDecision{
+         extracted_content: %{analysis: %{"verification" => %{"status" => status} = verification}}
+       })
+       when status in ["needs_review", "rejected"],
+       do: verification
+
+  defp verifier_feedback(_review_decision), do: nil
+
+  defp verification_status_label("rejected"), do: "Rejected"
+  defp verification_status_label("needs_review"), do: "Needs review"
 end

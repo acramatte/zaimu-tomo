@@ -36,4 +36,32 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert show_html =~ "USD 123.45"
     refute show_html =~ "€123.45"
   end
+
+  test "shows verifier concerns for a rejected extraction", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        analysis: %{
+          "verification" => %{
+            "status" => "rejected",
+            "field_issues" => "amount_to_pay_cents,currency",
+            "reason" => "The OCR shows a total amount of 0.00 in both USD and CHF."
+          }
+        }
+      })
+
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, _show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+    assert html =~ "Verifier flagged this extraction"
+    assert html =~ "Rejected"
+    assert html =~ "amount_to_pay_cents,currency"
+    assert html =~ "The OCR shows a total amount of 0.00 in both USD and CHF."
+  end
 end

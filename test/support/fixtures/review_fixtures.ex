@@ -35,6 +35,7 @@ defmodule ZaimuTomo.ReviewFixtures do
             user_id: user.id,
             status: status,
             extracted_data: extracted_data,
+            analysis: Map.get(attrs, :analysis),
             inserted_at: now,
             updated_at: now
           }
