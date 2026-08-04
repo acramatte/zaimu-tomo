@@ -274,6 +274,8 @@ body {
   border-radius: var(--radius);
   padding: var(--pad-card-y) var(--pad-card);
 }
+.spending-history-card { margin-top: var(--gap-grid); }
+
 .card-head {
   display: flex; align-items: baseline; justify-content: space-between;
   margin-bottom: 16px;

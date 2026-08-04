@@ -178,7 +178,7 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       </div>
     </div>
 
-    <div class="card">
+    <div class="card spending-history-card">
       <div class="card-head">
         <div class="card-title">Last {@history_months} months</div>
         <div class="card-meta">click a bar to open that month</div>
