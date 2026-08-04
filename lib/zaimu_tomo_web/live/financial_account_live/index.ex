@@ -154,13 +154,13 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
     else
       {:error, :invalid_amount} ->
         changeset = add_error(form.source, :balance, "must have at most two decimal places")
-        {:noreply, assign(socket, form: to_form(changeset, as: :account))}
+        {:noreply, assign(socket, form: to_form(changeset, as: :account, action: :insert))}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, form: to_form(changeset, as: :account))}
+        {:noreply, assign(socket, form: to_form(changeset, as: :account, action: :insert))}
 
       %{valid?: false} ->
-        {:noreply, assign(socket, form: to_form(form.source, as: :account))}
+        {:noreply, assign(socket, form: to_form(form.source, as: :account, action: :insert))}
     end
   end
 
