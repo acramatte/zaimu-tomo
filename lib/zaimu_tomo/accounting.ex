@@ -76,7 +76,7 @@ defmodule ZaimuTomo.Accounting do
   Returns posted spending totals for the current UTC month.
 
   Until currency conversion is introduced, amounts in every source currency
-  are treated as equivalent and displayed using the configured currency hint.
+  are treated as equivalent and displayed using the user's base currency.
   """
   def current_month_spending(%Scope{} = scope) do
     current_month_spending(scope, Date.utc_today())
@@ -95,7 +95,8 @@ defmodule ZaimuTomo.Accounting do
   @doc """
   Returns posted spending totals for the month containing `reference_date`.
   """
-  def monthly_spending(%Scope{user: %{id: user_id}}, %Date{} = reference_date) do
+  def monthly_spending(%Scope{user: user}, %Date{} = reference_date) do
+    user_id = user.id
     month_start = Date.beginning_of_month(reference_date)
     next_month_start = month_start |> Date.add(32) |> Date.beginning_of_month()
 
@@ -123,7 +124,7 @@ defmodule ZaimuTomo.Accounting do
 
     %{
       month_start: month_start,
-      currency: configured_currency(),
+      currency: user.base_currency,
       total_cents: Enum.sum_by(categories, & &1.total_cents),
       entry_count: Enum.sum_by(categories, & &1.entry_count),
       categories: categories
@@ -152,13 +153,6 @@ defmodule ZaimuTomo.Accounting do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
-
-  defp configured_currency do
-    :zaimu_tomo
-    |> Application.get_env(:ai_workflow, [])
-    |> Keyword.get(:currency_hint, "CHF")
-    |> String.upcase()
-  end
 
   defp humanize_category(category) do
     category

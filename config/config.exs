@@ -32,9 +32,7 @@ config :zaimu_tomo, :mistral,
 
 config :zaimu_tomo, :ai_workflow,
   extractor: "flm",
-  verifier: "flm",
-  # TODO: Move this global extraction hint to user preferences once settings exist.
-  currency_hint: "CHF"
+  verifier: "flm"
 
 config :zaimu_tomo, :ollama,
   provider: :openai,

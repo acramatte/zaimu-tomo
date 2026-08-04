@@ -4,6 +4,7 @@ defmodule ZaimuTomo.Accounts do
   """
 
   import Ecto.Query, warn: false
+
   alias ZaimuTomo.Repo
 
   alias ZaimuTomo.Accounts.{User, UserToken, UserNotifier}
@@ -165,6 +166,38 @@ defmodule ZaimuTomo.Accounts do
     user
     |> User.password_changeset(attrs)
     |> update_user_and_delete_all_tokens()
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for updating the user profile
+  (display name and base currency).
+
+  ## Examples
+
+      iex> change_user_profile(user)
+      %Ecto.Changeset{data: %User{}}
+
+  """
+  def change_user_profile(user, attrs \\ %{}) do
+    User.profile_changeset(user, attrs)
+  end
+
+  @doc """
+  Updates the user profile (display name and base currency).
+
+  ## Examples
+
+      iex> update_user_profile(user, %{display_name: "Sora", base_currency: "CHF"})
+      {:ok, %User{}}
+
+      iex> update_user_profile(user, %{base_currency: "Nope"})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def update_user_profile(user, attrs) do
+    user
+    |> User.profile_changeset(attrs)
+    |> Repo.update()
   end
 
   ## Session

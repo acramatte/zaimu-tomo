@@ -2,8 +2,9 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounts.User
+  alias ZaimuTomo.Currency
+  alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]
 
@@ -38,11 +39,8 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
       :invoice_number,
       :status
     ])
+    |> Currency.normalize_and_validate(:currency)
     |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency, :date])
-    |> update_change(:currency, &String.upcase/1)
-    |> validate_format(:currency, ~r/\A[A-Z]{3}\z/,
-      message: "must be a three-letter ISO 4217 code"
-    )
     |> validate_inclusion(:status, ["uncategorized", "posted"])
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)

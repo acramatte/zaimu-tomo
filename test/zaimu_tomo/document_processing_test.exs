@@ -2,6 +2,7 @@ defmodule ZaimuTomo.DocumentProcessingTest do
   use ZaimuTomo.DataCase, async: false
 
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
   alias ZaimuTomo.AccountsFixtures
@@ -13,7 +14,7 @@ defmodule ZaimuTomo.DocumentProcessingTest do
       assert GenServer.call(ZaimuTomo.DocumentProcessing.Saga, :status) == :running
     end
 
-    test "process_document/1 starts supervised OCR task" do
+    test "process_document/1 starts a supervised OCR task with the owner's currency snapshot" do
       # Ensure the named OCR supervisor is started for this test
       # (it may already be started by the application)
       case ZaimuTomo.DocumentProcessing.start_ocr_supervisor() do
@@ -45,11 +46,15 @@ defmodule ZaimuTomo.DocumentProcessingTest do
       # It will return {:ok, pid} for the task, even if the file doesn't exist
       # (the task itself will handle the file not found error)
       result = DocumentProcessing.process_document(document)
-      # Should start task successfully
-      assert {:ok, pid} = result
 
+      assert {:ok, pid} = result
       ref = Process.monitor(pid)
-      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+
+      assert %ExtractedContent{status: "failed", user_id: user_id} =
+               Repo.get_by!(ExtractedContent, document_id: document.id)
+
+      assert user_id == scope.user.id
     end
   end
 

@@ -5,10 +5,36 @@ defmodule ZaimuTomoWeb.PageControllerTest do
   import ZaimuTomo.FinancialAccountsFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
 
   setup :register_and_log_in_user
+
+  test "GET / greets the user by display name when set", %{conn: conn, user: user} do
+    {:ok, _user} =
+      Accounts.update_user_profile(user, %{display_name: "Sora", base_currency: "CHF"})
+
+    html =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.to_html()
+
+    assert html =~ "Good morning, Sora"
+  end
+
+  test "GET / greets with a generic fallback without a display name", %{conn: conn} do
+    html =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.to_html()
+
+    assert html =~ "Good morning, there"
+  end
 
   test "GET / renders current-month spending for the authenticated user", %{
     conn: conn,

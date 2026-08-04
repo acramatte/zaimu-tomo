@@ -59,7 +59,6 @@ env:
     POOL_SIZE: "10"
     AI_EXTRACTOR: "mistral"
     AI_VERIFIER: "mistral"
-    AI_CURRENCY_HINT: "CHF"
     MISTRAL_URL: "https://api.mistral.ai/v1"
     MISTRAL_LLM_MODEL: "mistral-small-latest"
     LANGFUSE_HOST: <%= ENV.fetch("LANGFUSE_HOST", "https://cloud.langfuse.com") %>

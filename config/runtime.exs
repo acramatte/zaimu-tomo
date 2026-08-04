@@ -33,8 +33,7 @@ default_ai_backend = if config_env() == :prod, do: "mistral", else: "flm"
 
 config :zaimu_tomo, :ai_workflow,
   extractor: System.get_env("AI_EXTRACTOR", default_ai_backend),
-  verifier: System.get_env("AI_VERIFIER", default_ai_backend),
-  currency_hint: System.get_env("AI_CURRENCY_HINT", "CHF")
+  verifier: System.get_env("AI_VERIFIER", default_ai_backend)
 
 config :zaimu_tomo, :ollama,
   provider: :openai,

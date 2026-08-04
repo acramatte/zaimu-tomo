@@ -19,10 +19,11 @@ defmodule ZaimuTomo.Accounting.JournalEntryTest do
              changeset.errors[:currency]
   end
 
-  test "rejects a currency with a trailing newline" do
-    changeset = JournalEntry.changeset_for_create(valid_attrs(%{currency: "USD\n"}))
+  test "trims and normalizes a currency code" do
+    changeset = JournalEntry.changeset_for_create(valid_attrs(%{currency: " USD\n"}))
 
-    refute changeset.valid?
+    assert changeset.valid?
+    assert Ecto.Changeset.get_change(changeset, :currency) == "USD"
   end
 
   defp valid_attrs(overrides) do

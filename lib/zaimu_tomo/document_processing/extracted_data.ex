@@ -2,6 +2,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias ZaimuTomo.Currency
+
   @primary_key false
   embedded_schema do
     field(:amount_to_pay_cents, :integer)
@@ -18,11 +20,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
   def changeset(attrs) when is_map(attrs) do
     %__MODULE__{}
     |> cast(attrs, @required_fields ++ @optional_fields)
+    |> Currency.normalize_and_validate(:currency)
     |> validate_required(@required_fields)
-    |> update_change(:currency, &String.upcase/1)
-    |> validate_format(:currency, ~r/\A[A-Z]{3}\z/,
-      message: "must be a three-letter ISO 4217 code"
-    )
   end
 
   def embedded_changeset(_struct, attrs) do
@@ -31,11 +30,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
     else
       %__MODULE__{}
       |> cast(attrs, @required_fields ++ @optional_fields)
+      |> Currency.normalize_and_validate(:currency)
       |> validate_required(@required_fields)
-      |> update_change(:currency, &String.upcase/1)
-      |> validate_format(:currency, ~r/\A[A-Z]{3}\z/,
-        message: "must be a three-letter ISO 4217 code"
-      )
     end
   end
 

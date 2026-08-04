@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
 
   import Ecto.Changeset
 
+  alias ZaimuTomo.Currency
   alias ZaimuTomo.FinancialAccounts
 
   @account_types [{"Savings", "savings"}, {"Cash", "cash"}, {"Investment", "investment"}]
@@ -196,9 +197,9 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
       :balance,
       :recorded_on
     ])
+    |> Currency.normalize_and_validate(:currency)
     |> validate_required([:name, :account_type, :currency, :balance, :recorded_on])
     |> validate_inclusion(:account_type, Enum.map(@account_types, &elem(&1, 1)))
-    |> update_change(:currency, &String.upcase/1)
     |> then(&to_form(&1, as: :account, action: action))
   end
 

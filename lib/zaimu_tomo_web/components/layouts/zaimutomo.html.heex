@@ -98,8 +98,8 @@
             {String.slice(@current_scope.user.email, 0, 2) |> String.upcase()}
           </div>
           <div style="min-width:0;flex:1">
-            <div class="name">{@current_scope.user.email}</div>
-            <div class="meta">Brussels · EUR</div>
+            <div class="name">{@current_scope.user.display_name || @current_scope.user.email}</div>
+            <div class="meta">{@current_scope.user.base_currency}</div>
           </div>
             <form action={~p"/users/log-out"} method="post" style="display:contents">
               <input type="hidden" name="_method" value="delete" />

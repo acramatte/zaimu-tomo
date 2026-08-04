@@ -16,17 +16,17 @@ defmodule ZaimuTomo.DocumentProcessing.OCRSupervisor do
   end
 
   @doc """
-  Starts an OCR worker for the given `document`.
+  Starts an OCR worker for a self-contained processing command.
 
   Returns `{:ok, pid}` on success or `{:error, reason}`.
 
   Always uses the named OCR supervisor that should be started in the application
   supervision tree.
   """
-  def start_ocr(document) do
+  def start_ocr(command) do
     DynamicSupervisor.start_child(
       ZaimuTomo.OCRSupervisor,
-      {ZaimuTomo.DocumentProcessing.Worker, document}
+      {ZaimuTomo.DocumentProcessing.Worker, command}
     )
   end
 end
