@@ -19,10 +19,11 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedDataTest do
              changeset.errors[:currency]
   end
 
-  test "rejects a currency with a trailing newline" do
-    changeset = ExtractedData.changeset(valid_attrs(%{currency: "CHF\n"}))
+  test "trims and normalizes a currency code" do
+    changeset = ExtractedData.changeset(valid_attrs(%{currency: " CHF\n"}))
 
-    refute changeset.valid?
+    assert changeset.valid?
+    assert Ecto.Changeset.get_change(changeset, :currency) == "CHF"
   end
 
   defp valid_attrs(overrides) do

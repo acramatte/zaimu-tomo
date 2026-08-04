@@ -5,22 +5,24 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   """
 
   use Task
+
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Review
   require Logger
 
-  def start_link(document) do
-    Task.start_link(__MODULE__, :process, [document])
+  def start_link(command) do
+    Task.start_link(__MODULE__, :process, [command])
   end
 
-  def process(%{filepath: filepath} = document) do
+  def process(%{document: %{filepath: filepath} = document, currency_hint: currency_hint}) do
     Langfuse.trace_document_processing(document, fn ->
       full_path = build_document_path(filepath)
 
       with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
-           {:ok, extracted_data} <- ZaimuTomo.LLMClient.extract_invoice(markdown),
+           {:ok, extracted_data} <-
+             ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
            {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
         persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
       else

@@ -6,6 +6,7 @@ defmodule ZaimuTomo.DocumentProcessing do
   It coordinates between document uploads and the OCR processing via supervised tasks.
   """
 
+  alias ZaimuTomo.Accounts
   alias ZaimuTomo.DocumentProcessing.OCRSupervisor
 
   @doc """
@@ -17,12 +18,17 @@ defmodule ZaimuTomo.DocumentProcessing do
   ## Parameters
     - document: A %ZaimuTomo.Documents.Document{} struct
 
+  The worker receives a self-contained processing command, including a snapshot
+  of the owner's base currency, so it does not need Accounts/database access to
+  construct the extraction prompt.
+
   ## Returns
     - {:ok, pid} if the OCR task was started successfully
     - {:error, reason} if the task could not be started
   """
   def process_document(document) do
-    OCRSupervisor.start_ocr(document)
+    currency_hint = Accounts.get_user!(document.user_id).base_currency
+    OCRSupervisor.start_ocr(%{document: document, currency_hint: currency_hint})
   end
 
   @doc """

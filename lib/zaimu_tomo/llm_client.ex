@@ -14,8 +14,7 @@ defmodule ZaimuTomo.LLMClient do
   @type backend :: :ollama | :flm | :mistral
   @type workflow_config :: [
           extractor: backend() | String.t(),
-          verifier: backend() | String.t(),
-          currency_hint: String.t()
+          verifier: backend() | String.t()
         ]
   @type backend_config :: [
           provider: atom(),
@@ -28,10 +27,13 @@ defmodule ZaimuTomo.LLMClient do
 
   @doc """
   Extracts invoice JSON using the configured extraction backend.
+
+  The `currency_hint` is the caller-provided base currency used by the
+  prompt to pick a currency when several appear on the document.
   """
-  @spec extract_invoice(String.t()) ::
+  @spec extract_invoice(String.t(), String.t()) ::
           {:ok, ExtractedData.t()} | {:error, term()}
-  def extract_invoice(markdown) do
+  def extract_invoice(markdown, currency_hint) do
     config = backend_config!(:extractor)
     model = req_llm_model!(config)
     opts = req_llm_opts(config)
@@ -48,7 +50,7 @@ defmodule ZaimuTomo.LLMClient do
 
     with {:ok, prompt} <-
            Langfuse.fetch_prompt("extract-invoice", %{
-             currency_hint: currency_hint(),
+             currency_hint: currency_hint,
              ocr_markdown: markdown
            }) do
       case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
@@ -286,13 +288,6 @@ defmodule ZaimuTomo.LLMClient do
   @spec backend_for(role()) :: backend()
   def backend_for(role) when role in [:extractor, :verifier] do
     workflow_config() |> Keyword.fetch!(role) |> normalize_backend()
-  end
-
-  @spec currency_hint() :: String.t()
-  defp currency_hint do
-    workflow_config()
-    |> Keyword.get(:currency_hint, "CHF")
-    |> String.upcase()
   end
 
   @spec workflow_config() :: workflow_config()

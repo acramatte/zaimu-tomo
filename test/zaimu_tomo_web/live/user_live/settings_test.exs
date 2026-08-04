@@ -12,6 +12,7 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
         |> log_in_user(user_fixture())
         |> live(~p"/users/settings")
 
+      assert html =~ "Save Profile"
       assert html =~ "Change Email"
       assert html =~ "Save Password"
     end
@@ -34,6 +35,51 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
         |> follow_redirect(conn, ~p"/users/log-in")
 
       assert conn.resp_body =~ "You must re-authenticate to access this page."
+    end
+  end
+
+  describe "update profile form" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    test "prefills the base currency with the default", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/users/settings")
+
+      assert html =~ "Display name"
+      assert html =~ ~s(value="CHF")
+    end
+
+    test "updates the display name and base currency", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      result =
+        lv
+        |> form("#profile_form", %{
+          "user" => %{"display_name" => "Sora", "base_currency" => "JPY"}
+        })
+        |> render_submit()
+
+      assert result =~ "Profile updated successfully."
+
+      persisted = Accounts.get_user!(user.id)
+      assert persisted.display_name == "Sora"
+      assert persisted.base_currency == "JPY"
+    end
+
+    test "renders errors with invalid data (phx-change)", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      result =
+        lv
+        |> element("#profile_form")
+        |> render_change(%{
+          "user" => %{"display_name" => "Sora", "base_currency" => "EURO"}
+        })
+
+      assert result =~ "Save Profile"
+      assert result =~ "must be a three-letter ISO 4217 code"
     end
   end
 

@@ -2,12 +2,18 @@ defmodule ZaimuTomo.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias ZaimuTomo.Currency
+
   schema "users" do
     field :email, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
+    field :display_name, :string
+    # Mirrors the users.base_currency column default so structs are born with
+    # a base currency and fresh inserts return it without a reload.
+    field :base_currency, :string, default: "CHF"
 
     timestamps(type: :utc_datetime)
   end
@@ -53,6 +59,31 @@ defmodule ZaimuTomo.Accounts.User do
       add_error(changeset, :email, "did not change")
     else
       changeset
+    end
+  end
+
+  @doc """
+  A user changeset for updating the display name and base currency.
+
+  The display name is trimmed and an empty value is stored as `nil` (unset).
+  The base currency is normalized to an uppercase three-letter ISO 4217 code.
+  """
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:display_name, :base_currency])
+    |> update_change(:display_name, &normalize_display_name/1)
+    |> validate_length(:display_name, max: 100)
+    |> Currency.normalize_and_validate(:base_currency)
+    |> validate_required([:base_currency])
+  end
+
+  defp normalize_display_name(nil), do: nil
+  defp normalize_display_name(""), do: nil
+
+  defp normalize_display_name(name) do
+    case String.trim(name) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
 

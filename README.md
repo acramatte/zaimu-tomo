@@ -47,13 +47,14 @@ In development, defaults are:
 ```bash
 AI_EXTRACTOR=flm
 AI_VERIFIER=flm
-AI_CURRENCY_HINT=CHF
 ```
 
 In production, both the extractor and verifier default to `mistral`. Set
 `AI_EXTRACTOR` or `AI_VERIFIER` only to override that default.
 
-`AI_CURRENCY_HINT` helps the extractor choose the intended currency when several currencies appear in a document.
+The currency the extractor should prefer when several appear on a
+document comes from the user's base currency setting (see the account
+settings page), which defaults to CHF on the users table.
 
 ### FLM backend
 

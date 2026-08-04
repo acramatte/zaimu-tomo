@@ -85,6 +85,11 @@ defmodule ZaimuTomo.AccountsTest do
       assert is_nil(user.confirmed_at)
       assert is_nil(user.password)
     end
+
+    test "defaults the base currency to CHF on registration" do
+      {:ok, user} = Accounts.register_user(%{email: unique_user_email()})
+      assert user.base_currency == "CHF"
+    end
   end
 
   describe "sudo_mode?/2" do
@@ -249,6 +254,74 @@ defmodule ZaimuTomo.AccountsTest do
         })
 
       refute Repo.get_by(UserToken, user_id: user.id)
+    end
+  end
+
+  describe "change_user_profile/2" do
+    test "returns a user changeset" do
+      assert %Ecto.Changeset{} = changeset = Accounts.change_user_profile(%User{})
+      assert changeset.required == [:base_currency]
+    end
+
+    test "normalizes display name and base currency" do
+      changeset =
+        Accounts.change_user_profile(
+          %User{},
+          %{
+            "display_name" => "  Sora  ",
+            "base_currency" => " jpy "
+          }
+        )
+
+      assert changeset.valid?
+      assert get_change(changeset, :display_name) == "Sora"
+      assert get_change(changeset, :base_currency) == "JPY"
+    end
+
+    test "stores an empty display name as unset" do
+      changeset =
+        Accounts.change_user_profile(%User{display_name: "Sora", base_currency: "CHF"}, %{
+          display_name: "  "
+        })
+
+      assert changeset.valid?
+      assert get_change(changeset, :display_name) == nil
+    end
+
+    test "rejects a missing or malformed base currency" do
+      assert %{base_currency: ["can't be blank"]} =
+               errors_on(Accounts.change_user_profile(%User{base_currency: nil}, %{}))
+    end
+
+    test "rejects a base currency that is not a three-letter code" do
+      assert %{base_currency: ["must be a three-letter ISO 4217 code"]} =
+               errors_on(Accounts.change_user_profile(%User{}, %{base_currency: "EURO"}))
+    end
+  end
+
+  describe "update_user_profile/2" do
+    setup do
+      %{user: user_fixture()}
+    end
+
+    test "updates the display name and base currency", %{user: user} do
+      assert {:ok, user} =
+               Accounts.update_user_profile(user, %{
+                 display_name: "Sora",
+                 base_currency: "JPY"
+               })
+
+      assert user.display_name == "Sora"
+      assert user.base_currency == "JPY"
+
+      persisted = Accounts.get_user!(user.id)
+      assert persisted.display_name == "Sora"
+      assert persisted.base_currency == "JPY"
+    end
+
+    test "rejects invalid data", %{user: user} do
+      assert {:error, changeset} = Accounts.update_user_profile(user, %{base_currency: "nope"})
+      assert %{base_currency: ["must be a three-letter ISO 4217 code"]} = errors_on(changeset)
     end
   end
 

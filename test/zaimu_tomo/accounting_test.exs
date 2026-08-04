@@ -5,6 +5,7 @@ defmodule ZaimuTomo.AccountingTest do
   import ZaimuTomo.ReviewFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.EventLog
@@ -85,6 +86,18 @@ defmodule ZaimuTomo.AccountingTest do
                entry_count: 0,
                categories: []
              } = Accounting.monthly_spending(scope, ~D[2026-06-08])
+    end
+
+    test "displays spending in the user's base currency when set" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      create_entry(scope, user, ~D[2026-06-01], 1_200, "EUR", "Groceries")
+
+      {:ok, user} = Accounts.update_user_profile(user, %{base_currency: "JPY"})
+      scope = user_scope_fixture(user)
+
+      assert %{currency: "JPY"} = Accounting.monthly_spending(scope, ~D[2026-06-08])
     end
 
     test "excludes successful uploaded extractions awaiting review until they become journal entries" do
