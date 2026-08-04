@@ -1,7 +1,7 @@
 defmodule ZaimuTomoWeb.PageController do
   use ZaimuTomoWeb, :controller
 
-  alias ZaimuTomo.{Accounting, FinancialAccounts}
+  alias ZaimuTomo.{Accounting, FinancialAccounts, RecurringExpenses}
 
   @category_colors [
     "oklch(0.55 0.08 240)",
@@ -272,14 +272,6 @@ defmodule ZaimuTomoWeb.PageController do
     }
   ]
 
-  @upcoming [
-    %{d: 12, m: "MAY", name: "Rent · Av. Louise", sub: "Recurring · Home", amt: 1180.00},
-    %{d: 15, m: "MAY", name: "Proximus mobile", sub: "Recurring · Subs", amt: 24.99},
-    %{d: 21, m: "MAY", name: "Climbing membership", sub: "Annual · Sport", amt: 56.00},
-    %{d: 28, m: "MAY", name: "Spotify family", sub: "Recurring · Subs", amt: 17.99},
-    %{d: 3, m: "JUN", name: "Tax prepayment Q2", sub: "Scheduled", amt: 482.00}
-  ]
-
   @summary %{projection_eom: 47_640.00}
 
   def home(conn, _params) do
@@ -310,6 +302,18 @@ defmodule ZaimuTomoWeb.PageController do
 
     in_flight = Enum.filter(@activity, &(&1.status in ["processing", "review"]))
 
+    covered_keys = RecurringExpenses.covered_occurrence_keys(conn.assigns.current_scope)
+
+    upcoming =
+      RecurringExpenses.upcoming_occurrences(conn.assigns.current_scope)
+      |> Enum.map(fn %{date: date, expense: expense} = occurrence ->
+        Map.put(
+          occurrence,
+          :covered,
+          RecurringExpenses.covered_occurrence?(covered_keys, expense, date)
+        )
+      end)
+
     conn
     |> put_root_layout(html: {ZaimuTomoWeb.Layouts, :zaimutomo})
     |> assign(:current_path, "/")
@@ -332,7 +336,7 @@ defmodule ZaimuTomoWeb.PageController do
     )
     |> assign(:donut_segments, donut_segments)
     |> assign(:activity, @activity)
-    |> assign(:upcoming, @upcoming)
+    |> assign(:upcoming, upcoming)
     |> assign(:in_flight_count, length(in_flight))
     |> render(:home)
   end
