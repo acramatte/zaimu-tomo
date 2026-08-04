@@ -2,17 +2,7 @@ defmodule ZaimuTomoWeb.PageController do
   use ZaimuTomoWeb, :controller
 
   alias ZaimuTomo.{Accounting, FinancialAccounts}
-
-  @category_colors [
-    "oklch(0.55 0.08 240)",
-    "oklch(0.55 0.10 145)",
-    "oklch(0.55 0.13 35)",
-    "oklch(0.55 0.13 320)",
-    "oklch(0.55 0.10 200)",
-    "oklch(0.55 0.07 75)",
-    "oklch(0.55 0.10 15)",
-    "oklch(0.55 0.10 280)"
-  ]
+  alias ZaimuTomoWeb.Spending
 
   @categories [
     %{
@@ -303,8 +293,8 @@ defmodule ZaimuTomoWeb.PageController do
 
     spending_categories =
       spending.categories
-      |> spending_categories(previous_spending.categories)
-      |> display_spending_categories()
+      |> Spending.merge_categories(previous_spending.categories)
+      |> Spending.display_categories()
 
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
@@ -325,10 +315,10 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:spending_categories, spending_categories)
     |> assign(:spending_month, Calendar.strftime(spending.month_start, "%B"))
     |> assign(:previous_spending_month, Calendar.strftime(previous_spending.month_start, "%B"))
-    |> assign(:month_pct, month_pct(spending.total_cents, previous_spending.total_cents))
+    |> assign(:month_pct, Spending.month_pct(spending.total_cents, previous_spending.total_cents))
     |> assign(
       :month_comparison_class,
-      month_comparison_class(spending.total_cents, previous_spending.total_cents)
+      Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents)
     )
     |> assign(:donut_segments, donut_segments)
     |> assign(:activity, @activity)
@@ -336,72 +326,4 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:in_flight_count, length(in_flight))
     |> render(:home)
   end
-
-  defp spending_categories(categories, previous_categories) do
-    current_by_category = Map.new(categories, &{&1.category, &1})
-
-    previous_by_category =
-      Map.new(previous_categories, fn category ->
-        {category.category, category.total_cents}
-      end)
-
-    current_by_category
-    |> Map.keys()
-    |> Kernel.++(Map.keys(previous_by_category))
-    |> Enum.uniq()
-    |> Enum.map(fn category ->
-      current_total_cents =
-        current_by_category
-        |> Map.get(category, %{total_cents: 0})
-        |> Map.fetch!(:total_cents)
-
-      previous_total_cents = Map.get(previous_by_category, category, 0)
-
-      %{
-        category: category,
-        total_cents: current_total_cents,
-        previous_total_cents: previous_total_cents,
-        delta_cents: current_total_cents - previous_total_cents
-      }
-    end)
-    |> Enum.sort_by(fn category ->
-      {-category.total_cents, -category.previous_total_cents, category.category}
-    end)
-    |> Enum.with_index()
-    |> Enum.map(fn {category, index} ->
-      category
-      |> Map.put(:color, Enum.at(@category_colors, rem(index, length(@category_colors))))
-    end)
-  end
-
-  defp display_spending_categories(categories) when length(categories) <= 6, do: categories
-
-  defp display_spending_categories(categories) do
-    {visible_categories, remaining_categories} = Enum.split(categories, 5)
-
-    other = %{
-      category: "Other",
-      color: "oklch(0.55 0.02 60)",
-      total_cents: Enum.sum_by(remaining_categories, & &1.total_cents),
-      previous_total_cents: Enum.sum_by(remaining_categories, & &1.previous_total_cents),
-      delta_cents: Enum.sum_by(remaining_categories, & &1.delta_cents)
-    }
-
-    visible_categories ++ [other]
-  end
-
-  defp month_pct(0, 0), do: 0.0
-  defp month_pct(_current, 0), do: 100.0
-
-  defp month_pct(current, previous) do
-    min(100.0, current / previous * 100)
-  end
-
-  defp month_comparison_class(current, previous) when previous > 0 and current > previous,
-    do: "over"
-
-  defp month_comparison_class(current, previous) when previous > 0 and current > previous * 0.85,
-    do: "warn"
-
-  defp month_comparison_class(_current, _previous), do: ""
 end
