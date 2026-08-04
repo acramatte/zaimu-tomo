@@ -48,7 +48,7 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents)
     )
     |> assign(:ytd_spending, ytd_spending)
-    |> assign(:ytd_points, ytd_points(ytd_spending))
+    |> assign(:ytd_points, Spending.ytd_points(ytd_spending))
     |> assign(:is_current_month, month_start == Date.beginning_of_month(Date.utc_today()))
     |> assign(:prev_month, month_param(Spending.shift_month(month_start, -1)))
     |> assign(:next_month, month_param(Spending.shift_month(month_start, 1)))
@@ -80,16 +80,6 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
 
   defp month_param(%Date{} = month_start) do
     Calendar.strftime(month_start, "%Y-%m")
-  end
-
-  defp ytd_points(monthly_spending) do
-    Enum.map(monthly_spending, fn month ->
-      %{
-        label: Calendar.strftime(month.month_start, "%b"),
-        full_label: Calendar.strftime(month.month_start, "%B %Y"),
-        value: month.total_cents
-      }
-    end)
   end
 
   @impl true

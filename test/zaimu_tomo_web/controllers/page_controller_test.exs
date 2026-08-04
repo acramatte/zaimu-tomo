@@ -4,7 +4,6 @@ defmodule ZaimuTomoWeb.PageControllerTest do
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
   import ZaimuTomo.FinancialAccountsFixtures
-  import ZaimuTomo.DocumentsFixtures
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts
@@ -301,6 +300,37 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
     assert has_element?(document, "#spending-chart [data-category='Other']")
     refute has_element?(document, "[data-category='Category 1']")
+  end
+
+  test "GET / renders a YTD spending trend without month links", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    today = Date.utc_today()
+
+    entry = create_entry(scope, user)
+
+    entry
+    |> Ecto.Changeset.change(date: today, amount_cents: 12_345, currency: "EUR")
+    |> Repo.update!()
+    |> Accounting.post_entry(user.id, "Software", "need")
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#trend-chart")
+    assert has_element?(document, "#spending-line-chart")
+    refute has_element?(document, "#spending-line-chart a")
+    assert html =~ "#{today.year} year to date"
+    assert html =~ "open history"
+  end
+
+  test "GET / renders an empty trend state when there is no spending", %{conn: conn} do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+
+    assert has_element?(document, "#trend-empty")
+    refute has_element?(document, "#trend-chart")
   end
 
   defp create_entry(scope, user) do

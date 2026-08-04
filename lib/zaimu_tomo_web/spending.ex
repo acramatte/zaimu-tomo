@@ -39,6 +39,17 @@ defmodule ZaimuTomoWeb.Spending do
     end
   end
 
+  @doc "Maps monthly spending summaries into informational chart points."
+  def ytd_points(monthly_spending) do
+    Enum.map(monthly_spending, fn month ->
+      %{
+        label: Calendar.strftime(month.month_start, "%b"),
+        full_label: Calendar.strftime(month.month_start, "%B %Y"),
+        value: month.total_cents
+      }
+    end)
+  end
+
   @doc "Merges current and previous month categories into comparison rows."
   def merge_categories(categories, previous_categories) do
     current_by_category = Map.new(categories, &{&1.category, &1})
