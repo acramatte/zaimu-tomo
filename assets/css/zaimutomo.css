@@ -512,6 +512,72 @@ body {
 .cat-list-row .amt { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
 
 /* ============================
+   Month navigation
+   ============================ */
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.month-nav-label {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  min-width: 140px;
+  text-align: center;
+}
+.btn.disabled,
+.btn.disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ============================
+   Bar chart
+   ============================ */
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  height: 150px;
+  padding-top: 10px;
+}
+.bar-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+.bar-col:hover .bar-label { color: var(--ink); }
+.bar-fill {
+  width: 100%;
+  max-width: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--hairline);
+  border-radius: 5px 5px 0 0;
+  transition: background 150ms, border-color 150ms;
+}
+.bar-col:hover .bar-fill { background: var(--accent-tint); border-color: var(--accent); }
+.bar-col.active .bar-fill { background: var(--accent); border-color: var(--accent); }
+.bar-label {
+  font-size: 10.5px;
+  font-family: 'Geist Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+/* ============================
    Drop zone
    ============================ */
 .drop-zone {

@@ -69,6 +69,8 @@ defmodule ZaimuTomoWeb.Router do
 
       live "/activity", ActivityLive.Index, :index
 
+      live "/spending", SpendingLive.Index, :index
+
       live "/documents", DocumentLive.Index, :index
       live "/documents/new", DocumentLive.Form, :new
       live "/documents/:id", DocumentLive.Show, :show
