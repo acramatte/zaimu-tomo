@@ -1,6 +1,7 @@
 defmodule ZaimuTomoWeb.PageControllerTest do
   use ZaimuTomoWeb.ConnCase
 
+  import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
   import ZaimuTomo.FinancialAccountsFixtures
   import ZaimuTomo.DocumentsFixtures
@@ -143,6 +144,30 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
     assert has_element?(document, "#spending-empty")
     assert has_element?(document, "#spending-chart-empty")
+  end
+
+  test "GET / renders the live recent-activity feed from document records", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope, %{filename: "server-invoice.pdf"})
+    content = extracted_content_fixture(document, user)
+    decision = pending_review_fixture(content)
+
+    html = conn |> get(~p"/") |> html_response(200)
+
+    assert html =~ "Recent activity"
+    assert html =~ "server-invoice.pdf"
+    assert html =~ "ACME Corp"
+    assert html =~ "Needs review"
+    assert html =~ ~p"/reviews/#{decision.id}"
+  end
+
+  test "GET / renders an empty state when there is no recent activity", %{conn: conn} do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+
+    assert has_element?(document, "#dashboard-recent-activity-empty")
   end
 
   test "GET / renders the latest savings account balance in its source currency", %{

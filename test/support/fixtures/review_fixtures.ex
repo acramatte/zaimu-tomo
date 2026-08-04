@@ -37,6 +37,7 @@ defmodule ZaimuTomo.ReviewFixtures do
             extracted_data: extracted_data,
             trace_id: Map.get(attrs, :trace_id),
             analysis: Map.get(attrs, :analysis),
+            error_details: Map.get(attrs, :error_details),
             inserted_at: now,
             updated_at: now
           }

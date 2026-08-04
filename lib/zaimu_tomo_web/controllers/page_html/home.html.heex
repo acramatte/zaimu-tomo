@@ -217,11 +217,10 @@
             <a class="muted" href={~p"/documents"} style="cursor:pointer">View all →</a>
           </div>
         </div>
-        <div class="feed">
-          <%= for item <- Enum.take(@activity, 5) do %>
-            <.feed_item item={item} categories={@categories} />
-          <% end %>
-        </div>
+        {live_render(@conn, ZaimuTomoWeb.RecentActivityLive,
+          id: "dashboard-recent-activity",
+          session: %{"current_scope" => @current_scope}
+        )}
       </div>
     </div>
   </div>
