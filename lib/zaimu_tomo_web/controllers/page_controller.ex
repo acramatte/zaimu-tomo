@@ -298,6 +298,9 @@ defmodule ZaimuTomoWeb.PageController do
 
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
+    history = Spending.monthly_history(conn.assigns.current_scope, today)
+    history_bars = Spending.history_bars(history, Date.beginning_of_month(today))
+
     in_flight = Enum.filter(@activity, &(&1.status in ["processing", "review"]))
 
     conn
@@ -321,6 +324,8 @@ defmodule ZaimuTomoWeb.PageController do
       Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents)
     )
     |> assign(:donut_segments, donut_segments)
+    |> assign(:history, history)
+    |> assign(:history_bars, history_bars)
     |> assign(:activity, @activity)
     |> assign(:upcoming, @upcoming)
     |> assign(:in_flight_count, length(in_flight))

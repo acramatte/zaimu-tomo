@@ -50,11 +50,11 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents)
     )
     |> assign(:history, history)
-    |> assign(:history_bars, history_bars(history, month_start))
+    |> assign(:history_bars, Spending.history_bars(history, month_start))
     |> assign(:history_months, @history_months)
     |> assign(:is_current_month, month_start == Date.beginning_of_month(Date.utc_today()))
-    |> assign(:prev_month, month_param(Spending.shift_month(month_start, -1)))
-    |> assign(:next_month, month_param(Spending.shift_month(month_start, 1)))
+    |> assign(:prev_month, Spending.month_param(Spending.shift_month(month_start, -1)))
+    |> assign(:next_month, Spending.month_param(Spending.shift_month(month_start, 1)))
   end
 
   defp selected_month(params) do
@@ -79,21 +79,6 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       {:ok, date} -> Date.beginning_of_month(date)
       _ -> nil
     end
-  end
-
-  defp month_param(%Date{} = month_start) do
-    Calendar.strftime(month_start, "%Y-%m")
-  end
-
-  defp history_bars(history, selected_month_start) do
-    Enum.map(history, fn month ->
-      %{
-        label: Calendar.strftime(month.month_start, "%b"),
-        value: month.total_cents,
-        href: ~p"/spending?month=#{month_param(month.month_start)}",
-        active: month.month_start == selected_month_start
-      }
-    end)
   end
 
   @impl true

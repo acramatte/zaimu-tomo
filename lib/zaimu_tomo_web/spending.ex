@@ -8,6 +8,8 @@ defmodule ZaimuTomoWeb.Spending do
   so it always agrees with the dashboard's definition of a month's spending.
   """
 
+  use ZaimuTomoWeb, :verified_routes
+
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
 
@@ -37,6 +39,21 @@ defmodule ZaimuTomoWeb.Spending do
       month_start = shift_month(end_month_start, -offset)
       Accounting.monthly_spending(scope, month_start)
     end
+  end
+
+  @doc """
+  Maps a monthly history into bar chart entries linking to the spending page,
+  highlighting the selected month.
+  """
+  def history_bars(history, selected_month_start) do
+    Enum.map(history, fn month ->
+      %{
+        label: Calendar.strftime(month.month_start, "%b"),
+        value: month.total_cents,
+        href: ~p"/spending?month=#{month_param(month.month_start)}",
+        active: month.month_start == selected_month_start
+      }
+    end)
   end
 
   @doc "Merges current and previous month categories into comparison rows."
@@ -115,5 +132,10 @@ defmodule ZaimuTomoWeb.Spending do
   def shift_month(%Date{year: year, month: month}, delta) do
     total = year * 12 + (month - 1) + delta
     Date.new!(div(total, 12), rem(total, 12) + 1, 1)
+  end
+
+  @doc "Formats a month-start date as the `YYYY-MM` query param used by the spending page."
+  def month_param(%Date{} = month_start) do
+    Calendar.strftime(month_start, "%Y-%m")
   end
 end
