@@ -6,6 +6,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.Currency
   alias ZaimuTomo.Fingerprint
+  alias ZaimuTomo.RecurringExpenses.RecurringExpense
   alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]
@@ -29,8 +30,10 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
           source_document_sha256: String.t() | nil,
           source_file_reuse_confirmed: boolean(),
           review_decision_id: integer() | nil,
+          recurring_expense_id: integer() | nil,
           user_id: integer() | nil,
           review_decision: Ecto.Schema.belongs_to(struct()),
+          recurring_expense: Ecto.Schema.belongs_to(struct()),
           user: Ecto.Schema.belongs_to(struct()),
           tax_deduction_claim: Ecto.Schema.has_one(TaxDeductionClaim.t()),
           inserted_at: DateTime.t() | nil,
@@ -54,6 +57,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     field :source_file_reuse_confirmed, :boolean, default: false
 
     belongs_to :review_decision, ReviewDecision
+    belongs_to :recurring_expense, RecurringExpense
     belongs_to :user, User
     has_one :tax_deduction_claim, TaxDeductionClaim
 
@@ -69,6 +73,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     %__MODULE__{}
     |> cast(attrs, [
       :review_decision_id,
+      :recurring_expense_id,
       :user_id,
       :amount_cents,
       :currency,

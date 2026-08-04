@@ -50,6 +50,8 @@ defmodule ZaimuTomoWeb.Router do
       live "/accounts", FinancialAccountLive.Index, :index
       live "/accounts/:id", FinancialAccountLive.Show, :show
 
+      live "/recurring", RecurringExpenseLive.Index, :index
+
       live "/activity", ActivityLive.Index, :index
 
       live "/spending", SpendingLive.Index, :index
