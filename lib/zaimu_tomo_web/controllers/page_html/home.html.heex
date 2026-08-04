@@ -217,10 +217,7 @@
             <a class="muted" href={~p"/documents"} style="cursor:pointer">View all →</a>
           </div>
         </div>
-        {live_render(@conn, ZaimuTomoWeb.RecentActivityLive,
-          id: "dashboard-recent-activity",
-          session: %{"current_scope" => @current_scope}
-        )}
+        {live_render(@socket, ZaimuTomoWeb.RecentActivityLive, id: "dashboard-recent-activity")}
       </div>
     </div>
   </div>

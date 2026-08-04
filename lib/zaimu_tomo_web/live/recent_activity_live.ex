@@ -7,11 +7,9 @@ defmodule ZaimuTomoWeb.RecentActivityLive do
   on_mount {ZaimuTomoWeb.UserAuth, :require_authenticated}
 
   @impl true
-  def mount(_params, %{"current_scope" => current_scope}, socket) do
-    socket = assign(socket, :current_scope, current_scope)
-
+  def mount(_params, _session, socket) do
     if connected?(socket) do
-      Documents.subscribe_documents(current_scope)
+      Documents.subscribe_documents(socket.assigns.current_scope)
       Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
       Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
       Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "invoice_review:completed")
