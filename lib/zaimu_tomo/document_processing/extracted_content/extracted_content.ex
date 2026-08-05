@@ -11,6 +11,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     field :status, :string
     field :error_details, :map
     field :analysis, :map
+    field :trace_id, :string
 
     belongs_to :document, Document
     belongs_to :user, ZaimuTomo.Accounts.User
@@ -27,7 +28,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
       :status,
       :raw_llm_response,
       :error_details,
-      :analysis
+      :analysis,
+      :trace_id
     ])
     |> validate_required([:document_id, :status])
     |> validate_inclusion(:status, ["success", "failed"])

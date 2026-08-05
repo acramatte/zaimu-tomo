@@ -32,6 +32,33 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.status == "success"
       assert content.raw_llm_response == raw_llm_response
       assert content.analysis["verification"]["status"] == "not_run"
+      assert content.trace_id == nil
+    end
+
+    test "persists the Langfuse trace id when provided" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+
+      extracted_data = %ExtractedData{
+        amount_to_pay_cents: 1000,
+        invoice_date: "2024-01-15",
+        invoice_number: "INV-001",
+        currency: "USD",
+        reason_for_payment: "Test payment",
+        issuer: "Test Issuer"
+      }
+
+      {:ok, content} =
+        Worker.persist_and_emit_success(
+          document,
+          extracted_data,
+          %{},
+          %{"status" => "verified"},
+          "abc123def456abc123def456abc123def4"
+        )
+
+      assert content.trace_id == "abc123def456abc123def456abc123def4"
     end
 
     test "stores verifier analysis when provided" do

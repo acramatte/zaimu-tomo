@@ -20,7 +20,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:verification, verifier_feedback(rd))
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
              |> assign(:show_rejection_form, false)
-             |> assign(:effective_data, rd.decision_data || rd.original_data)}
+             |> assign(:effective_data, rd.decision_data || rd.original_data)
+             |> assign(:feedback, feedback_assigns(rd))}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
@@ -152,6 +153,57 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
           <% end %>
         <% end %>
       </div>
+
+      <div :if={@feedback.available?} class="card span-12" style="margin-top:16px">
+        <div class="card-head">
+          <div class="card-title">Extraction feedback</div>
+          <div class="card-meta">Sent to Langfuse as a score on this document's trace</div>
+        </div>
+        <p class="muted" style="margin-bottom:12px">
+          Did the extracted data match the document? Your feedback helps improve the extraction
+          pipeline.
+        </p>
+        <%= if @feedback.submitted do %>
+          <div class="detail-row">
+            <div class="name muted">Thanks!</div>
+            <div>Your feedback has been recorded.</div>
+          </div>
+        <% else %>
+          <%= if @feedback.value do %>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+              <span class="muted" style="font-size:14px">
+                {if @feedback.value == 1, do: "👍 Correct", else: "👎 Incorrect"}
+              </span>
+              <button class="btn sm" type="button" phx-click="clear_feedback">Change</button>
+            </div>
+            <.form for={@feedback.form} phx-submit="submit_feedback" id="feedback_form">
+              <.input
+                field={@feedback.form[:comment]}
+                label="Optional comment"
+                type="textarea"
+                placeholder={
+                  if @feedback.value == 1,
+                    do: "Anything that was extracted especially well?",
+                    else: "For example: the amount was parsed incorrectly"
+                }
+              />
+              <div style="display:flex;gap:8px">
+                <.button type="submit" phx-disable-with="Sending…">Send feedback</.button>
+                <button class="btn sm" type="button" phx-click="clear_feedback">Cancel</button>
+              </div>
+            </.form>
+          <% else %>
+            <div style="display:flex;gap:8px">
+              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="1">
+                👍 Correct
+              </button>
+              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="0">
+                👎 Incorrect
+              </button>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
     </div>
     """
   end
@@ -201,6 +253,48 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     end
   end
 
+  @impl true
+  def handle_event("select_feedback", %{"thumbs" => value}, socket)
+      when value in ["0", "1"] do
+    feedback = socket.assigns.feedback
+    {:noreply, assign(socket, :feedback, %{feedback | value: String.to_integer(value)})}
+  end
+
+  @impl true
+  def handle_event("clear_feedback", _params, socket) do
+    feedback = socket.assigns.feedback
+
+    {:noreply,
+     assign(socket, :feedback, %{
+       feedback
+       | value: nil,
+         form: to_form(%{"comment" => ""}, as: :feedback)
+     })}
+  end
+
+  @impl true
+  def handle_event("submit_feedback", %{"feedback" => %{"comment" => comment}}, socket) do
+    user_id = socket.assigns.current_scope.user.id
+    extracted_content_id = socket.assigns.review_decision.extracted_content_id
+    feedback = socket.assigns.feedback
+
+    case Review.submit_extraction_feedback(
+           extracted_content_id,
+           user_id,
+           feedback.value,
+           comment
+         ) do
+      :ok ->
+        {:noreply, assign(socket, :feedback, %{feedback | submitted: true})}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, reason)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not record feedback. Please try again.")}
+    end
+  end
+
   defp redirect_to_journal_entry(socket, decision, flash_msg) do
     case Accounting.create_from_decision(decision) do
       {:ok, entry} ->
@@ -243,4 +337,22 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   defp verification_status_label("rejected"), do: "Rejected"
   defp verification_status_label("needs_review"), do: "Needs review"
   defp verification_status_label("verification_failed"), do: "Could not verify"
+
+  defp feedback_assigns(%ReviewDecision{} = rd) do
+    %{
+      # Feedback is only meaningful while the review is open and a Langfuse
+      # trace exists to attach the score to.
+      available?: rd.review_status == "pending" && trace_id(rd) != nil,
+      value: nil,
+      submitted: false,
+      form: to_form(%{"comment" => ""}, as: :feedback)
+    }
+  end
+
+  defp trace_id(%ReviewDecision{} = rd) do
+    case rd.extracted_content do
+      %{trace_id: trace_id} when is_binary(trace_id) -> trace_id
+      _ -> nil
+    end
+  end
 end

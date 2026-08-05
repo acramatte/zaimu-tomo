@@ -7,6 +7,21 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
 
   setup :register_and_log_in_user
 
+  setup do
+    original_config = Application.get_env(:zaimu_tomo, :langfuse)
+    Application.put_env(:zaimu_tomo, :langfuse, enabled: false, environment: "test")
+
+    on_exit(fn ->
+      if original_config do
+        Application.put_env(:zaimu_tomo, :langfuse, original_config)
+      else
+        Application.delete_env(:zaimu_tomo, :langfuse)
+      end
+    end)
+
+    :ok
+  end
+
   test "renders pending review amounts with their extracted currency", %{
     conn: conn,
     scope: scope,
@@ -101,5 +116,81 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert show_live
            |> form("#rejection_form", review_decision: %{rejection_reason: ""})
            |> render_submit() =~ "can&#39;t be blank"
+  end
+
+  test "shows the extraction feedback widget only when a Langfuse trace exists", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    traced_content =
+      extracted_content_fixture(document, user, %{
+        trace_id: "abc123def456abc123def456abc123def4"
+      })
+
+    traced_review = pending_review_fixture(traced_content)
+
+    {:ok, _show_live, traced_html} = live(conn, ~p"/reviews/#{traced_review}")
+    assert traced_html =~ "Extraction feedback"
+    assert traced_html =~ "👍 Correct"
+    assert traced_html =~ "👎 Incorrect"
+
+    untraced_content = extracted_content_fixture(document, user)
+    untraced_review = pending_review_fixture(untraced_content)
+
+    {:ok, _show_live, untraced_html} = live(conn, ~p"/reviews/#{untraced_review}")
+    refute untraced_html =~ "Extraction feedback"
+  end
+
+  test "records correct-extraction feedback with a comment", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        trace_id: "abc123def456abc123def456abc123def4"
+      })
+
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, show_live, _html} = live(conn, ~p"/reviews/#{review}")
+
+    show_live
+    |> element("button", "👍 Correct")
+    |> render_click()
+
+    assert show_live
+           |> form("#feedback_form", feedback: %{comment: "Amount matched the PDF"})
+           |> render_submit() =~ "Your feedback has been recorded."
+  end
+
+  test "records incorrect-extraction feedback without a comment", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        trace_id: "abc123def456abc123def456abc123def4"
+      })
+
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, show_live, _html} = live(conn, ~p"/reviews/#{review}")
+
+    show_live
+    |> element("button", "👎 Incorrect")
+    |> render_click()
+
+    assert show_live
+           |> form("#feedback_form", feedback: %{comment: "The amount was parsed incorrectly"})
+           |> render_submit() =~ "Your feedback has been recorded."
   end
 end

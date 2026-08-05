@@ -18,13 +18,20 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
   def process(%{document: %{filepath: filepath} = document, currency_hint: currency_hint}) do
     Langfuse.trace_document_processing(document, fn ->
+      trace_id = Langfuse.current_trace_id()
       full_path = build_document_path(filepath)
 
       with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
            {:ok, extracted_data} <-
              ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
            {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
-        persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
+        persist_and_emit_success(
+          document,
+          extracted_data,
+          raw_llm_response,
+          verification,
+          trace_id
+        )
       else
         {:error, reason} ->
           Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
@@ -37,7 +44,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         document,
         extracted_data,
         raw_llm_response,
-        verification \\ %{"status" => "not_run"}
+        verification \\ %{"status" => "not_run"},
+        trace_id \\ nil
       ) do
     analysis = %{
       "processed_at" => DateTime.utc_now(),
@@ -50,7 +58,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       extracted_data: extracted_data,
       raw_llm_response: raw_llm_response,
       analysis: analysis,
-      status: "success"
+      status: "success",
+      trace_id: trace_id
     }
 
     case ExtractedContentContext.create_extracted_content(extraction_params) do

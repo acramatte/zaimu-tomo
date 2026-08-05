@@ -1,11 +1,73 @@
 defmodule ZaimuTomo.ReviewTest do
-  use ZaimuTomo.DataCase
-
-  import ZaimuTomo.AccountsFixtures
-  import ZaimuTomo.DocumentsFixtures
-  import ZaimuTomo.ReviewFixtures
+  use ZaimuTomo.DataCase, async: false
 
   alias ZaimuTomo.Review
+  import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
+  import ZaimuTomo.DocumentsFixtures, only: [document_fixture: 1]
+
+  import ZaimuTomo.ReviewFixtures,
+    only: [extracted_content_fixture: 2, extracted_content_fixture: 3]
+
+  setup do
+    original_config = Application.get_env(:zaimu_tomo, :langfuse)
+    Application.put_env(:zaimu_tomo, :langfuse, enabled: false, environment: "test")
+
+    on_exit(fn ->
+      if original_config do
+        Application.put_env(:zaimu_tomo, :langfuse, original_config)
+      else
+        Application.delete_env(:zaimu_tomo, :langfuse)
+      end
+    end)
+  end
+
+  describe "submit_extraction_feedback/4" do
+    test "returns an error when the extracted content does not belong to the user" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+      content = extracted_content_fixture(document, user, %{trace_id: "trace-abc"})
+      other_user = user_fixture()
+
+      assert {:error, "Extracted content not found or not owned by user"} =
+               Review.submit_extraction_feedback(content.id, other_user.id, 0, "wrong amount")
+    end
+
+    test "returns an error when no Langfuse trace was recorded for the extraction" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+      content = extracted_content_fixture(document, user)
+
+      assert {:error, "No Langfuse trace recorded for this extraction"} =
+               Review.submit_extraction_feedback(content.id, user.id, 1)
+    end
+
+    test "records a score on the extraction's Langfuse trace" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+      content = extracted_content_fixture(document, user, %{trace_id: "trace-abc"})
+      parent = self()
+
+      Application.put_env(:zaimu_tomo, :langfuse,
+        enabled: true,
+        environment: "test",
+        score_sender: fn payload ->
+          send(parent, {:score_payload, payload})
+          {:ok, %{status: 200}}
+        end
+      )
+
+      assert :ok =
+               Review.submit_extraction_feedback(content.id, user.id, 0, "amount was wrong")
+
+      assert_received {:score_payload, payload}
+      assert payload.traceId == "trace-abc"
+      assert payload.value == 0
+      assert payload.comment == "amount was wrong"
+    end
+  end
 
   describe "reject_invoice/4" do
     test "requires and persists a rejection reason" do
