@@ -11,7 +11,14 @@ ZaimuTomo
 AI-assisted bookkeeping for less data entry and more confidence.
 </p>
 
-[![CI](https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido/actions/workflows/ci.yml)
+<p align="center">
+    <a href="https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml">
+        <img alt="CI status" src="https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml/badge.svg">
+    </a>
+    <a href="LICENSE">
+        <img alt="MIT License" src="https://img.shields.io/badge/License-MIT-blue.svg">
+    </a>
+</p>
 
 
 Upload invoices and receipts, and ZaimuTomo handles the grunt work:
