@@ -77,7 +77,7 @@ defmodule ZaimuTomo.Storage.S3Test do
   defp path_style_config do
     [
       endpoint: "http://rustfs.test:9000",
-      region: "us-east-1",
+      region: "eu-central-1",
       access_key_id: "access-key",
       secret_access_key: "secret-key",
       bucket: "zaimu-tomo-test",

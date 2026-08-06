@@ -31,7 +31,7 @@ config :zaimu_tomo, :mistral,
 if config_env() != :test do
   config :zaimu_tomo, :storage,
     endpoint: System.get_env("S3_ENDPOINT", "http://localhost:9000"),
-    region: System.get_env("S3_REGION", "us-east-1"),
+    region: System.get_env("S3_REGION", "eu-central-1"),
     access_key_id: System.get_env("S3_ACCESS_KEY_ID", "rustfsadmin"),
     secret_access_key: System.get_env("S3_SECRET_ACCESS_KEY", "rustfsadmin"),
     bucket: System.get_env("S3_BUCKET", "zaimu-tomo-dev"),
