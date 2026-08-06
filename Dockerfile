@@ -38,7 +38,7 @@ RUN mix release
 FROM ${RUNNER_IMAGE} AS runner
 
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    ca-certificates libstdc++6 openssl libncurses6 locales \
+    ca-certificates curl libstdc++6 openssl libncurses6 locales \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
@@ -59,5 +59,12 @@ RUN mkdir -p /app/lib/zaimu_tomo-0.1.0/priv/uploads && chown -R nobody:root /app
 USER nobody
 
 EXPOSE 4000
+
+# /health is served by ZaimuTomoWeb.HealthController on the public scope
+# (no auth required). HEALTHCHECK does not do build-time variable
+# substitution, so $PORT is expanded by the runtime shell and follows the
+# container's actual PORT env var.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -fsS "http://localhost:$PORT/health" > /dev/null || exit 1
 
 CMD ["/app/bin/zaimu_tomo", "start"]
