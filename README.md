@@ -1,6 +1,8 @@
 # ZaimuTomo
 
-AI-assisted bookkeeping for less data entry and more confidence.
+[![CI](https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido/actions/workflows/ci.yml)
+
+> AI-assisted bookkeeping for less data entry and more confidence.
 
 Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 
@@ -9,6 +11,8 @@ Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 3. **Verification** runs a second LLM pass that checks the extracted fields are actually grounded in the document and flags anything it can't support.
 
 You review the results and approve what looks right — only then does it become an accounting journal entry. Nothing is recorded without your sign-off.
+
+_The name “Zaimu Tomo” (財務の友) comes from the Japanese words for “finance” and “friend,” where 財務 (zaimu) means “financial affairs” and 友 (tomo) means “friend” or “companion.”_
 
 ## Langfuse (optional)
 
