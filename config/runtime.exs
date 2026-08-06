@@ -28,6 +28,16 @@ config :zaimu_tomo, :mistral,
   base_url: System.get_env("MISTRAL_URL", "https://api.mistral.ai/v1"),
   api_key: System.get_env("MISTRAL_API_KEY")
 
+if config_env() != :test do
+  config :zaimu_tomo, :storage,
+    endpoint: System.get_env("S3_ENDPOINT", "http://localhost:9000"),
+    region: System.get_env("S3_REGION", "us-east-1"),
+    access_key_id: System.get_env("S3_ACCESS_KEY_ID", "rustfsadmin"),
+    secret_access_key: System.get_env("S3_SECRET_ACCESS_KEY", "rustfsadmin"),
+    bucket: System.get_env("S3_BUCKET", "zaimu-tomo-dev"),
+    path_style: System.get_env("S3_PATH_STYLE", "true") == "true"
+end
+
 default_extractor =
   if config_env() == :prod,
     do: [backend: :nousresearch, model: "ibm-granite/granite-4.1-8b"],

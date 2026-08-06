@@ -27,6 +27,8 @@ config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
 # In test we don't send emails
 config :zaimu_tomo, ZaimuTomo.Mailer, adapter: Swoosh.Adapters.Test
 
+config :zaimu_tomo, :storage, adapter: ZaimuTomo.Storage.Memory
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
