@@ -41,3 +41,6 @@ npm-debug.log
 zaimu_tomo.iml
 .claude/
 .kamal/secrets
+
+# Git worktree checkouts created inside the repo (metadata + files)
+.worktrees/
