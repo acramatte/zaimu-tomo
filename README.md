@@ -1,9 +1,18 @@
-![ZaimuTomo Tanuki](./priv/static/images/zaimutomo-logo-tanuki-mascot.png)
-# ZaimuTomo
+<p align="center">
+    <a href="https://github.com/acramatte/zaimu-tomo"><img src="./priv/static/images/zaimutomo-logo-tanuki-mascot.png" alt="ZaimuTomo Logo"></a>
+</p>
+
+<h1 align="center">
+ZaimuTomo
+</h1>
+
+
+<p align="center">
+AI-assisted bookkeeping for less data entry and more confidence.
+</p>
 
 [![CI](https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido/actions/workflows/ci.yml)
 
-> AI-assisted bookkeeping for less data entry and more confidence.
 
 Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 
