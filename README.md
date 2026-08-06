@@ -1,5 +1,4 @@
-<img width="240" height="240" alt="tanuki_mascot_zaimutomo_gh" src="https://github.com/user-attachments/assets/a398a096-3c4f-467c-8cbe-858c5d887b88" />
-
+![ZaimuTomo Tanuki](./priv/static/images/zaimutomo-logo-tanuki-mascot.png)
 # ZaimuTomo
 
 [![CI](https://github.com/acramatte/zaimu-tomo/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido/actions/workflows/ci.yml)
