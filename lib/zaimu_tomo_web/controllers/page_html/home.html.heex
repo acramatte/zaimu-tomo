@@ -208,6 +208,27 @@
         <% end %>
       </div>
 
+      <%!-- ── Spending trend ── --%>
+      <div class="card span-12">
+        <div class="card-head">
+          <div class="card-title">Spending trend</div>
+          <div class="card-meta">
+            last 6 months · <a class="muted" href={~p"/spending"}>open history →</a>
+          </div>
+        </div>
+        <div
+          :if={Enum.all?(@history, &(&1.total_cents == 0))}
+          id="trend-empty"
+          class="empty-state"
+        >
+          <div class="h">No spending recorded yet</div>
+          <div class="muted">Posted journal entries will build this trend over time.</div>
+        </div>
+        <div :if={!Enum.all?(@history, &(&1.total_cents == 0))} id="trend-chart">
+          <.bar_chart months={@history_bars} />
+        </div>
+      </div>
+
       <%!-- ── Recent activity ── --%>
       <div class="card span-12">
         <div class="card-head">
