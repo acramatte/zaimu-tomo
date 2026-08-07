@@ -185,25 +185,33 @@
         </div>
       </div>
 
-      <%!-- ── Upcoming this month ── --%>
+      <%!-- ── Upcoming ── --%>
       <div class="card span-7">
         <div class="card-head">
-          <div class="card-title">Upcoming this month</div>
+          <div class="card-title">Upcoming</div>
           <div class="card-meta mono dim">
-            {fmt(Enum.sum(Enum.map(@upcoming, & &1.amt)))} planned
+            {fmt_cents(Enum.sum(Enum.map(@upcoming, & &1.expense.amount_cents)), @current_scope.user.base_currency)} planned
+            · <.link navigate={~p"/recurring"} class="delta up">Manage</.link>
           </div>
         </div>
+        <div :if={@upcoming == []} class="empty-state" id="upcoming-empty">
+          <div class="h">No upcoming expenses</div>
+          <div class="muted">Add rent, subscriptions or memberships to see what's coming up.</div>
+        </div>
         <%= for u <- @upcoming do %>
-          <div class="upcoming-row">
+          <div class="upcoming-row" id={"upcoming-#{u.expense.id}"}>
             <div class="date-chip">
-              <div class="d">{u.d}</div>
-              <div class="m">{u.m}</div>
+              <div class="d">{u.date.day}</div>
+              <div class="m">{String.upcase(Calendar.strftime(u.date, "%b"))}</div>
             </div>
             <div>
-              <div class="name">{u.name}</div>
-              <div class="sub">{u.sub}</div>
+              <div class="name">{u.expense.name}</div>
+              <div class="sub">
+                {frequency_label(u.expense.frequency)}
+                {if u.covered, do: " · invoice linked", else: " · no invoice yet"}
+              </div>
             </div>
-            <div class="amt">{fmt(u.amt)}</div>
+            <div class="amt">{fmt_cents(u.expense.amount_cents, u.expense.currency)}</div>
           </div>
         <% end %>
       </div>

@@ -3,10 +3,12 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
   import ZaimuTomo.ReviewFixtures
   import ZaimuTomo.FinancialAccountsFixtures
+  import ZaimuTomo.RecurringExpensesFixtures
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.RecurringExpenses
   alias ZaimuTomo.Repo
 
   setup :register_and_log_in_user
@@ -105,6 +107,61 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
     assert has_element?(document, "#spending-empty")
     assert has_element?(document, "#spending-chart-empty")
+  end
+
+  test "GET / renders upcoming occurrences from real recurring expenses", %{
+    conn: conn,
+    scope: scope
+  } do
+    recurring_expense_fixture(scope, %{
+      name: "Rent · Av. Louise",
+      amount_cents: 118_000,
+      start_date: Date.utc_today()
+    })
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert html =~ "Rent · Av. Louise"
+    assert html =~ "planned"
+    assert html =~ "no invoice yet"
+    assert html =~ "Manage"
+  end
+
+  test "GET / shows an empty upcoming state without recurring expenses", %{conn: conn} do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+
+    assert has_element?(document, "#upcoming-empty")
+  end
+
+  test "GET / marks an upcoming occurrence as covered when its invoice is linked", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    today = Date.utc_today()
+
+    expense =
+      recurring_expense_fixture(scope, %{
+        name: "Spotify",
+        amount_cents: 1_799,
+        start_date: today
+      })
+
+    entry = create_entry(scope, user)
+
+    entry
+    |> Ecto.Changeset.change(date: today, amount_cents: 1_799)
+    |> Repo.update!()
+
+    {:ok, _} = RecurringExpenses.link_journal_entry(scope, expense, entry)
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert html =~ "Spotify"
+    assert html =~ "invoice linked"
+    refute html =~ "no invoice yet"
   end
 
   test "GET / renders the latest savings account balance in its source currency", %{

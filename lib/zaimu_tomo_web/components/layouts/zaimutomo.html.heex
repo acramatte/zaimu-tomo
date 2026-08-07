@@ -42,6 +42,13 @@
           </svg>
           Accounts
         </.nav_item>
+        <.nav_item navigate={~p"/recurring"} current_path={@current_path}>
+          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 8a5 5 0 0 1 8.5-3.5M13 8a5 5 0 0 1-8.5 3.5" />
+            <path d="M11.5 1.5v3h3M4.5 14.5v-3h-3" />
+          </svg>
+          Recurring
+        </.nav_item>
         <.nav_item navigate={~p"/activity"} current_path={@current_path}>
           <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 8h2.5l1.5-4 3 8 1.5-4H14" />
