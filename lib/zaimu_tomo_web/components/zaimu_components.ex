@@ -99,6 +99,32 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
+  # ── Bar chart ────────────────────────────────────────────────────────────
+
+  attr :months, :list, required: true
+
+  def bar_chart(assigns) do
+    max_value = assigns.months |> Enum.map(& &1.value) |> Enum.max(fn -> 1 end) |> max(1)
+
+    months =
+      Enum.map(assigns.months, fn month ->
+        Map.put(month, :pct, max(2.0, Float.round(month.value / max_value * 100, 1)))
+      end)
+
+    assigns = assign(assigns, months: months)
+
+    ~H"""
+    <div class="bar-chart" id="spending-bar-chart">
+      <%= for month <- @months do %>
+        <.link navigate={month.href} class={["bar-col", month.active && "active"]}>
+          <div class="bar-fill" style={"height:#{month.pct}%"}></div>
+          <div class="bar-label">{month.label}</div>
+        </.link>
+      <% end %>
+    </div>
+    """
+  end
+
   # ── Activity feed item ─────────────────────────────────────────────────────
 
   attr :item, :map, required: true
