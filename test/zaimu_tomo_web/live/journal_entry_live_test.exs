@@ -21,12 +21,14 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
       assert has_element?(live, "#journal-entry-posting-form")
+      assert has_element?(live, "#posting-tax-treatment-status")
 
       live
       |> form("#journal-entry-posting-form", %{
         "posting" => %{
           "category" => "Utilities",
           "need_or_want" => "need",
+          "tax_treatment_status" => "candidate",
           "notes" => "Electricity bill"
         }
       })
@@ -36,6 +38,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       assert updated.category == "Utilities"
       assert updated.need_or_want == "need"
+      assert updated.tax_deduction_claim.status == "candidate"
       assert updated.notes == "Electricity bill"
       assert render(live) =~ "Need"
     end
@@ -57,6 +60,23 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         |> render_submit()
 
       assert html =~ "can&#39;t be blank"
+    end
+
+    test "shows the tax treatment linked to a posted entry", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      entry = create_entry(scope, user)
+
+      {:ok, _entry} =
+        Accounting.post_entry(entry, user.id, "Software", "need", nil, %{"status" => "candidate"})
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
+
+      refute has_element?(live, "#journal-entry-posting-form")
+      assert has_element?(live, "#journal-entry-tax-treatment", "Tax treatment")
+      assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
     end
 
     test "lists need or want classification on the index", %{conn: conn, scope: scope, user: user} do

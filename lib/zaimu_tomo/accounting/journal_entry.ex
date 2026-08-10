@@ -2,6 +2,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.Currency
   alias ZaimuTomo.Review.ReviewDecision
@@ -22,6 +23,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
 
     belongs_to :review_decision, ReviewDecision
     belongs_to :user, User
+    has_one :tax_deduction_claim, TaxDeductionClaim
 
     timestamps(type: :utc_datetime)
   end

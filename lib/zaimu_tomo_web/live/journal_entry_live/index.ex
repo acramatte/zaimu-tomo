@@ -2,6 +2,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -40,6 +41,9 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
               <span class="muted">{format_date(entry.date)}</span>
               {if entry.category, do: " · #{entry.category}", else: ""}
               {if entry.need_or_want, do: " · #{need_or_want_label(entry.need_or_want)}", else: ""}
+              {if entry.tax_deduction_claim,
+                do: " · Tax: #{TaxDeductionClaim.status_label(entry.tax_deduction_claim.status)}",
+                else: ""}
             </div>
           </div>
           <div class="actions">

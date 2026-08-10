@@ -4,6 +4,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -19,6 +20,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:review_decision, rd)
              |> assign(:verification, verifier_feedback(rd))
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
+             |> assign(:approval_form, to_form(%{"status" => "undecided"}, as: :tax_claim))
              |> assign(:show_rejection_form, false)
              |> assign(:effective_data, rd.decision_data || rd.original_data)
              |> assign(:feedback, feedback_assigns(rd))}
@@ -144,11 +146,21 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
               </div>
             </.form>
           <% else %>
-            <div style="margin-top:16px;display:flex;gap:8px">
-              <button class="btn sm primary" phx-click="approve" phx-disable-with="Approving…">
-                Approve &amp; post
-              </button>
-              <button class="btn sm" phx-click="show_rejection_form">Reject</button>
+            <div style="margin-top:16px">
+              <.form for={@approval_form} id="approval-form" phx-submit="approve">
+                <.input
+                  field={@approval_form[:status]}
+                  type="select"
+                  label="Tax treatment"
+                  options={TaxDeductionClaim.status_options()}
+                />
+                <div style="display:flex;gap:8px">
+                  <button class="btn sm primary" type="submit" phx-disable-with="Approving…">
+                    Approve &amp; post
+                  </button>
+                  <button class="btn sm" type="button" phx-click="show_rejection_form">Reject</button>
+                </div>
+              </.form>
             </div>
           <% end %>
         <% end %>
@@ -209,13 +221,19 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   @impl true
-  def handle_event("approve", _params, socket) do
+  def handle_event("approve", %{"tax_claim" => tax_claim_attrs}, socket) do
     user_id = socket.assigns.current_scope.user.id
     extracted_content_id = socket.assigns.review_decision.extracted_content_id
 
     case Review.approve_invoice(extracted_content_id, user_id) do
       {:ok, decision} ->
-        {:noreply, redirect_to_journal_entry(socket, decision, "Invoice approved and posted")}
+        {:noreply,
+         redirect_to_journal_entry(
+           socket,
+           decision,
+           "Invoice approved and posted",
+           tax_claim_attrs
+         )}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -295,8 +313,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     end
   end
 
-  defp redirect_to_journal_entry(socket, decision, flash_msg) do
-    case Accounting.create_from_decision(decision) do
+  defp redirect_to_journal_entry(socket, decision, flash_msg, tax_claim_attrs) do
+    case Accounting.create_from_decision(decision, tax_claim_attrs) do
       {:ok, entry} ->
         socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
 
