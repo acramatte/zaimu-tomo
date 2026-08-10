@@ -228,17 +228,12 @@ defmodule ZaimuTomo.Accounting do
   end
 
   defp normalize_tax_claim_attrs(amount_cents, attrs) do
-    status = Map.get(attrs, "status") || Map.get(attrs, :status) || "undecided"
+    attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
+    status = Map.get(attrs, "status", "undecided")
 
-    if Map.has_key?(attrs, "deductible_amount_cents") or
-         Map.has_key?(attrs, :deductible_amount_cents) do
-      attrs
-    else
-      deductible_amount_cents =
-        if status in ["not_deductible", "disallowed"], do: 0, else: amount_cents
-
-      Map.put(attrs, "deductible_amount_cents", deductible_amount_cents)
-    end
+    Map.put_new_lazy(attrs, "deductible_amount_cents", fn ->
+      if status in ["not_deductible", "disallowed"], do: 0, else: amount_cents
+    end)
   end
 
   defp write_event_log(event_type, entry_id, user_id, metadata) do

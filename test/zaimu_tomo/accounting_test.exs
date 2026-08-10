@@ -79,7 +79,7 @@ defmodule ZaimuTomo.AccountingTest do
 
       assert {:ok, updated} =
                Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
-                 "status" => "not_deductible"
+                 status: "not_deductible"
                })
 
       assert updated.tax_deduction_claim.status == "not_deductible"
