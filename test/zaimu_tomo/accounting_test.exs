@@ -5,12 +5,13 @@ defmodule ZaimuTomo.AccountingTest do
   import ZaimuTomo.ReviewFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.EventLog
 
-  describe "post_entry/5" do
+  describe "post_entry/6" do
     test "posts an entry with need or want classification" do
       user = user_fixture()
       scope = user_scope_fixture(user)
@@ -48,6 +49,63 @@ defmodule ZaimuTomo.AccountingTest do
 
       assert {:error, changeset} = Accounting.post_entry(entry, user.id, "Utilities", "maybe")
       assert %{need_or_want: ["is invalid"]} = errors_on(changeset)
+    end
+
+    test "records a tax deduction claim separately from the journal entry" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+
+      assert {:ok, updated} =
+               Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
+                 "status" => "candidate"
+               })
+
+      assert updated.tax_deduction_claim.status == "candidate"
+      assert updated.tax_deduction_claim.tax_year == 2026
+      assert updated.tax_deduction_claim.deductible_amount_cents == entry.amount_cents
+
+      assert %EventLog{metadata: %{"tax_deduction_status" => "candidate"}} =
+               Repo.get_by(EventLog,
+                 event_type: "journal_entry_posted",
+                 invoice_id: to_string(entry.id),
+                 user_id: user.id
+               )
+    end
+
+    test "database prevents deletion of a journal entry with its tax deduction claim" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+
+      assert {:error, changeset} =
+               entry
+               |> Ecto.Changeset.change()
+               |> Ecto.Changeset.foreign_key_constraint(:id,
+                 name: :tax_deduction_claims_journal_entry_id_fkey,
+                 message: "cannot be deleted while its tax deduction claim exists"
+               )
+               |> Repo.delete()
+
+      assert %{id: ["cannot be deleted while its tax deduction claim exists"]} =
+               errors_on(changeset)
+
+      assert %JournalEntry{id: journal_entry_id} = Repo.get(JournalEntry, entry.id)
+      assert journal_entry_id == entry.id
+    end
+
+    test "sets the deductible amount to zero for an entry marked not deductible" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+
+      assert {:ok, updated} =
+               Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
+                 status: "not_deductible"
+               })
+
+      assert updated.tax_deduction_claim.status == "not_deductible"
+      assert updated.tax_deduction_claim.deductible_amount_cents == 0
     end
   end
 

@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounting.JournalEntry
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -86,13 +87,17 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
             <div class="name">Need / Want</div>
             <div>{need_or_want_label(@entry.need_or_want)}</div>
           </div>
+          <div id="journal-entry-tax-treatment" class="detail-row">
+            <div class="name">Tax treatment</div>
+            <div>{tax_treatment_label(@entry.tax_deduction_claim)}</div>
+          </div>
           <div class="detail-row">
             <div class="name">Notes</div>
             <div>{@entry.notes || "—"}</div>
           </div>
         <% else %>
           <p class="muted" style="font-size:13px;margin-bottom:12px">
-            Assign a budget category and mark whether this is a need or a want.
+            Assign a budget category, classify it as a need or want, and record the tax treatment.
           </p>
           <.form for={@form} id="journal-entry-posting-form" phx-submit="post_entry">
             <div style="display:grid;gap:10px">
@@ -109,6 +114,14 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
                 prompt="Choose one"
                 options={[Need: "need", Want: "want"]}
                 required
+              />
+              <.input
+                id="posting-tax-treatment-status"
+                name="posting[tax_treatment_status]"
+                type="select"
+                label="Tax treatment"
+                value={tax_treatment_status(@entry)}
+                options={TaxDeductionClaim.status_options()}
               />
               <.input field={@form[:notes]} label="Notes" type="textarea" />
             </div>
@@ -134,6 +147,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
     user_id = socket.assigns.current_scope.user.id
     category = Map.get(params, "category")
     need_or_want = Map.get(params, "need_or_want")
+    tax_claim_attrs = %{"status" => Map.get(params, "tax_treatment_status", "undecided")}
 
     notes =
       case Map.get(params, "notes", "") do
@@ -141,7 +155,14 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
         n -> n
       end
 
-    case Accounting.post_entry(socket.assigns.entry, user_id, category, need_or_want, notes) do
+    case Accounting.post_entry(
+           socket.assigns.entry,
+           user_id,
+           category,
+           need_or_want,
+           notes,
+           tax_claim_attrs
+         ) do
       {:ok, updated} ->
         {:noreply,
          socket
@@ -180,4 +201,10 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   defp need_or_want_label("need"), do: "Need"
   defp need_or_want_label("want"), do: "Want"
   defp need_or_want_label(_), do: "—"
+
+  defp tax_treatment_label(%{status: status}), do: TaxDeductionClaim.status_label(status)
+  defp tax_treatment_label(_), do: "—"
+
+  defp tax_treatment_status(%{tax_deduction_claim: %{status: status}}), do: status
+  defp tax_treatment_status(_), do: "undecided"
 end

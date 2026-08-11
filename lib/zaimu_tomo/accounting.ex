@@ -11,15 +11,19 @@ defmodule ZaimuTomo.Accounting do
 
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Accounting.JournalEntry
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
+  alias Ecto.Multi
 
   # ---------------------------------------------------------------------------
   # Entry creation (called after invoice approval / amendment)
   # ---------------------------------------------------------------------------
 
-  def create_from_decision(%ReviewDecision{} = decision) do
+  @spec create_from_decision(%ReviewDecision{}, map()) ::
+          {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
+  def create_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
     data = decision.decision_data || decision.original_data
 
     attrs = %{
@@ -34,36 +38,71 @@ defmodule ZaimuTomo.Accounting do
       status: "uncategorized"
     }
 
-    JournalEntry.changeset_for_create(attrs) |> Repo.insert()
+    tax_claim_attrs = normalize_tax_claim_attrs(attrs.amount_cents, tax_claim_attrs)
+
+    Multi.new()
+    |> Multi.insert(:journal_entry, JournalEntry.changeset_for_create(attrs))
+    |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: entry} ->
+      TaxDeductionClaim.changeset_for_create(entry, tax_claim_attrs) |> repo.insert()
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{journal_entry: entry, tax_deduction_claim: claim}} ->
+        {:ok, %{entry | tax_deduction_claim: claim}}
+
+      {:error, _operation, changeset, _changes} ->
+        {:error, changeset}
+    end
   end
 
   # ---------------------------------------------------------------------------
   # Posting (category assignment)
   # ---------------------------------------------------------------------------
 
+  @spec change_journal_entry_posting(JournalEntry.t(), map()) :: Ecto.Changeset.t()
   def change_journal_entry_posting(%JournalEntry{} = entry, attrs \\ %{}) do
     JournalEntry.changeset_for_categorize(entry, attrs)
   end
 
-  def post_entry(%JournalEntry{} = entry, user_id, category, need_or_want, notes \\ nil) do
+  @spec post_entry(JournalEntry.t(), integer(), String.t(), String.t(), String.t() | nil, map()) ::
+          {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
+  def post_entry(
+        %JournalEntry{} = entry,
+        user_id,
+        category,
+        need_or_want,
+        notes \\ nil,
+        tax_claim_attrs \\ %{}
+      ) do
     true = entry.user_id == user_id
 
-    case JournalEntry.changeset_for_categorize(entry, %{
-           category: category,
-           need_or_want: need_or_want,
-           notes: notes,
-           status: "posted"
-         })
-         |> Repo.update() do
-      {:ok, updated} ->
+    Multi.new()
+    |> Multi.update(
+      :journal_entry,
+      JournalEntry.changeset_for_categorize(entry, %{
+        category: category,
+        need_or_want: need_or_want,
+        notes: notes,
+        status: "posted"
+      })
+    )
+    |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: updated} ->
+      upsert_tax_deduction_claim(repo, updated, tax_claim_attrs)
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{journal_entry: updated, tax_deduction_claim: claim}} ->
+        updated = %{updated | tax_deduction_claim: claim}
+
         write_event_log("journal_entry_posted", entry.id, user_id, %{
           category: category,
-          need_or_want: need_or_want
+          need_or_want: need_or_want,
+          tax_deduction_status: claim.status
         })
 
         {:ok, updated}
 
-      {:error, changeset} ->
+      {:error, _operation, changeset, _changes} ->
         {:error, changeset}
     end
   end
@@ -131,9 +170,11 @@ defmodule ZaimuTomo.Accounting do
     }
   end
 
+  @spec list_journal_entries(integer()) :: [JournalEntry.t()]
   def list_journal_entries(user_id) do
     from(je in JournalEntry,
       where: je.user_id == ^user_id,
+      preload: [:tax_deduction_claim],
       order_by: [
         asc: fragment("CASE WHEN ? = 'uncategorized' THEN 0 ELSE 1 END", je.status),
         desc: je.date,
@@ -143,8 +184,13 @@ defmodule ZaimuTomo.Accounting do
     |> Repo.all()
   end
 
+  @spec get_journal_entry(integer(), integer()) :: {:ok, JournalEntry.t()} | {:error, String.t()}
   def get_journal_entry(id, user_id) do
-    case Repo.get_by(JournalEntry, id: id, user_id: user_id) do
+    case Repo.one(
+           from je in JournalEntry,
+             where: je.id == ^id and je.user_id == ^user_id,
+             preload: [:tax_deduction_claim]
+         ) do
       nil -> {:error, "Journal entry not found or not owned by user"}
       entry -> {:ok, entry}
     end
@@ -174,6 +220,27 @@ defmodule ZaimuTomo.Accounting do
       {:ok, date} -> date
       {:error, _} -> nil
     end
+  end
+
+  defp upsert_tax_deduction_claim(repo, %JournalEntry{} = entry, attrs) do
+    attrs = normalize_tax_claim_attrs(entry.amount_cents, attrs)
+
+    case repo.get_by(TaxDeductionClaim, journal_entry_id: entry.id) do
+      nil ->
+        TaxDeductionClaim.changeset_for_create(entry, attrs) |> repo.insert()
+
+      claim ->
+        TaxDeductionClaim.changeset_for_update(claim, attrs) |> repo.update()
+    end
+  end
+
+  defp normalize_tax_claim_attrs(amount_cents, attrs) do
+    attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
+    status = Map.get(attrs, "status", "undecided")
+
+    Map.put_new_lazy(attrs, "deductible_amount_cents", fn ->
+      if status in ["not_deductible", "disallowed"], do: 0, else: amount_cents
+    end)
   end
 
   defp write_event_log(event_type, entry_id, user_id, metadata) do

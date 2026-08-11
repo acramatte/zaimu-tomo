@@ -145,10 +145,15 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             </.form>
           <% else %>
             <div style="margin-top:16px;display:flex;gap:8px">
-              <button class="btn sm primary" phx-click="approve" phx-disable-with="Approving…">
+              <button
+                class="btn sm primary"
+                type="button"
+                phx-click="approve"
+                phx-disable-with="Approving…"
+              >
                 Approve &amp; post
               </button>
-              <button class="btn sm" phx-click="show_rejection_form">Reject</button>
+              <button class="btn sm" type="button" phx-click="show_rejection_form">Reject</button>
             </div>
           <% end %>
         <% end %>

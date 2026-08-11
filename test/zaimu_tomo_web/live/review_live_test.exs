@@ -118,6 +118,57 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
            |> render_submit() =~ "can&#39;t be blank"
   end
 
+  test "creates an undecided tax deduction claim when approving an invoice", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+    extracted_content = extracted_content_fixture(document, user)
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, show_live, _html} = live(conn, ~p"/reviews/#{review}")
+    refute has_element?(show_live, "#approval-form")
+    refute has_element?(show_live, "#review-tax-treatment-status")
+
+    show_live
+    |> element("button", "Approve & post")
+    |> render_click()
+
+    assert [%{tax_deduction_claim: %{status: "undecided"}}] =
+             ZaimuTomo.Accounting.list_journal_entries(user.id)
+  end
+
+  test "creates an undecided tax deduction claim when amending an invoice", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+    extracted_content = extracted_content_fixture(document, user)
+    review = pending_review_fixture(extracted_content)
+
+    {:ok, edit_live, _html} = live(conn, ~p"/reviews/#{review}/edit")
+    refute has_element?(edit_live, "#review-tax-treatment-status")
+
+    edit_live
+    |> form("#review_form", %{
+      "review_decision" => %{"review_notes" => "Reviewed"},
+      "decision_data" => %{
+        "issuer" => "ACME Corp",
+        "invoice_number" => "INV-001",
+        "invoice_date" => "2026-05-08",
+        "amount_to_pay_cents" => "4200",
+        "currency" => "EUR",
+        "reason_for_payment" => "Office supplies"
+      }
+    })
+    |> render_submit()
+
+    assert [%{tax_deduction_claim: %{status: "undecided"}}] =
+             ZaimuTomo.Accounting.list_journal_entries(user.id)
+  end
+
   test "shows the extraction feedback widget only when a Langfuse trace exists", %{
     conn: conn,
     scope: scope,

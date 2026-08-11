@@ -98,34 +98,13 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   @impl true
   def handle_event("save", %{"review_decision" => form_params} = params, socket) do
     decision_data = Map.get(params, "decision_data", %{})
-    review_status = form_params["review_status"]
-    rejection_reason = form_params["rejection_reason"]
     notes = form_params["review_notes"]
     user_id = socket.assigns.current_scope.user.id
     extracted_content_id = socket.assigns.review_decision.extracted_content_id
 
-    result =
-      case review_status do
-        "approved" ->
-          Review.approve_invoice(extracted_content_id, user_id, notes)
-
-        "rejected" ->
-          Review.reject_invoice(extracted_content_id, user_id, rejection_reason, notes)
-
-        "amended" ->
-          Review.amend_invoice(extracted_content_id, user_id, decision_data, notes)
-
-        _ ->
-          {:error, "Invalid status"}
-      end
-
-    case result do
-      {:ok, decision} when review_status in ["approved", "amended"] ->
+    case Review.amend_invoice(extracted_content_id, user_id, decision_data, notes) do
+      {:ok, decision} ->
         {:noreply, redirect_to_journal_entry(socket, decision, "Review saved successfully")}
-
-      {:ok, _} when review_status == "rejected" ->
-        {:noreply,
-         socket |> put_flash(:info, "Review saved successfully") |> redirect(to: ~p"/reviews")}
 
       {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
