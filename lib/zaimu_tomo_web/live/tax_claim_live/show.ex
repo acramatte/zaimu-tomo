@@ -13,6 +13,7 @@ defmodule ZaimuTomoWeb.TaxClaimLive.Show do
        socket
        |> assign(:page_title, "Tax claim")
        |> assign(:current_path, "/tax_claims")
+       |> assign(:recording_authority_decision?, false)
        |> assign_claim(claim)}
     else
       _ ->
@@ -118,33 +119,57 @@ defmodule ZaimuTomoWeb.TaxClaimLive.Show do
               <div id="tax-claim-return-reference">{@claim.tax_return_reference}</div>
             </div>
             <p class="muted" style="font-size:13px;margin:16px 0">
-              Keep this claim filed unless a tax authority makes a decision about it.
+              This claim is recorded in your return. No further action is needed unless a tax authority
+              responds to it.
             </p>
-            <.form
-              for={@authority_form}
-              id="tax-claim-authority-decision-form"
-              phx-submit="record_authority_decision"
+            <button
+              :if={!@recording_authority_decision?}
+              id="tax-claim-record-authority-decision"
+              type="button"
+              class="btn sm"
+              phx-click="begin_authority_decision"
             >
-              <div style="display:grid;gap:12px">
-                <.input
-                  field={@authority_form[:authority_name]}
-                  label="Tax authority"
-                  placeholder="e.g. Zurich Tax Office"
-                  required
-                />
-                <.input
-                  field={@authority_form[:authority_reference]}
-                  label="Authority decision reference"
-                  placeholder="e.g. Decision 2026-041"
-                  required
-                />
-              </div>
-              <div style="margin-top:16px">
-                <.button type="submit" variant="primary" phx-disable-with="Recording…">
-                  Record as disallowed
-                </.button>
-              </div>
-            </.form>
+              Record tax authority decision
+            </button>
+            <div :if={@recording_authority_decision?} style="margin-top:20px">
+              <div style="font-weight:600">Tax authority decision</div>
+              <p class="muted" style="font-size:13px;margin:6px 0 16px">
+                Use this only when an authority has disallowed the claim.
+              </p>
+              <.form
+                for={@authority_form}
+                id="tax-claim-authority-decision-form"
+                phx-submit="record_authority_decision"
+              >
+                <div style="display:grid;gap:12px">
+                  <.input
+                    field={@authority_form[:authority_name]}
+                    label="Tax authority"
+                    placeholder="e.g. Zurich Tax Office"
+                    required
+                  />
+                  <.input
+                    field={@authority_form[:authority_reference]}
+                    label="Authority decision reference"
+                    placeholder="e.g. Decision 2026-041"
+                    required
+                  />
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px">
+                  <.button type="submit" variant="primary" phx-disable-with="Recording…">
+                    Record as disallowed
+                  </.button>
+                  <button
+                    id="tax-claim-cancel-authority-decision"
+                    type="button"
+                    class="btn sm"
+                    phx-click="cancel_authority_decision"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </.form>
+            </div>
           <% "not_deductible" -> %>
             <p id="tax-claim-not-deductible" class="muted">
               You decided not to claim this expense in the tax return.
@@ -205,6 +230,14 @@ defmodule ZaimuTomoWeb.TaxClaimLive.Show do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, format_error(reason))}
     end
+  end
+
+  def handle_event("begin_authority_decision", _params, socket) do
+    {:noreply, assign(socket, :recording_authority_decision?, true)}
+  end
+
+  def handle_event("cancel_authority_decision", _params, socket) do
+    {:noreply, assign(socket, :recording_authority_decision?, false)}
   end
 
   def handle_event("record_authority_decision", %{"authority" => params}, socket) do

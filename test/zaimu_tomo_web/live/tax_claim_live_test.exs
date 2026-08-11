@@ -62,7 +62,14 @@ defmodule ZaimuTomoWeb.TaxClaimLiveTest do
            } = Repo.get!(TaxDeductionClaim, claim.id)
 
     assert has_element?(live, "#tax-claim-return-reference", "2026 return — appendix 3")
-    assert has_element?(live, "#tax-claim-authority-decision-form")
+
+    assert has_element?(
+             live,
+             "#tax-claim-record-authority-decision",
+             "Record tax authority decision"
+           )
+
+    refute has_element?(live, "#tax-claim-authority-decision-form")
   end
 
   test "records an authority decision only after a claim is filed",
@@ -80,6 +87,14 @@ defmodule ZaimuTomoWeb.TaxClaimLiveTest do
              })
 
     {:ok, live, _html} = live(conn, "/tax_claims/#{claim.id}")
+
+    refute has_element?(live, "#tax-claim-authority-decision-form")
+
+    live
+    |> element("#tax-claim-record-authority-decision")
+    |> render_click()
+
+    assert has_element?(live, "#tax-claim-authority-decision-form")
 
     html =
       live
