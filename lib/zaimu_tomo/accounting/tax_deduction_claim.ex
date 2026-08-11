@@ -37,7 +37,14 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     timestamps(type: :utc_datetime)
   end
 
-  @spec changeset_for_create(JournalEntry.t(), map()) :: Ecto.Changeset.t(t())
+  @typep persisted_journal_entry :: %JournalEntry{
+           id: integer(),
+           amount_cents: integer(),
+           date: Date.t(),
+           user_id: integer()
+         }
+
+  @spec changeset_for_create(persisted_journal_entry(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_create(%JournalEntry{} = entry, attrs) do
     %__MODULE__{
       journal_entry_id: entry.id,
