@@ -11,6 +11,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
 
   @typedoc "Journal entry schema struct"
   @type t :: %__MODULE__{
+          __meta__: Ecto.Schema.Metadata.t(),
           id: integer() | nil,
           amount_cents: integer() | nil,
           currency: String.t() | nil,
@@ -23,7 +24,12 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
           status: String.t() | nil,
           notes: String.t() | nil,
           review_decision_id: integer() | nil,
-          user_id: integer() | nil
+          user_id: integer() | nil,
+          review_decision: Ecto.Schema.belongs_to(struct()),
+          user: Ecto.Schema.belongs_to(struct()),
+          tax_deduction_claim: Ecto.Schema.has_one(TaxDeductionClaim.t()),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
         }
 
   schema "journal_entries" do
@@ -45,7 +51,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     timestamps(type: :utc_datetime)
   end
 
-  @spec changeset_for_create(map()) :: Ecto.Changeset.t()
+  @spec changeset_for_create(map()) :: Ecto.Changeset.t(t())
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [
@@ -67,7 +73,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> unique_constraint(:review_decision_id)
   end
 
-  @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t()
+  @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_categorize(%__MODULE__{} = entry, attrs) do
     entry
     |> cast(attrs, [:category, :need_or_want, :notes, :status])

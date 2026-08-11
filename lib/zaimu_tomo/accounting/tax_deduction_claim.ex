@@ -9,6 +9,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
 
   @typedoc "Tax deduction claim schema struct"
   @type t :: %__MODULE__{
+          __meta__: Ecto.Schema.Metadata.t(),
           id: integer() | nil,
           tax_year: integer() | nil,
           status: String.t() | nil,
@@ -17,8 +18,10 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
           notes: String.t() | nil,
           journal_entry_id: integer() | nil,
           user_id: integer() | nil,
-          inserted_at: NaiveDateTime.t() | DateTime.t() | nil,
-          updated_at: NaiveDateTime.t() | DateTime.t() | nil
+          journal_entry: Ecto.Schema.belongs_to(JournalEntry.t()),
+          user: Ecto.Schema.belongs_to(struct()),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
         }
 
   schema "tax_deduction_claims" do
@@ -34,7 +37,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     timestamps(type: :utc_datetime)
   end
 
-  @spec changeset_for_create(JournalEntry.t(), map()) :: Ecto.Changeset.t()
+  @spec changeset_for_create(JournalEntry.t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_create(%JournalEntry{} = entry, attrs) do
     %__MODULE__{
       journal_entry_id: entry.id,
@@ -57,7 +60,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
   end
 
-  @spec changeset_for_update(t(), map()) :: Ecto.Changeset.t()
+  @spec changeset_for_update(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_update(%__MODULE__{} = claim, attrs) do
     claim
     |> cast(attrs, [:status, :category, :deductible_amount_cents, :notes])
@@ -75,7 +78,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     ]
   end
 
-  @spec status_label(String.t() | atom() | nil) :: String.t()
+  @spec status_label(String.t() | nil) :: String.t()
   def status_label("undecided"), do: "Not yet decided"
   def status_label("candidate"), do: "Potentially deductible"
   def status_label("not_deductible"), do: "Not deductible"
