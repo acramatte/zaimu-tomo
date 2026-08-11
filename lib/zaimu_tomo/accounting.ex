@@ -21,6 +21,7 @@ defmodule ZaimuTomo.Accounting do
   # Entry creation (called after invoice approval / amendment)
   # ---------------------------------------------------------------------------
 
+  @spec create_from_decision(struct(), map()) :: {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
   def create_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
     data = decision.decision_data || decision.original_data
 
@@ -57,10 +58,13 @@ defmodule ZaimuTomo.Accounting do
   # Posting (category assignment)
   # ---------------------------------------------------------------------------
 
+  @spec change_journal_entry_posting(JournalEntry.t(), map()) :: Ecto.Changeset.t()
   def change_journal_entry_posting(%JournalEntry{} = entry, attrs \\ %{}) do
     JournalEntry.changeset_for_categorize(entry, attrs)
   end
 
+  @spec post_entry(JournalEntry.t(), integer(), String.t(), String.t(), String.t() | nil, map()) ::
+          {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
   def post_entry(
         %JournalEntry{} = entry,
         user_id,
@@ -165,6 +169,7 @@ defmodule ZaimuTomo.Accounting do
     }
   end
 
+  @spec list_journal_entries(integer()) :: [JournalEntry.t()]
   def list_journal_entries(user_id) do
     from(je in JournalEntry,
       where: je.user_id == ^user_id,
@@ -178,6 +183,7 @@ defmodule ZaimuTomo.Accounting do
     |> Repo.all()
   end
 
+  @spec get_journal_entry(integer(), integer()) :: {:ok, JournalEntry.t()} | {:error, String.t()}
   def get_journal_entry(id, user_id) do
     case Repo.one(
            from je in JournalEntry,

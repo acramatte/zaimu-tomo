@@ -9,6 +9,23 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
 
   @need_or_want_values ["need", "want"]
 
+  @typedoc "Journal entry schema struct"
+  @type t :: %__MODULE__{
+          id: integer() | nil,
+          amount_cents: integer() | nil,
+          currency: String.t() | nil,
+          date: Date.t() | nil,
+          description: String.t() | nil,
+          issuer: String.t() | nil,
+          invoice_number: String.t() | nil,
+          category: String.t() | nil,
+          need_or_want: String.t() | nil,
+          status: String.t() | nil,
+          notes: String.t() | nil,
+          review_decision_id: integer() | nil,
+          user_id: integer() | nil
+        }
+
   schema "journal_entries" do
     field :amount_cents, :integer
     field :currency, :string
@@ -28,6 +45,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset_for_create(map()) :: Ecto.Changeset.t()
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [
@@ -49,6 +67,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> unique_constraint(:review_decision_id)
   end
 
+  @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t()
   def changeset_for_categorize(%__MODULE__{} = entry, attrs) do
     entry
     |> cast(attrs, [:category, :need_or_want, :notes, :status])
@@ -58,5 +77,6 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> check_constraint(:need_or_want, name: :journal_entries_need_or_want_check)
   end
 
+  @spec need_or_want_values() :: [String.t()]
   def need_or_want_values, do: @need_or_want_values
 end

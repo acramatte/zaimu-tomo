@@ -7,6 +7,20 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
 
   @statuses ["undecided", "candidate", "not_deductible", "claimed", "disallowed"]
 
+  @typedoc "Tax deduction claim schema struct"
+  @type t :: %__MODULE__{
+          id: integer() | nil,
+          tax_year: integer() | nil,
+          status: String.t() | nil,
+          category: String.t() | nil,
+          deductible_amount_cents: integer() | nil,
+          notes: String.t() | nil,
+          journal_entry_id: integer() | nil,
+          user_id: integer() | nil,
+          inserted_at: NaiveDateTime.t() | DateTime.t() | nil,
+          updated_at: NaiveDateTime.t() | DateTime.t() | nil
+        }
+
   schema "tax_deduction_claims" do
     field :tax_year, :integer
     field :status, :string, default: "undecided"
@@ -20,6 +34,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset_for_create(JournalEntry.t() | struct(), map()) :: Ecto.Changeset.t()
   def changeset_for_create(%JournalEntry{} = entry, attrs) do
     %__MODULE__{
       journal_entry_id: entry.id,
@@ -42,6 +57,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
   end
 
+  @spec changeset_for_update(t(), map()) :: Ecto.Changeset.t()
   def changeset_for_update(%__MODULE__{} = claim, attrs) do
     claim
     |> cast(attrs, [:status, :category, :deductible_amount_cents, :notes])
@@ -50,6 +66,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
   end
 
+  @spec status_options() :: [{String.t(), String.t()}]
   def status_options do
     [
       {"Not yet decided", "undecided"},
@@ -58,6 +75,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     ]
   end
 
+  @spec status_label(String.t() | atom() | nil) :: String.t()
   def status_label("undecided"), do: "Not yet decided"
   def status_label("candidate"), do: "Potentially deductible"
   def status_label("not_deductible"), do: "Not deductible"
