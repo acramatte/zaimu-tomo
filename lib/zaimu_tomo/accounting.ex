@@ -108,6 +108,62 @@ defmodule ZaimuTomo.Accounting do
   end
 
   # ---------------------------------------------------------------------------
+  # Tax deduction claim resolution
+  # ---------------------------------------------------------------------------
+
+  @spec list_candidate_tax_deduction_claims(Scope.t()) :: [TaxDeductionClaim.t()]
+  def list_candidate_tax_deduction_claims(%Scope{user: user}) do
+    from(claim in TaxDeductionClaim,
+      where: claim.user_id == ^user.id and claim.status == "candidate",
+      preload: [:journal_entry],
+      order_by: [asc: claim.tax_year, asc: claim.inserted_at]
+    )
+    |> Repo.all()
+  end
+
+  @spec resolve_tax_deduction_claim(Scope.t(), integer(), map()) ::
+          {:ok, TaxDeductionClaim.t()} | {:error, Ecto.Changeset.t() | String.t()}
+  def resolve_tax_deduction_claim(%Scope{user: user}, claim_id, attrs) do
+    case Repo.one(
+           from claim in TaxDeductionClaim,
+             where:
+               claim.id == ^claim_id and claim.user_id == ^user.id and claim.status == "candidate"
+         ) do
+      nil ->
+        {:error, "Candidate tax deduction claim not found or already resolved"}
+
+      claim ->
+        Multi.new()
+        |> Multi.update(
+          :tax_deduction_claim,
+          TaxDeductionClaim.changeset_for_resolution(claim, attrs)
+        )
+        |> Multi.run(:event_log, fn repo, %{tax_deduction_claim: resolved} ->
+          EventLog.changeset_for_create(%{
+            event_type: "tax_deduction_claim_resolved",
+            invoice_id: to_string(claim.journal_entry_id),
+            user_id: user.id,
+            metadata: %{
+              claim_id: claim.id,
+              from_status: claim.status,
+              to_status: resolved.status,
+              tax_return_reference: resolved.tax_return_reference,
+              authority_name: resolved.authority_name,
+              authority_reference: resolved.authority_reference
+            },
+            status: "completed"
+          })
+          |> repo.insert()
+        end)
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{tax_deduction_claim: resolved}} -> {:ok, resolved}
+          {:error, _operation, changeset, _changes} -> {:error, changeset}
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Queries
   # ---------------------------------------------------------------------------
 

@@ -109,6 +109,82 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
+  describe "resolve_tax_deduction_claim/3" do
+    test "moves a candidate claim into a tax return and records the return reference" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      claim = candidate_claim(scope, user)
+
+      assert {:ok, resolved} =
+               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "claimed",
+                 "tax_return_reference" => "2026 return — appendix 3"
+               })
+
+      assert resolved.status == "claimed"
+      assert resolved.tax_return_reference == "2026 return — appendix 3"
+      assert resolved.authority_name == nil
+      assert resolved.authority_reference == nil
+      assert resolved.deductible_amount_cents == claim.deductible_amount_cents
+
+      assert %EventLog{
+               metadata: %{
+                 "from_status" => "candidate",
+                 "tax_return_reference" => "2026 return — appendix 3",
+                 "to_status" => "claimed"
+               }
+             } =
+               Repo.get_by(EventLog,
+                 event_type: "tax_deduction_claim_resolved",
+                 invoice_id: to_string(claim.journal_entry_id),
+                 user_id: user.id
+               )
+    end
+
+    test "records the authority and decision reference when a candidate claim is disallowed" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      claim = candidate_claim(scope, user)
+
+      assert {:ok, resolved} =
+               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "disallowed",
+                 "authority_name" => "Zurich Tax Office",
+                 "authority_reference" => "Decision 2026-041"
+               })
+
+      assert resolved.status == "disallowed"
+      assert resolved.deductible_amount_cents == 0
+      assert resolved.authority_name == "Zurich Tax Office"
+      assert resolved.authority_reference == "Decision 2026-041"
+      assert resolved.tax_return_reference == nil
+    end
+
+    test "requires the outcome-specific context and prevents resolving a claim twice" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      claim = candidate_claim(scope, user)
+
+      assert {:error, changeset} =
+               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{"status" => "claimed"})
+
+      assert %{tax_return_reference: ["can't be blank"]} = errors_on(changeset)
+
+      assert {:ok, _resolved} =
+               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "claimed",
+                 "tax_return_reference" => "2026 return"
+               })
+
+      assert {:error, "Candidate tax deduction claim not found or already resolved"} =
+               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "disallowed",
+                 "authority_name" => "Zurich Tax Office",
+                 "authority_reference" => "Decision 2026-041"
+               })
+    end
+  end
+
   describe "monthly_spending/2" do
     test "aggregates posted entries by normalized category for the scoped user" do
       user = user_fixture()
@@ -244,6 +320,17 @@ defmodule ZaimuTomo.AccountingTest do
     decision = approved_review_fixture(extracted_content, user)
     {:ok, entry} = Accounting.create_from_decision(decision)
     entry
+  end
+
+  defp candidate_claim(scope, user) do
+    entry = create_entry(scope, user)
+
+    assert {:ok, posted} =
+             Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
+               "status" => "candidate"
+             })
+
+    posted.tax_deduction_claim
   end
 
   defp create_entry(scope, user, date, amount_cents, currency, category) do

@@ -77,6 +77,34 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       refute has_element?(live, "#journal-entry-posting-form")
       assert has_element?(live, "#journal-entry-tax-treatment", "Tax treatment")
       assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
+      assert has_element?(live, "a[href='/tax_claims']", "Resolve claim")
+    end
+
+    test "shows the tax return reference after a claim is resolved", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      entry = create_entry(scope, user)
+
+      assert {:ok, posted} =
+               Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
+                 "status" => "candidate"
+               })
+
+      assert {:ok, _resolved} =
+               Accounting.resolve_tax_deduction_claim(scope, posted.tax_deduction_claim.id, %{
+                 "status" => "claimed",
+                 "tax_return_reference" => "2026 return — appendix 3"
+               })
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
+
+      assert has_element?(
+               live,
+               "#journal-entry-tax-return-reference",
+               "2026 return — appendix 3"
+             )
     end
 
     test "lists need or want classification on the index", %{conn: conn, scope: scope, user: user} do
