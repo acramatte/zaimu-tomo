@@ -5,6 +5,7 @@ defmodule ZaimuTomo.AccountingTest do
   import ZaimuTomo.ReviewFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
@@ -70,6 +71,27 @@ defmodule ZaimuTomo.AccountingTest do
                  invoice_id: to_string(entry.id),
                  user_id: user.id
                )
+    end
+
+    test "database prevents deletion of a journal entry with its tax deduction claim" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+
+      assert {:error, changeset} =
+               entry
+               |> Ecto.Changeset.change()
+               |> Ecto.Changeset.foreign_key_constraint(:id,
+                 name: :tax_deduction_claims_journal_entry_id_fkey,
+                 message: "cannot be deleted while its tax deduction claim exists"
+               )
+               |> Repo.delete()
+
+      assert %{id: ["cannot be deleted while its tax deduction claim exists"]} =
+               errors_on(changeset)
+
+      assert %JournalEntry{id: journal_entry_id} = Repo.get(JournalEntry, entry.id)
+      assert journal_entry_id == entry.id
     end
 
     test "sets the deductible amount to zero for an entry marked not deductible" do
