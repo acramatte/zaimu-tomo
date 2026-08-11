@@ -29,6 +29,10 @@ Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 
 You review the results and approve what looks right — only then does it become an accounting journal entry. Nothing is recorded without your sign-off.
 
+## Features
+
+- **Tax-claim workflow** — review potentially deductible expenses by tax year, record those included in a tax return, and retain any later tax-authority disallowance with its decision reference. See the [C4 analysis](docs/tax-claim-lifecycle-c4.md).
+
 _The name “Zaimu Tomo” (財務の友) comes from the Japanese words for “finance” and “friend,” where 財務 (zaimu) means “financial affairs” and 友 (tomo) means “friend” or “companion.”_
 
 ## Langfuse (optional)
