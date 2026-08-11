@@ -69,7 +69,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
     } do
       entry = create_entry(scope, user)
 
-      {:ok, _entry} =
+      {:ok, posted} =
         Accounting.post_entry(entry, user.id, "Software", "need", nil, %{"status" => "candidate"})
 
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
@@ -77,7 +77,12 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       refute has_element?(live, "#journal-entry-posting-form")
       assert has_element?(live, "#journal-entry-tax-treatment", "Tax treatment")
       assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
-      assert has_element?(live, "a[href='/tax_claims']", "Resolve claim")
+
+      assert has_element?(
+               live,
+               "a[href='/tax_claims/#{posted.tax_deduction_claim.id}']",
+               "Resolve claim"
+             )
     end
 
     test "shows the tax return reference after a claim is resolved", %{
@@ -93,7 +98,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
                })
 
       assert {:ok, _resolved} =
-               Accounting.resolve_tax_deduction_claim(scope, posted.tax_deduction_claim.id, %{
+               Accounting.review_tax_deduction_claim(scope, posted.tax_deduction_claim.id, %{
                  "status" => "claimed",
                  "tax_return_reference" => "2026 return — appendix 3"
                })

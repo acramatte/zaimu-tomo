@@ -6,7 +6,8 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
   alias ZaimuTomo.Accounts.User
 
   @initial_statuses ["undecided", "candidate", "not_deductible"]
-  @resolution_statuses ["claimed", "disallowed"]
+  @candidate_outcomes ["claimed", "not_deductible"]
+  @authority_outcomes ["disallowed"]
 
   @typedoc "Tax deduction claim schema struct"
   @type t :: %__MODULE__{
@@ -83,15 +84,32 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
   end
 
-  @spec changeset_for_resolution(t(), map()) :: Ecto.Changeset.t(t())
-  def changeset_for_resolution(%__MODULE__{} = claim, attrs) do
+  @spec changeset_for_candidate_review(t(), map()) :: Ecto.Changeset.t(t())
+  def changeset_for_candidate_review(%__MODULE__{} = claim, attrs) do
     claim
-    |> cast(attrs, [:status, :tax_return_reference, :authority_name, :authority_reference])
+    |> cast(attrs, [:status, :tax_return_reference])
     |> trim_context_fields()
     |> validate_required(:status)
-    |> validate_inclusion(:status, @resolution_statuses)
-    |> validate_resolution_context()
-    |> apply_resolution_effects()
+    |> validate_inclusion(:status, @candidate_outcomes)
+    |> validate_candidate_review_context()
+    |> apply_candidate_review_effects()
+    |> resolution_constraints()
+  end
+
+  @spec changeset_for_authority_decision(t(), map()) :: Ecto.Changeset.t(t())
+  def changeset_for_authority_decision(%__MODULE__{} = claim, attrs) do
+    claim
+    |> cast(attrs, [:status, :authority_name, :authority_reference])
+    |> trim_context_fields()
+    |> validate_required(:status)
+    |> validate_inclusion(:status, @authority_outcomes)
+    |> validate_required([:authority_name, :authority_reference])
+    |> put_change(:deductible_amount_cents, 0)
+    |> resolution_constraints()
+  end
+
+  defp resolution_constraints(changeset) do
+    changeset
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
     |> check_constraint(:tax_return_reference,
       name: :tax_deduction_claims_claimed_return_reference_check
@@ -107,14 +125,6 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
       {"Not yet decided", "undecided"},
       {"Potentially deductible", "candidate"},
       {"Not deductible", "not_deductible"}
-    ]
-  end
-
-  @spec resolution_options() :: [{String.t(), String.t()}]
-  def resolution_options do
-    [
-      {"Included in tax return", "claimed"},
-      {"Disallowed by tax authority", "disallowed"}
     ]
   end
 
@@ -145,25 +155,26 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     )
   end
 
-  defp validate_resolution_context(changeset) do
+  defp validate_candidate_review_context(changeset) do
     case get_field(changeset, :status) do
       "claimed" -> validate_required(changeset, :tax_return_reference)
-      "disallowed" -> validate_required(changeset, [:authority_name, :authority_reference])
       _ -> changeset
     end
   end
 
-  defp apply_resolution_effects(changeset) do
+  defp apply_candidate_review_effects(changeset) do
     case get_field(changeset, :status) do
       "claimed" ->
         changeset
         |> put_change(:authority_name, nil)
         |> put_change(:authority_reference, nil)
 
-      "disallowed" ->
+      "not_deductible" ->
         changeset
         |> put_change(:deductible_amount_cents, 0)
         |> put_change(:tax_return_reference, nil)
+        |> put_change(:authority_name, nil)
+        |> put_change(:authority_reference, nil)
 
       _ ->
         changeset

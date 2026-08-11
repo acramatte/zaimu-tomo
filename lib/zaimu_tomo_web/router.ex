@@ -81,6 +81,7 @@ defmodule ZaimuTomoWeb.Router do
       live "/journal_entries", JournalEntryLive.Index, :index
       live "/journal_entries/:id", JournalEntryLive.Show, :show
       live "/tax_claims", TaxClaimLive.Index, :index
+      live "/tax_claims/:id", TaxClaimLive.Show, :show
     end
 
     post "/users/update-password", UserSessionController, :update_password

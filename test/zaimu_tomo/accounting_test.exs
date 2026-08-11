@@ -6,6 +6,7 @@ defmodule ZaimuTomo.AccountingTest do
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounting.JournalEntry
+  alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
@@ -109,14 +110,14 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
-  describe "resolve_tax_deduction_claim/3" do
+  describe "tax deduction claim lifecycle" do
     test "moves a candidate claim into a tax return and records the return reference" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       claim = candidate_claim(scope, user)
 
       assert {:ok, resolved} =
-               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+               Accounting.review_tax_deduction_claim(scope, claim.id, %{
                  "status" => "claimed",
                  "tax_return_reference" => "2026 return — appendix 3"
                })
@@ -135,53 +136,83 @@ defmodule ZaimuTomo.AccountingTest do
                }
              } =
                Repo.get_by(EventLog,
-                 event_type: "tax_deduction_claim_resolved",
+                 event_type: "tax_deduction_claim_reviewed",
                  invoice_id: to_string(claim.journal_entry_id),
                  user_id: user.id
                )
     end
 
-    test "records the authority and decision reference when a candidate claim is disallowed" do
+    test "allows a candidate claim to be marked not deductible after the filer's review" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       claim = candidate_claim(scope, user)
 
       assert {:ok, resolved} =
-               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
-                 "status" => "disallowed",
-                 "authority_name" => "Zurich Tax Office",
-                 "authority_reference" => "Decision 2026-041"
+               Accounting.review_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "not_deductible"
                })
 
-      assert resolved.status == "disallowed"
+      assert resolved.status == "not_deductible"
       assert resolved.deductible_amount_cents == 0
-      assert resolved.authority_name == "Zurich Tax Office"
-      assert resolved.authority_reference == "Decision 2026-041"
+      assert resolved.authority_name == nil
+      assert resolved.authority_reference == nil
       assert resolved.tax_return_reference == nil
     end
 
-    test "requires the outcome-specific context and prevents resolving a claim twice" do
+    test "requires return context and accepts an authority decision only after filing" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       claim = candidate_claim(scope, user)
 
       assert {:error, changeset} =
-               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{"status" => "claimed"})
+               Accounting.review_tax_deduction_claim(scope, claim.id, %{"status" => "claimed"})
 
       assert %{tax_return_reference: ["can't be blank"]} = errors_on(changeset)
 
-      assert {:ok, _resolved} =
-               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
-                 "status" => "claimed",
-                 "tax_return_reference" => "2026 return"
-               })
-
-      assert {:error, "Candidate tax deduction claim not found or already resolved"} =
-               Accounting.resolve_tax_deduction_claim(scope, claim.id, %{
+      assert {:error, "Claimed tax deduction claim not found or already decided by the authority"} =
+               Accounting.record_tax_authority_decision(scope, claim.id, %{
                  "status" => "disallowed",
                  "authority_name" => "Zurich Tax Office",
                  "authority_reference" => "Decision 2026-041"
                })
+
+      assert {:ok, filed} =
+               Accounting.review_tax_deduction_claim(scope, claim.id, %{
+                 "status" => "claimed",
+                 "tax_return_reference" => "2026 return"
+               })
+
+      assert {:ok, disallowed} =
+               Accounting.record_tax_authority_decision(scope, filed.id, %{
+                 "status" => "disallowed",
+                 "authority_name" => "Zurich Tax Office",
+                 "authority_reference" => "Decision 2026-041"
+               })
+
+      assert disallowed.status == "disallowed"
+      assert disallowed.deductible_amount_cents == 0
+      assert disallowed.tax_return_reference == "2026 return"
+      assert disallowed.authority_name == "Zurich Tax Office"
+      assert disallowed.authority_reference == "Decision 2026-041"
+    end
+
+    test "lists claims by tax year for the current user" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      other_scope = user_scope_fixture()
+      claim = candidate_claim(scope, user)
+      other_claim = candidate_claim(other_scope, other_scope.user)
+
+      claim = claim |> Ecto.Changeset.change(tax_year: 2025) |> Repo.update!()
+      _other_claim = other_claim |> Ecto.Changeset.change(tax_year: 2024) |> Repo.update!()
+
+      assert Accounting.list_tax_deduction_claim_years(scope) == [2025]
+
+      assert [%TaxDeductionClaim{id: claim_id}] =
+               Accounting.list_tax_deduction_claims(scope, 2025)
+
+      assert claim_id == claim.id
+      assert Accounting.list_tax_deduction_claims(scope, 2024) == []
     end
   end
 
