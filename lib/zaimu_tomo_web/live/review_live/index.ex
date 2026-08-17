@@ -2,6 +2,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
@@ -25,7 +26,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Index do
       </div>
       <div class="feed" id="reviews-feed" phx-update="stream">
         <div :for={{dom_id, review} <- @streams.reviews} id={dom_id} class={"feed-item #{pill_status(review.review_status)}"}>
-          <% data = review.decision_data || review.original_data %>
+          <% data = ReviewDecision.effective_data(review) %>
           <div class="stat">{data.currency || "INV"}</div>
           <div class="body">
             <div class="title">

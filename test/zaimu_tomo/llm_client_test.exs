@@ -54,6 +54,16 @@ defmodule ZaimuTomo.LLMClientTest do
       assert LLMClient.verification_result(nil) == {:error, :verification_failed}
     end
 
+    test "rejects unknown statuses instead of normalizing them into a valid one" do
+      assert {:error, :verification_failed} =
+               LLMClient.verification_result(%{"status" => "looks_good", "reason" => "Fine"})
+
+      assert {:error, :verification_failed} =
+               LLMClient.verification_result(%{"status" => "verified"})
+    end
+  end
+
+  describe "verifier_object/1" do
     test "recovers structured output from a tool call when the response object is absent" do
       response = %Response{
         id: "resp-1",
@@ -77,9 +87,7 @@ defmodule ZaimuTomo.LLMClientTest do
       }
 
       assert {:ok, %{"status" => "needs_review", "field_issues" => "amount_to_pay_cents"}} =
-               response
-               |> LLMClient.verifier_object()
-               |> LLMClient.verification_result()
+               LLMClient.verifier_object(response)
     end
 
     test "recovers structured output containing Gemma's invalid markdown escapes" do
@@ -105,46 +113,164 @@ defmodule ZaimuTomo.LLMClientTest do
       }
 
       assert {:ok, %{"reason" => "The invoice_date is ambiguous."}} =
-               response
-               |> LLMClient.verifier_object()
-               |> LLMClient.verification_result()
+               LLMClient.verifier_object(response)
     end
 
-    test "builds auditable verifier failure results from malformed responses" do
+    test "recovers structured output from plain text wrapped in markdown code fences" do
       response = %Response{
         id: "resp-1",
-        model: "mistral-small",
+        model: "phi4-mini-it:4b",
         context: nil,
         message: %Message{
           role: :assistant,
-          content: [ContentPart.text("I cannot format this as requested")],
-          tool_calls: [%{name: "structured_output", arguments: %{status: "maybe"}}]
+          content: [
+            ContentPart.text(
+              "\n```json\n{\n  \"status\": \"verified\",\n  \"reason\": \"All extracted values are directly supported by the source OCR markdown.\",\n  \"field_issues\": \"\"\n}\n```\n"
+            )
+          ],
+          tool_calls: []
         },
         object: nil,
         finish_reason: :stop,
-        provider_meta: %{provider: :mistral},
-        usage: %{input_tokens: 10, output_tokens: 8}
+        provider_meta: %{},
+        usage: %{}
       }
 
-      raw_response = LLMClient.verifier_response_payload(response, nil)
+      assert {:ok, %{"status" => "verified"} = verification} = LLMClient.verifier_object(response)
 
-      assert Jason.encode!(raw_response)
+      # empty field_issues is dropped by VerificationResult, so it is absent
+      assert verification["reason"] ==
+               "All extracted values are directly supported by the source OCR markdown."
 
-      assert raw_response == %{
-               "raw_object" => nil,
-               "text" => "I cannot format this as requested",
-               "tool_calls" => [%{name: "structured_output", arguments: %{status: "maybe"}}],
-               "finish_reason" => :stop,
-               "provider_meta" => %{provider: :mistral},
-               "usage" => %{input_tokens: 10, output_tokens: 8}
-             }
+      refute Map.has_key?(verification, "field_issues")
+    end
 
-      assert LLMClient.verification_failure_result(raw_response, :verification_failed) == %{
-               "status" => "verification_failed",
-               "reason" => "Verifier did not return valid structured output.",
-               "raw_response" => raw_response,
-               "error" => ":verification_failed"
-             }
+    test "accepts a native response.object with a valid verifier object" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{role: :assistant, content: [], tool_calls: []},
+        object: %{"status" => "verified", "reason" => "All fields grounded."},
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:ok, %{"status" => "verified", "reason" => "All fields grounded."}} =
+               LLMClient.verifier_object(response)
+    end
+
+    test "accepts needs_review and rejected statuses" do
+      for status <- ["needs_review", "rejected"] do
+        response = %Response{
+          id: "resp-1",
+          model: "phi4-mini-it:4b",
+          context: nil,
+          message: %Message{role: :assistant, content: [], tool_calls: []},
+          object: %{"status" => status, "reason" => "For a reason."},
+          finish_reason: :stop,
+          provider_meta: %{},
+          usage: %{}
+        }
+
+        assert {:ok, %{"status" => ^status}} = LLMClient.verifier_object(response)
+      end
+    end
+
+    test "recovers plain-text JSON via unwrap_object" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [
+            ContentPart.text(
+              ~s({"status":"needs_review","reason":"Ambiguous amount.","field_issues":"amount"})
+            )
+          ],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:ok, %{"status" => "needs_review"}} = LLMClient.verifier_object(response)
+    end
+
+    test "rejects an unknown status even when it decoded successfully" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{role: :assistant, content: [], tool_calls: []},
+        object: %{"status" => "looks_good", "reason" => "Fine"},
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :invalid_verifier_output} = LLMClient.verifier_object(response)
+    end
+
+    test "rejects a missing required reason" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{role: :assistant, content: [], tool_calls: []},
+        object: %{"status" => "verified"},
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :invalid_verifier_output} = LLMClient.verifier_object(response)
+    end
+
+    test "does not accept a repaired object that fails the verifier contract" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [
+            ContentPart.text(
+              "\n```json\n{\"status\": \"looks_good\", \"reason\": \"Fine\"}\n```\n"
+            )
+          ],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :invalid_verifier_output} = LLMClient.verifier_object(response)
+    end
+
+    test "returns :no_structured_output when nothing usable is present" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [ContentPart.text("I cannot verify this.")],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :no_structured_output} = LLMClient.verifier_object(response)
     end
   end
 
@@ -168,30 +294,101 @@ defmodule ZaimuTomo.LLMClientTest do
     end
   end
 
+  describe "backend credentials" do
+    test "rejects a selected backend without an API key before issuing a request" do
+      original_backend_config = Application.fetch_env!(:zaimu_tomo, :nousresearch)
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :nousresearch, model: "ibm-granite/granite-4.1-8b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      Application.put_env(:zaimu_tomo, :nousresearch, api_key: nil)
+      on_exit(fn -> Application.put_env(:zaimu_tomo, :nousresearch, original_backend_config) end)
+
+      assert_raise ArgumentError, ~r/AI backend :nousresearch requires a non-empty api_key/, fn ->
+        LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
+      end
+    end
+  end
+
+  describe "model_for/1" do
+    test "uses independently configured models for roles sharing a backend" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "flm", model: "qwen3.5:9b"],
+        verifier: [backend: "flm", model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.model_for(:extractor) == "qwen3.5:9b"
+      assert LLMClient.model_for(:verifier) == "phi4-mini-it:4b"
+    end
+
+    test "resolves independently configured nousresearch models" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.1-8b"],
+        verifier: [backend: "nousresearch", model: "qwen/qwen3.6-35b-a3b"]
+      )
+
+      assert LLMClient.model_for(:extractor) == "ibm-granite/granite-4.1-8b"
+      assert LLMClient.model_for(:verifier) == "qwen/qwen3.6-35b-a3b"
+    end
+
+    test "requires every role to configure its model" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "flm"],
+        verifier: [backend: "flm", model: "phi4-mini-it:4b"]
+      )
+
+      assert_raise KeyError, fn -> LLMClient.model_for(:extractor) end
+    end
+  end
+
   describe "backend_for/1" do
-    test "resolves string workflow config to known backend atoms" do
-      Application.put_env(:zaimu_tomo, :ai_workflow, extractor: "ollama", verifier: "flm")
+    test "resolves string workflow backend names" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "ollama", model: "gemma4:e4b"],
+        verifier: [backend: "flm", model: "phi4-mini-it:4b"]
+      )
 
       assert LLMClient.backend_for(:extractor) == :ollama
       assert LLMClient.backend_for(:verifier) == :flm
     end
 
-    test "accepts atom workflow config" do
-      Application.put_env(:zaimu_tomo, :ai_workflow, extractor: :flm, verifier: :ollama)
+    test "accepts atom workflow backend names" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :ollama, model: "gemma4:e4b"]
+      )
 
       assert LLMClient.backend_for(:extractor) == :flm
       assert LLMClient.backend_for(:verifier) == :ollama
     end
 
     test "accepts Mistral as extractor and verifier backend" do
-      Application.put_env(:zaimu_tomo, :ai_workflow, extractor: "mistral", verifier: :mistral)
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "mistral", model: "mistral-small-latest"],
+        verifier: [backend: :mistral, model: "mistral-small-latest"]
+      )
 
       assert LLMClient.backend_for(:extractor) == :mistral
       assert LLMClient.backend_for(:verifier) == :mistral
     end
 
+    test "accepts nousresearch as extractor and verifier backend" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.1-8b"],
+        verifier: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b"]
+      )
+
+      assert LLMClient.backend_for(:extractor) == :nousresearch
+      assert LLMClient.backend_for(:verifier) == :nousresearch
+    end
+
     test "raises for unknown workflow backends" do
-      Application.put_env(:zaimu_tomo, :ai_workflow, extractor: "unknown", verifier: "flm")
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: "unknown", model: "unknown"],
+        verifier: [backend: "flm", model: "phi4-mini-it:4b"]
+      )
 
       assert_raise ArgumentError, ~r/unknown AI backend/, fn ->
         LLMClient.backend_for(:extractor)
