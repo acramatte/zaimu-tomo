@@ -10,9 +10,15 @@ defmodule ZaimuTomo.LLMClient do
 
   @backends [:ollama, :flm, :mistral, :nousresearch]
 
+  @default_verifier_max_tokens 4096
+
   @type role :: :extractor | :verifier
   @type backend :: :ollama | :flm | :mistral | :nousresearch
-  @type role_config :: [backend: backend() | String.t(), model: String.t()]
+  @type role_config :: [
+          backend: backend() | String.t(),
+          model: String.t(),
+          max_tokens: pos_integer() | nil
+        ]
   @type workflow_config :: [extractor: role_config(), verifier: role_config()]
   @type backend_config :: [provider: atom(), base_url: String.t(), api_key: String.t() | nil]
   @type resolved_backend_config :: [
@@ -125,7 +131,7 @@ defmodule ZaimuTomo.LLMClient do
     with {:ok, json_payload} <- normalize_json_data(json_data) do
       config = backend_config!(:verifier)
       model = req_llm_model!(config)
-      opts = Keyword.merge(req_llm_opts(config), max_tokens: 300)
+      opts = Keyword.merge(req_llm_opts(config), max_tokens: verifier_max_tokens())
       Logger.info("[LLM] Verifying extraction with #{backend_summary(:verifier, config)}")
 
       schema = [
@@ -312,6 +318,15 @@ defmodule ZaimuTomo.LLMClient do
     do: {:llm_request_failed, "unknown request error"}
 
   def request_failure(_error), do: {:llm_request_failed, "unknown request error"}
+
+  @doc false
+  @spec verifier_max_tokens() :: pos_integer()
+  def verifier_max_tokens do
+    case role_config!(:verifier) |> Keyword.get(:max_tokens) do
+      max_tokens when is_integer(max_tokens) and max_tokens > 0 -> max_tokens
+      _ -> @default_verifier_max_tokens
+    end
+  end
 
   @doc false
   @spec backend_for(role()) :: backend()

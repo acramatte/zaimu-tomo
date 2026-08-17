@@ -33,7 +33,7 @@ config :zaimu_tomo, :mistral,
 # configuration at boot from environment variables in every environment.
 config :zaimu_tomo, :ai_workflow,
   extractor: [backend: :flm, model: "gemma4-it:e4b"],
-  verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+  verifier: [backend: :flm, model: "phi4-mini-it:4b", max_tokens: 4096]
 
 config :zaimu_tomo, :ollama,
   provider: :openai,

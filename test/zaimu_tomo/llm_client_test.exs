@@ -343,6 +343,35 @@ defmodule ZaimuTomo.LLMClientTest do
     end
   end
 
+  describe "verifier_max_tokens/0" do
+    test "reads the per-role max_tokens when configured" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b", max_tokens: 8192]
+      )
+
+      assert LLMClient.verifier_max_tokens() == 8192
+    end
+
+    test "falls back to a reasoning-friendly default when max_tokens is unset" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b"]
+      )
+
+      assert LLMClient.verifier_max_tokens() == 4096
+    end
+
+    test "rejects a non-positive configured max_tokens with the default" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b", max_tokens: 0]
+      )
+
+      assert LLMClient.verifier_max_tokens() == 4096
+    end
+  end
+
   describe "backend_for/1" do
     test "resolves string workflow backend names" do
       Application.put_env(:zaimu_tomo, :ai_workflow,

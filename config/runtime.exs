@@ -38,6 +38,13 @@ default_verifier =
     do: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b"],
     else: [backend: :flm, model: "phi4-mini-it:4b"]
 
+# The verifier is often a reasoning model (e.g. qwen/qwen3.6-35b-a3b) that
+# spends output tokens on chain-of-thought BEFORE emitting the structured
+# JSON. A small hard cap truncates it mid-reasoning (finish_reason: :length,
+# empty text) and fails verification. Default generously and let the role
+# override via env.
+default_verifier_max_tokens = 4096
+
 config :zaimu_tomo, :ai_workflow,
   extractor: [
     backend: System.get_env("AI_EXTRACTOR_BACKEND", Atom.to_string(default_extractor[:backend])),
@@ -45,7 +52,10 @@ config :zaimu_tomo, :ai_workflow,
   ],
   verifier: [
     backend: System.get_env("AI_VERIFIER_BACKEND", Atom.to_string(default_verifier[:backend])),
-    model: System.get_env("AI_VERIFIER_MODEL", default_verifier[:model])
+    model: System.get_env("AI_VERIFIER_MODEL", default_verifier[:model]),
+    max_tokens:
+      System.get_env("AI_VERIFIER_MAX_TOKENS", Integer.to_string(default_verifier_max_tokens))
+      |> String.to_integer()
   ]
 
 config :zaimu_tomo, :ollama,
