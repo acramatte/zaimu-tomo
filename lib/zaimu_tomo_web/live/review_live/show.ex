@@ -20,7 +20,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:verification, verifier_feedback(rd))
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
              |> assign(:show_rejection_form, false)
-             |> assign(:effective_data, rd.decision_data || rd.original_data)
+             |> assign(:effective_data, ReviewDecision.effective_data(rd))
              |> assign(:feedback, feedback_assigns(rd))}
 
           {:error, reason} ->
@@ -316,7 +316,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   end
 
   defp review_title(%ReviewDecision{} = rd) do
-    data = rd.decision_data || rd.original_data
+    data = ReviewDecision.effective_data(rd)
 
     cond do
       data.issuer && data.invoice_number -> "#{data.issuer} — #{data.invoice_number}"

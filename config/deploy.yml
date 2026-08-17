@@ -57,16 +57,18 @@ env:
     PHX_HOST: <%= ENV.fetch("PHX_HOST", "10.0.0.1") %>
     PORT: "4000"
     POOL_SIZE: "10"
-    AI_EXTRACTOR: "mistral"
-    AI_VERIFIER: "mistral"
+    AI_EXTRACTOR_BACKEND: "nousresearch"
+    AI_EXTRACTOR_MODEL: "ibm-granite/granite-4.1-8b"
+    AI_VERIFIER_BACKEND: "nousresearch"
+    AI_VERIFIER_MODEL: "qwen/qwen3.6-35b-a3b"
     MISTRAL_URL: "https://api.mistral.ai/v1"
-    MISTRAL_LLM_MODEL: "mistral-small-latest"
     LANGFUSE_HOST: <%= ENV.fetch("LANGFUSE_HOST", "https://cloud.langfuse.com") %>
     OTEL_SERVICE_NAME: "zaimu-tomo"
   secret:
     - SECRET_KEY_BASE
     - DATABASE_URL
     - MISTRAL_API_KEY
+    - NOUSRESEARCH_API_KEY
     - LANGFUSE_PUBLIC_KEY
     - LANGFUSE_SECRET_KEY
 

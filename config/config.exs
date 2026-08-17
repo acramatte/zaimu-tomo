@@ -27,24 +27,28 @@ config :zaimu_tomo,
 config :zaimu_tomo, :mistral,
   provider: :openai,
   base_url: "https://api.mistral.ai/v1",
-  model: "mistral-small-latest",
   api_key: nil
 
+# Base role defaults for local development. config/runtime.exs replaces this
+# configuration at boot from environment variables in every environment.
 config :zaimu_tomo, :ai_workflow,
-  extractor: "flm",
-  verifier: "flm"
+  extractor: [backend: :flm, model: "gemma4-it:e4b"],
+  verifier: [backend: :flm, model: "phi4-mini-it:4b"]
 
 config :zaimu_tomo, :ollama,
   provider: :openai,
   base_url: "http://localhost:11434/v1",
-  model: "gemma4:e4b",
   api_key: "ollama"
 
 config :zaimu_tomo, :flm,
   provider: :openai,
   base_url: "http://localhost:52625/v1",
-  model: "gemma4-it:e4b",
   api_key: "ollama"
+
+config :zaimu_tomo, :nousresearch,
+  provider: :openai,
+  base_url: "https://inference-api.nousresearch.com/v1",
+  api_key: nil
 
 config :zaimu_tomo, :langfuse,
   enabled: false,

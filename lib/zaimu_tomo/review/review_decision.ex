@@ -22,7 +22,7 @@ defmodule ZaimuTomo.Review.ReviewDecision do
   end
 
   def effective_data(%__MODULE__{} = decision) do
-    Map.merge(decision.original_data || %{}, decision.decision_data || %{})
+    decision.decision_data || decision.original_data || %ExtractedData{}
   end
 
   def changeset_for_create(attrs) do

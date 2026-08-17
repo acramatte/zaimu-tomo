@@ -49,4 +49,4 @@ Then open [localhost:4000](http://localhost:4000). The bundled PostgreSQL servic
 
 ### AI configuration
 
-OCR always uses Mistral's Document OCR API, so set `MISTRAL_API_KEY` to process documents. The extractor and verifier backends are selected independently with `AI_EXTRACTOR` and `AI_VERIFIER` (`flm`, `ollama`, or `mistral`). See [docs/localAI.md](docs/localAI.md) for setting up local LLM backends — FastFlowLM on AMD NPUs, Ollama, or any OpenAI-compatible server such as llama-server.
+OCR always uses Mistral's Document OCR API, so set `MISTRAL_API_KEY` to process documents. The extractor and verifier each select an explicit backend and model with `AI_EXTRACTOR_BACKEND` / `AI_EXTRACTOR_MODEL` and `AI_VERIFIER_BACKEND` / `AI_VERIFIER_MODEL`. See [docs/localAI.md](docs/localAI.md) for setup.

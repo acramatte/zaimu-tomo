@@ -26,26 +26,42 @@ config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
 config :zaimu_tomo, :mistral,
   provider: :openai,
   base_url: System.get_env("MISTRAL_URL", "https://api.mistral.ai/v1"),
-  model: System.get_env("MISTRAL_LLM_MODEL", "mistral-small-latest"),
   api_key: System.get_env("MISTRAL_API_KEY")
 
-default_ai_backend = if config_env() == :prod, do: "mistral", else: "flm"
+default_extractor =
+  if config_env() == :prod,
+    do: [backend: :nousresearch, model: "ibm-granite/granite-4.1-8b"],
+    else: [backend: :flm, model: "gemma4-it:e4b"]
+
+default_verifier =
+  if config_env() == :prod,
+    do: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b"],
+    else: [backend: :flm, model: "phi4-mini-it:4b"]
 
 config :zaimu_tomo, :ai_workflow,
-  extractor: System.get_env("AI_EXTRACTOR", default_ai_backend),
-  verifier: System.get_env("AI_VERIFIER", default_ai_backend)
+  extractor: [
+    backend: System.get_env("AI_EXTRACTOR_BACKEND", Atom.to_string(default_extractor[:backend])),
+    model: System.get_env("AI_EXTRACTOR_MODEL", default_extractor[:model])
+  ],
+  verifier: [
+    backend: System.get_env("AI_VERIFIER_BACKEND", Atom.to_string(default_verifier[:backend])),
+    model: System.get_env("AI_VERIFIER_MODEL", default_verifier[:model])
+  ]
 
 config :zaimu_tomo, :ollama,
   provider: :openai,
   base_url: System.get_env("OLLAMA_URL", "http://localhost:11434/v1"),
-  model: System.get_env("OLLAMA_MODEL", "gemma4:e4b"),
   api_key: System.get_env("OLLAMA_API_KEY", "ollama")
 
 config :zaimu_tomo, :flm,
   provider: :openai,
   base_url: System.get_env("FLM_URL", "http://localhost:52625/v1"),
-  model: System.get_env("FLM_MODEL", "gemma4-it:e4b"),
   api_key: System.get_env("FLM_API_KEY", "ollama")
+
+config :zaimu_tomo, :nousresearch,
+  provider: :openai,
+  base_url: System.get_env("NOUSRESEARCH_URL", "https://inference-api.nousresearch.com/v1"),
+  api_key: System.get_env("NOUSRESEARCH_API_KEY")
 
 langfuse_public_key = System.get_env("LANGFUSE_PUBLIC_KEY")
 langfuse_secret_key = System.get_env("LANGFUSE_SECRET_KEY")
