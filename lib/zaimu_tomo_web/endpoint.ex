@@ -25,6 +25,7 @@ defmodule ZaimuTomoWeb.Endpoint do
     from: :zaimu_tomo,
     gzip: not code_reloading?,
     only: ZaimuTomoWeb.static_paths(),
+    only_matching: ~w(favicon apple-touch android-chrome site robots),
     raise_on_missing_only: code_reloading?
 
   # Code reloading can be explicitly enabled under the
