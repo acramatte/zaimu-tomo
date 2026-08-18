@@ -5,6 +5,28 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+### Commit, branch & PR conventions
+
+**Commits** use imperative mood with a Conventional-Commits-style type prefix (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`). The body leads with WHY ("Add X so that Y" / "Replace X with Y so that Z"), then a design-decisions paragraph (what was extracted/shared and why), then a final `Tests:` line listing the exact test command(s) run. Keep commits focused; squash related refinements.
+
+```
+feat: <imperative subject>
+
+Add <X> so that <Y>. [WHY]
+
+<design decisions — what was extracted/shared and why>. [optional but expected for non-trivial changes]
+
+Tests: POSTGRES_PORT=55432 mix test <file_a> <file_b>
+```
+
+`Tests:` examples: code change → `Tests: POSTGRES_PORT=55432 mix test test/..._test.exs`; docs-only → `Tests: docs-only change; verified with git diff --check`.
+
+**Branches** are simple and feature-focused (`feat/<slug>` / `fix/<slug>`), with no base suffix unless complex merge work genuinely requires one. Always create a dedicated branch/worktree before touching files, and fork worktrees from an explicit ref (`git worktree add -b feat/<name> <dir> origin/main`), never bare `HEAD`. Use a separate worktree whenever concurrent sessions are possible.
+
+**Pull requests** carry the same WHY + design-decisions rationale and end with an explicit `Tests:` line. For genuinely dependent changes use stacked PRs (see below). **Never merge main into a feature branch — rebase instead** (`git rebase origin/main`, verify linearity, then `git push --force-with-lease`).
+
+**Stacked PRs (gh-stack extension):** `gh extension install github/gh-stack`; then `gh stack init <branch-a> <branch-b>` (bottom first) and `gh stack submit --auto --open` (always `--open`, or PRs open as drafts; always `--auto` in agent/script runs). After a trunk merge, `gh stack sync` cascades the rebase. `gh stack sync` fails if a parent branch is checked out in another worktree — then push the parent from its own worktree, rebase children onto it, push with `--force-with-lease`, and verify PR base/head refs (`gh pr view <n> --json baseRefName,headRefName,url`). Exit codes: 2 = not in a stack, 3 = rebase conflict, 4 = GitHub API failure, 9 = stacks not enabled.
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
