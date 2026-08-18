@@ -8,6 +8,63 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   alias ZaimuTomo.Repo
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
 
+  defmodule TemporaryFileStorage do
+    @behaviour ZaimuTomo.Storage.Adapter
+
+    @impl true
+    def put_object(key, _body, _config), do: {:ok, key}
+
+    @impl true
+    def get_object(_key, destination, config) do
+      send(Keyword.fetch!(config, :test_pid), {:document_downloaded, destination})
+      File.write(destination, "invoice bytes")
+      {:ok, destination}
+    end
+
+    @impl true
+    def delete_object(_key, _config), do: :ok
+
+    @impl true
+    def head_object(_key, _config), do: :ok
+  end
+
+  describe "process/1" do
+    test "downloads the object to a temporary file and removes it after OCR" do
+      storage_config = Application.fetch_env!(:zaimu_tomo, :storage)
+      mistral_config = Application.fetch_env!(:zaimu_tomo, :mistral)
+      langfuse_config = Application.get_env(:zaimu_tomo, :langfuse)
+
+      Application.put_env(:zaimu_tomo, :storage,
+        adapter: TemporaryFileStorage,
+        test_pid: self()
+      )
+
+      Application.put_env(:zaimu_tomo, :mistral, Keyword.put(mistral_config, :api_key, nil))
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false, environment: "test")
+
+      on_exit(fn ->
+        Application.put_env(:zaimu_tomo, :storage, storage_config)
+        Application.put_env(:zaimu_tomo, :mistral, mistral_config)
+
+        if langfuse_config do
+          Application.put_env(:zaimu_tomo, :langfuse, langfuse_config)
+        else
+          Application.delete_env(:zaimu_tomo, :langfuse)
+        end
+      end)
+
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
+
+      assert {:ok, %{status: "failed"}} =
+               Worker.process(%{document: document, currency_hint: "CHF"})
+
+      assert_receive {:document_downloaded, temporary_path}
+      refute File.exists?(temporary_path)
+    end
+  end
+
   describe "persist_and_emit_success/3" do
     test "includes user_id from document in extracted content and stores raw response" do
       user = user_fixture()

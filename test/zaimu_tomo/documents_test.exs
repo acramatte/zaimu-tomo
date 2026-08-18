@@ -3,6 +3,13 @@ defmodule ZaimuTomo.DocumentsTest do
 
   alias ZaimuTomo.Documents
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.Storage
+  alias ZaimuTomo.Storage.Memory
+
+  setup do
+    Memory.reset()
+    on_exit(&Memory.reset/0)
+  end
 
   describe "documents" do
     alias ZaimuTomo.Documents.Document
@@ -46,6 +53,19 @@ defmodule ZaimuTomo.DocumentsTest do
       assert_eventually(fn ->
         ExtractedContentContext.get_latest_by_document(document.id) != nil
       end)
+    end
+
+    test "object_key_for/1 preserves the uploaded file extension" do
+      object_key = Documents.object_key_for("receipt.pdf")
+      assert String.starts_with?(object_key, "documents/")
+      assert String.ends_with?(object_key, ".pdf")
+
+      uuid =
+        object_key
+        |> String.trim_leading("documents/")
+        |> String.trim_trailing(".pdf")
+
+      assert Ecto.UUID.cast(uuid) != :error
     end
 
     test "create_document/2 with invalid data returns error changeset" do
@@ -92,8 +112,12 @@ defmodule ZaimuTomo.DocumentsTest do
     test "delete_document/2 deletes the document" do
       scope = user_scope_fixture()
       document = document_fixture(scope)
+      assert {:ok, object_key} = Storage.put_object(document.object_key, "invoice bytes")
+      assert object_key == document.object_key
+
       assert {:ok, %Document{}} = Documents.delete_document(scope, document)
       assert_raise Ecto.NoResultsError, fn -> Documents.get_document!(scope, document.id) end
+      assert {:error, :not_found} = Storage.head_object(document.object_key)
     end
 
     test "delete_document/2 with invalid scope raises" do
