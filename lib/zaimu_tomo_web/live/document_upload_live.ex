@@ -112,12 +112,12 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
         unique_name = "#{Ecto.UUID.generate()}#{Path.extname(entry.client_name)}"
         dest = Path.join([:code.priv_dir(:zaimu_tomo), "uploads", unique_name])
         File.cp!(path, dest)
-        {:ok, %{filepath: Path.join(["/", "uploads", unique_name]), client_name: entry.client_name}}
+        {:ok, %{object_key: "documents/#{unique_name}", client_name: entry.client_name}}
       end)
 
     Enum.reduce(entries, socket, fn saved, sock ->
       case Documents.create_document(scope, %{
-             "filepath" => saved.filepath,
+             "object_key" => saved.object_key,
              "filename" => saved.client_name
            }) do
         {:ok, document} ->

@@ -133,12 +133,12 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
         dest = Path.join([:code.priv_dir(:zaimu_tomo), "uploads", Path.basename(path)])
         File.cp!(path, dest)
-        {:ok, Map.put(entry, :filepath, Path.join(["/", "uploads", Path.basename(dest)]))}
+        {:ok, Map.put(entry, :object_key, "documents/#{Path.basename(dest)}")}
       end)
 
     document_params =
       case entries do
-        [entry | _] -> %{"filepath" => entry.filepath, "filename" => entry.client_name}
+        [entry | _] -> %{"object_key" => entry.object_key, "filename" => entry.client_name}
         [] -> %{}
       end
 

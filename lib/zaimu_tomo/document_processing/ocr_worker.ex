@@ -16,10 +16,10 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     Task.start_link(__MODULE__, :process, [command])
   end
 
-  def process(%{document: %{filepath: filepath} = document, currency_hint: currency_hint}) do
+  def process(%{document: %{object_key: object_key} = document, currency_hint: currency_hint}) do
     Langfuse.trace_document_processing(document, fn ->
       trace_id = Langfuse.current_trace_id()
-      full_path = build_document_path(filepath)
+      full_path = build_document_path(object_key)
 
       with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
            {:ok, extracted_data} <-

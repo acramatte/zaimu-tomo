@@ -33,7 +33,7 @@ defmodule ZaimuTomo.DocumentProcessingTest do
         |> Document.changeset(
           %{
             filename: "test_invoice.pdf",
-            filepath: "uploads/test_invoice.pdf"
+            object_key: "documents/test_invoice.pdf"
           },
           scope
         )
