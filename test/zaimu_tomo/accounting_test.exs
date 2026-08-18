@@ -1,10 +1,12 @@
 defmodule ZaimuTomo.AccountingTest do
   use ZaimuTomo.DataCase
 
+  import Ecto.Query, warn: false
   import ZaimuTomo.AccountsFixtures
   import ZaimuTomo.ReviewFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
@@ -180,6 +182,94 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
+  describe "list_journal_entries/1" do
+    test "sorts entries with newer updated_at above older ones" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      e1 = create_entry(scope, user)
+      e2 = create_entry(scope, user)
+      e3 = create_entry(scope, user)
+
+      base = ~U[2026-06-01 12:00:00Z]
+      set_timestamps(e1, inserted_at: base, updated_at: ~U[2026-06-01 13:00:00Z])
+      set_timestamps(e2, inserted_at: base, updated_at: ~U[2026-06-02 13:00:00Z])
+      set_timestamps(e3, inserted_at: base, updated_at: ~U[2026-06-03 13:00:00Z])
+
+      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) ==
+               [e3.id, e2.id, e1.id]
+    end
+
+    test "sorts by inserted_at descending when updated_at has not advanced" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      e1 = create_entry(scope, user)
+      e2 = create_entry(scope, user)
+
+      # updated_at is NOT NULL (Ecto timestamps), so an entry never edited has
+      # updated_at == inserted_at; ordering then falls back to created_at (inserted_at).
+      set_timestamps(e1,
+        inserted_at: ~U[2026-06-01 12:00:00Z],
+        updated_at: ~U[2026-06-01 12:00:00Z]
+      )
+
+      set_timestamps(e2,
+        inserted_at: ~U[2026-06-02 12:00:00Z],
+        updated_at: ~U[2026-06-02 12:00:00Z]
+      )
+
+      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) == [e2.id, e1.id]
+    end
+
+    test "breaks ties with id descending when timestamps match" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      e1 = create_entry(scope, user)
+      e2 = create_entry(scope, user)
+      e3 = create_entry(scope, user)
+
+      ts = ~U[2026-06-01 12:00:00Z]
+      set_timestamps(e1, inserted_at: ts, updated_at: ts)
+      set_timestamps(e2, inserted_at: ts, updated_at: ts)
+      set_timestamps(e3, inserted_at: ts, updated_at: ts)
+
+      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) ==
+               [e3.id, e2.id, e1.id]
+    end
+
+    test "returns correct ordered slices when paginating" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      entries = for _ <- 1..5, do: create_entry(scope, user)
+
+      Enum.with_index(entries, 1)
+      |> Enum.each(fn {entry, i} ->
+        set_timestamps(entry, updated_at: DateTime.add(~U[2026-06-01 00:00:00Z], i, :day))
+      end)
+
+      full = Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id)
+
+      page =
+        from(je in JournalEntry,
+          where: je.user_id == ^user.id,
+          order_by: [
+            desc: fragment("COALESCE(?, ?)", je.updated_at, je.inserted_at),
+            desc: je.inserted_at,
+            desc: je.id
+          ],
+          limit: 2,
+          offset: 1
+        )
+        |> Repo.all()
+        |> Enum.map(& &1.id)
+
+      assert page == Enum.slice(full, 1, 2)
+    end
+  end
+
   defp create_entry(scope, user) do
     document = document_fixture(scope)
     extracted_content = extracted_content_fixture(document, user)
@@ -210,5 +300,10 @@ defmodule ZaimuTomo.AccountingTest do
       filepath: "/tmp/invoice.pdf",
       user_id: scope.user.id
     })
+  end
+
+  defp set_timestamps(entry, opts) do
+    from(je in JournalEntry, where: je.id == ^entry.id)
+    |> Repo.update_all(set: opts)
   end
 end

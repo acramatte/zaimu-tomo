@@ -1,10 +1,12 @@
 defmodule ZaimuTomoWeb.JournalEntryLiveTest do
   use ZaimuTomoWeb.ConnCase
 
+  import Ecto.Query, warn: false
   import Phoenix.LiveViewTest
   import ZaimuTomo.ReviewFixtures
 
   alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
 
@@ -88,6 +90,27 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
     end
   end
 
+  describe "Index" do
+    test "orders the feed newest-first by last activity", %{conn: conn, scope: scope, user: user} do
+      e1 = create_entry(scope, user)
+      e2 = create_entry(scope, user)
+      e3 = create_entry(scope, user)
+
+      base = ~U[2026-06-01 00:00:00Z]
+      set_timestamps(e1, inserted_at: base, updated_at: ~U[2026-06-01 10:00:00Z])
+      set_timestamps(e2, inserted_at: base, updated_at: ~U[2026-06-02 10:00:00Z])
+      set_timestamps(e3, inserted_at: base, updated_at: ~U[2026-06-03 10:00:00Z])
+
+      {:ok, _live, html} = live(conn, ~p"/journal_entries")
+
+      ids =
+        Regex.scan(~r/id="entries-(\d+)"/, html)
+        |> Enum.map(fn [_full, id] -> id end)
+
+      assert ids == [Integer.to_string(e3.id), Integer.to_string(e2.id), Integer.to_string(e1.id)]
+    end
+  end
+
   defp create_entry(scope, user) do
     document =
       Repo.insert!(%Document{
@@ -100,5 +123,10 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
     decision = approved_review_fixture(extracted_content, user)
     {:ok, entry} = Accounting.create_from_decision(decision)
     entry
+  end
+
+  defp set_timestamps(entry, opts) do
+    from(je in JournalEntry, where: je.id == ^entry.id)
+    |> Repo.update_all(set: opts)
   end
 end

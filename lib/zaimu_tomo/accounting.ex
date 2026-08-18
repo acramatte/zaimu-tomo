@@ -135,9 +135,9 @@ defmodule ZaimuTomo.Accounting do
     from(je in JournalEntry,
       where: je.user_id == ^user_id,
       order_by: [
-        asc: fragment("CASE WHEN ? = 'uncategorized' THEN 0 ELSE 1 END", je.status),
-        desc: je.date,
-        desc: je.inserted_at
+        desc: fragment("COALESCE(?, ?)", je.updated_at, je.inserted_at),
+        desc: je.inserted_at,
+        desc: je.id
       ]
     )
     |> Repo.all()
