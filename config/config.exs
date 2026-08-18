@@ -57,6 +57,15 @@ config :zaimu_tomo, :langfuse,
   secret_key: nil,
   base_url: "https://cloud.langfuse.com"
 
+config :zaimu_tomo, :storage,
+  adapter: ZaimuTomo.Storage.S3,
+  endpoint: "http://localhost:9000",
+  region: "eu-central-1",
+  access_key_id: "rustfsadmin",
+  secret_access_key: "rustfsadmin",
+  bucket: "zaimu-tomo-dev",
+  path_style: true
+
 # Configure the endpoint
 config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   url: [host: "localhost"],
