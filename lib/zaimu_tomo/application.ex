@@ -9,18 +9,19 @@ defmodule ZaimuTomo.Application do
   def start(_type, _args) do
     ZaimuTomo.Langfuse.setup()
 
-    children = [
-      ZaimuTomoWeb.Telemetry,
-      ZaimuTomo.Repo,
-      {DNSCluster, query: Application.get_env(:zaimu_tomo, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: ZaimuTomo.PubSub},
-      # Start a worker by calling: ZaimuTomo.Worker.start_link(arg)
-      # {ZaimuTomo.Worker, arg},
-      # Start to serve requests, typically the last entry
-      ZaimuTomoWeb.Endpoint,
-      ZaimuTomo.DocumentProcessing.Saga,
-      {ZaimuTomo.DocumentProcessing.OCRSupervisor, name: ZaimuTomo.OCRSupervisor}
-    ]
+    children =
+      [
+        ZaimuTomoWeb.Telemetry,
+        ZaimuTomo.Repo,
+        {DNSCluster, query: Application.get_env(:zaimu_tomo, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: ZaimuTomo.PubSub},
+        # Start a worker by calling: ZaimuTomo.Worker.start_link(arg)
+        # {ZaimuTomo.Worker, arg},
+        # Start to serve requests, typically the last entry
+        ZaimuTomoWeb.Endpoint,
+        ZaimuTomo.DocumentProcessing.Saga,
+        {ZaimuTomo.DocumentProcessing.OCRSupervisor, name: ZaimuTomo.OCRSupervisor}
+      ] ++ storage_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -34,5 +35,12 @@ defmodule ZaimuTomo.Application do
   def config_change(changed, _new, removed) do
     ZaimuTomoWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp storage_children do
+    case Application.fetch_env!(:zaimu_tomo, :storage) |> Keyword.fetch!(:adapter) do
+      ZaimuTomo.Storage.Memory -> [ZaimuTomo.Storage.Memory]
+      _adapter -> []
+    end
   end
 end

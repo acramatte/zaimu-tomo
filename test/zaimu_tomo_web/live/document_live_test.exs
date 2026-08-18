@@ -5,9 +5,17 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
 
-
+  alias ZaimuTomo.Documents
+  alias ZaimuTomo.Repo
+  alias ZaimuTomo.Storage
+  alias ZaimuTomo.Storage.Memory
 
   setup :register_and_log_in_user
+
+  setup do
+    Memory.reset()
+    on_exit(&Memory.reset/0)
+  end
 
   defp create_document(%{scope: scope}) do
     document = document_fixture(scope)
@@ -46,6 +54,97 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert index_live |> element("#documents-#{document.id} a", "Delete") |> render_click()
       refute has_element?(index_live, "#documents-#{document.id}")
+    end
+  end
+
+  describe "Form uploads" do
+    test "stores a new document through the configured object storage", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, live, _html} = live(conn, ~p"/documents/new")
+
+      upload =
+        file_input(live, "#document-form", :document, [
+          %{
+            last_modified: 1_594_171_879_000,
+            name: "invoice.pdf",
+            content: "invoice bytes",
+            size: 13,
+            type: "application/pdf"
+          }
+        ])
+
+      assert render_upload(upload, "invoice.pdf") =~ "100%"
+
+      assert {:error, {:live_redirect, %{to: "/documents"}}} =
+               live
+               |> form("#document-form")
+               |> render_submit()
+
+      [document] = Documents.list_documents(scope)
+      assert document.filename == "invoice.pdf"
+      assert "documents/" <> _ = document.object_key
+      assert :ok = Storage.head_object(document.object_key)
+    end
+
+    test "replaces the stored object only after updating the document", %{
+      conn: conn,
+      scope: scope
+    } do
+      document = document_fixture(scope, %{object_key: "documents/original.pdf"})
+
+      assert {:ok, "documents/original.pdf"} =
+               Storage.put_object(document.object_key, "old bytes")
+
+      {:ok, live, _html} = live(conn, ~p"/documents/#{document}/edit")
+
+      upload =
+        file_input(live, "#document-form", :document, [
+          %{
+            last_modified: 1_594_171_879_000,
+            name: "replacement.pdf",
+            content: "new bytes",
+            size: 9,
+            type: "application/pdf"
+          }
+        ])
+
+      assert render_upload(upload, "replacement.pdf") =~ "100%"
+
+      assert {:error, {:live_redirect, %{to: "/documents"}}} =
+               live
+               |> form("#document-form")
+               |> render_submit()
+
+      updated_document = Documents.get_document!(scope, document.id)
+      assert updated_document.filename == "replacement.pdf"
+      assert updated_document.object_key != document.object_key
+      assert {:error, :not_found} = Storage.head_object(document.object_key)
+      assert :ok = Storage.head_object(updated_document.object_key)
+    end
+
+    test "removes a newly stored object when document persistence fails", %{
+      conn: conn,
+      user: user
+    } do
+      {:ok, live, _html} = live(conn, ~p"/documents/new")
+      Repo.delete!(user)
+
+      upload =
+        file_input(live, "#document-form", :document, [
+          %{
+            last_modified: 1_594_171_879_000,
+            name: "invoice.pdf",
+            content: "invoice bytes",
+            size: 13,
+            type: "application/pdf"
+          }
+        ])
+
+      assert render_upload(upload, "invoice.pdf") =~ "100%"
+      assert render_submit(form(live, "#document-form")) =~ "New Document"
+      assert [] = :ets.tab2list(Memory)
     end
   end
 
