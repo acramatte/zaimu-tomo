@@ -2,14 +2,14 @@
 
 **Input**: User request + decisions documented in `/specs/003-s3-document-storage/spec.md`
 **Prerequisites**: spec.md, research.md
-**Status**: Proposed — no implementation yet
+**Status**: In progress — Phase 1 storage foundation complete; Phases 2–6 remain
 
 ## Phase 0 — Pre-implementation decisions  *(complete — 2026-08-05)*
 
 - [x] Resolve open questions from spec.md §14 — recorded decisions: image pin `rustfs/rustfs:1.0.0-beta.12` **+ digest** (spec.md §14); versioning + Object Lock at bucket creation; Content-Type mapping inside `Storage.S3`; `verify_storage` on-demand + nightly backup cron step.
 - [x] Confirm the RustFS version/tag and check whether the installed version supports bucket versioning / object lock — confirmed: `1.0.0-beta.12` is the latest tag (Docker Hub, 2026-07-30); versioning + Object Lock are supported (docs.rustfs.com).
 
-## Phase 1 — Storage foundation
+## Phase 1 — Storage foundation  *(complete — 2026-08-18)*
 
 **Goal**: a swappable S3 storage layer with no callers yet.
 

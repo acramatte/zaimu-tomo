@@ -20,14 +20,14 @@
 
 ## Phase 1: Storage Foundation
 
-- [ ] T001 Add `{:aws_signature, "~> 0.4"}` to deps in `mix.exs`
-- [ ] T002 [P] Create the `ZaimuTomo.Storage` facade in `lib/zaimu_tomo/storage.ex` and `ZaimuTomo.Storage.Adapter` behaviour in `lib/zaimu_tomo/storage/adapter.ex`
-- [ ] T003 [P] Create `ZaimuTomo.Storage.S3` in `lib/zaimu_tomo/storage/s3.ex` (Req + `:aws_signature`, path-style flag, Content-Type from extension)
-- [ ] T004 [P] Create `ZaimuTomo.Storage.Memory` in `lib/zaimu_tomo/storage/memory.ex` (ETS-backed)
-- [ ] T005 Add `:storage` config default to `config/config.exs`
-- [ ] T006 Add `S3_*` env overrides to `config/runtime.exs` and set the Memory adapter in `config/test.exs`
-- [ ] T007 [P] Test `Storage.S3` with `Req.Test` (URL shape, SigV4 headers, path_style on/off) in `test/zaimu_tomo/storage/s3_test.exs`
-- [ ] T008 [P] Test `Storage.Memory` in `test/zaimu_tomo/storage/memory_test.exs`
+- [x] T001 Add `{:aws_signature, "~> 0.4"}` to deps in `mix.exs`
+- [x] T002 [P] Create the `ZaimuTomo.Storage` facade in `lib/zaimu_tomo/storage.ex` and `ZaimuTomo.Storage.Adapter` behaviour in `lib/zaimu_tomo/storage/adapter.ex`
+- [x] T003 [P] Create `ZaimuTomo.Storage.S3` in `lib/zaimu_tomo/storage/s3.ex` (Req + `:aws_signature`, path-style flag, Content-Type from extension)
+- [x] T004 [P] Create `ZaimuTomo.Storage.Memory` in `lib/zaimu_tomo/storage/memory.ex` (ETS-backed)
+- [x] T005 Add `:storage` config default to `config/config.exs`
+- [x] T006 Add `S3_*` env overrides to `config/runtime.exs` and set the Memory adapter in `config/test.exs`
+- [x] T007 [P] Test `Storage.S3` with `Req.Test` (URL shape, SigV4 headers, path_style on/off) in `test/zaimu_tomo/storage/s3_test.exs`
+- [x] T008 [P] Test `Storage.Memory` in `test/zaimu_tomo/storage/memory_test.exs`
 
 ## Phase 2: Database
 

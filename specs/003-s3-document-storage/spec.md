@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feat/s3-document-storage`
 **Created**: 2026-08-05
-**Status**: Proposed — not yet implemented
+**Status**: In progress — Phase 1 storage foundation complete; Phases 2–6 remain
 **Input**: User request — "documents are stored on the filesystem, a temporary setup that will not scale; move them to an S3-compatible store (RustFS)". Follow-up decisions: start with self-hosted RustFS, keep a cheap migration path to Hetzner Object Storage.
 
 ## 1. Context and problem
