@@ -36,6 +36,17 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "Good morning, there"
   end
 
+  test "GET / retains the dynamic in-flight subtitle", %{conn: conn} do
+    html =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.to_html()
+
+    assert html =~ "in flight"
+  end
+
   test "GET / renders current-month spending for the authenticated user", %{
     conn: conn,
     scope: scope,
