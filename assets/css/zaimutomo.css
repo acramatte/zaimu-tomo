@@ -194,10 +194,6 @@ body {
   backdrop-filter: blur(8px);
   background: color-mix(in oklab, var(--bg) 88%, transparent);
 }
-.topbar .crumb {
-  font-size: 13.5px; color: var(--muted);
-}
-.topbar .crumb strong { color: var(--ink); font-weight: 500; }
 .topbar .spacer { flex: 1; }
 
 .btn {
