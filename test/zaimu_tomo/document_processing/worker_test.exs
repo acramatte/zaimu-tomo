@@ -129,7 +129,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
     attrs =
       Enum.into(attrs, %{
         filename: "some filename",
-        filepath: "some filepath",
+        object_key: "documents/some-file.pdf",
         user_id: scope.user.id
       })
 

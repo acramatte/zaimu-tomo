@@ -11,7 +11,7 @@ defmodule ZaimuTomo.DocumentsFixtures do
     attrs =
       Enum.into(attrs, %{
         filename: "some filename",
-        filepath: "some filepath"
+        object_key: "documents/some-file.pdf"
       })
 
     {:ok, document} =

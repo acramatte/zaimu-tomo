@@ -2,7 +2,7 @@
 
 **Input**: User request + decisions documented in `/specs/003-s3-document-storage/spec.md`
 **Prerequisites**: spec.md, research.md
-**Status**: In progress — Phase 1 storage foundation complete; Phases 2–6 remain
+**Status**: In progress — Phases 1–2 complete; Phases 3–6 remain
 
 ## Phase 0 — Pre-implementation decisions  *(complete — 2026-08-05)*
 
@@ -22,7 +22,7 @@
 
 **Verify**: `mix compile --warnings-as-errors`; storage tests green with no network.
 
-## Phase 2 — Database
+## Phase 2 — Database  *(complete)*
 
 1. Generate migration `rename_documents_filepath_to_object_key` via `mix ecto.gen.migration`.
 2. `ALTER TABLE ... RENAME COLUMN filepath TO object_key` + backfill `UPDATE` (spec §5.2).

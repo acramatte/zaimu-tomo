@@ -265,7 +265,7 @@ defmodule ZaimuTomo.AccountingTest do
   defp document_fixture(scope) do
     Repo.insert!(%Document{
       filename: "invoice.pdf",
-      filepath: "/tmp/invoice.pdf",
+      object_key: "documents/invoice.pdf",
       user_id: scope.user.id
     })
   end

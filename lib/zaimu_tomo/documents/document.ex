@@ -6,7 +6,7 @@ defmodule ZaimuTomo.Documents.Document do
 
   schema "documents" do
     field :filename, :string
-    field :filepath, :string
+    field :object_key, :string
     field :user_id, :id
 
     has_many :extracted_content, ExtractedContent
@@ -17,8 +17,8 @@ defmodule ZaimuTomo.Documents.Document do
   @doc false
   def changeset(document, attrs, user_scope) do
     document
-    |> cast(attrs, [:filename, :filepath])
-    |> validate_required([:filename, :filepath])
+    |> cast(attrs, [:filename, :object_key])
+    |> validate_required([:filename, :object_key])
     |> put_change(:user_id, user_scope.user.id)
   end
 end

@@ -31,11 +31,11 @@
 
 ## Phase 2: Database
 
-- [ ] T009 Generate migration via `mix ecto.gen.migration rename_documents_filepath_to_object_key`
-- [ ] T010 Migration: rename `filepath` → `object_key` + backfill `UPDATE` (spec.md §5.2)
-- [ ] T011 Update schema + changeset in `lib/zaimu_tomo/documents/document.ex`
-- [ ] T012 [P] Update fixture in `test/support/fixtures/documents_fixtures.ex` (`filepath` → `object_key`)
-- [ ] T013 [P] Update tests referencing `filepath`: `test/zaimu_tomo/documents_test.exs`, `test/zaimu_tomo/accounting_test.exs`, `test/zaimu_tomo/document_processing_test.exs`, `test/zaimu_tomo/document_processing/worker_test.exs`, `test/zaimu_tomo_web/controllers/page_controller_test.exs`, `test/zaimu_tomo_web/live/journal_entry_live_test.exs`
+- [x] T009 Generate migration via `mix ecto.gen.migration rename_documents_filepath_to_object_key`
+- [x] T010 Migration: rename `filepath` → `object_key` + backfill `UPDATE` (spec.md §5.2)
+- [x] T011 Update schema + changeset in `lib/zaimu_tomo/documents/document.ex`
+- [x] T012 [P] Update fixture in `test/support/fixtures/documents_fixtures.ex` (`filepath` → `object_key`)
+- [x] T013 [P] Update tests referencing `filepath`: `test/zaimu_tomo/documents_test.exs`, `test/zaimu_tomo/accounting_test.exs`, `test/zaimu_tomo/document_processing_test.exs`, `test/zaimu_tomo/document_processing/worker_test.exs`, `test/zaimu_tomo_web/controllers/page_controller_test.exs`, `test/zaimu_tomo_web/live/journal_entry_live_test.exs`
 
 ## Phase 3: Flow Changes
 

@@ -10,7 +10,7 @@ defmodule ZaimuTomo.DocumentsTest do
     import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
     import ZaimuTomo.DocumentsFixtures
 
-    @invalid_attrs %{filename: nil, filepath: nil}
+    @invalid_attrs %{filename: nil, object_key: nil}
 
     test "list_documents/1 returns all scoped documents" do
       scope = user_scope_fixture()
@@ -35,12 +35,12 @@ defmodule ZaimuTomo.DocumentsTest do
     end
 
     test "create_document/2 with valid data creates a document" do
-      valid_attrs = %{filename: "some filename", filepath: "some filepath"}
+      valid_attrs = %{filename: "some filename", object_key: "documents/some-file.pdf"}
       scope = user_scope_fixture()
 
       assert {:ok, %Document{} = document} = Documents.create_document(scope, valid_attrs)
       assert document.filename == "some filename"
-      assert document.filepath == "some filepath"
+      assert document.object_key == "documents/some-file.pdf"
       assert document.user_id == scope.user.id
 
       assert_eventually(fn ->
@@ -56,13 +56,17 @@ defmodule ZaimuTomo.DocumentsTest do
     test "update_document/3 with valid data updates the document" do
       scope = user_scope_fixture()
       document = document_fixture(scope)
-      update_attrs = %{filename: "some updated filename", filepath: "some updated filepath"}
+
+      update_attrs = %{
+        filename: "some updated filename",
+        object_key: "documents/updated-file.pdf"
+      }
 
       assert {:ok, %Document{} = document} =
                Documents.update_document(scope, document, update_attrs)
 
       assert document.filename == "some updated filename"
-      assert document.filepath == "some updated filepath"
+      assert document.object_key == "documents/updated-file.pdf"
     end
 
     test "update_document/3 with invalid scope raises" do
