@@ -1,7 +1,7 @@
 defmodule ZaimuTomoWeb.PageController do
   use ZaimuTomoWeb, :controller
 
-  alias ZaimuTomo.{Accounting, FinancialAccounts}
+  alias ZaimuTomo.{Accounting, FinancialAccounts, Review}
 
   @category_colors [
     "oklch(0.55 0.08 240)",
@@ -308,7 +308,7 @@ defmodule ZaimuTomoWeb.PageController do
 
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
-    in_flight = Enum.filter(@activity, &(&1.status in ["processing", "review"]))
+    pending_review_count = Review.pending_review_count(conn.assigns.current_scope)
 
     conn
     |> put_root_layout(html: {ZaimuTomoWeb.Layouts, :zaimutomo})
@@ -333,7 +333,7 @@ defmodule ZaimuTomoWeb.PageController do
     |> assign(:donut_segments, donut_segments)
     |> assign(:activity, @activity)
     |> assign(:upcoming, @upcoming)
-    |> assign(:in_flight_count, length(in_flight))
+    |> assign(:pending_review_count, pending_review_count)
     |> render(:home)
   end
 

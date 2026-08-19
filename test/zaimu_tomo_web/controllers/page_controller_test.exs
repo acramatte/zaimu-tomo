@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
   import ZaimuTomo.ReviewFixtures
   import ZaimuTomo.FinancialAccountsFixtures
+  import ZaimuTomo.DocumentsFixtures
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts
@@ -36,7 +37,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "Good morning, there"
   end
 
-  test "GET / retains the dynamic in-flight subtitle", %{conn: conn} do
+  test "GET / omits the review prompt when the user has no pending reviews", %{conn: conn} do
     html =
       conn
       |> get(~p"/")
@@ -44,7 +45,33 @@ defmodule ZaimuTomoWeb.PageControllerTest do
       |> LazyHTML.from_document()
       |> LazyHTML.to_html()
 
-    assert html =~ "in flight"
+    refute html =~ "document needs review"
+    refute html =~ "documents need review"
+    refute html =~ "dashboard-pending-reviews"
+  end
+
+  test "GET / shows only the authenticated user's pending-review documents", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    review_document = document_fixture(scope)
+    review_document |> extracted_content_fixture(user) |> pending_review_fixture()
+
+    other_scope = ZaimuTomo.AccountsFixtures.user_scope_fixture()
+    other_document = document_fixture(other_scope)
+    other_document |> extracted_content_fixture(other_scope.user) |> pending_review_fixture()
+
+    html =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.to_html()
+
+    assert html =~ "1 document needs review"
+    refute html =~ "2 documents need review"
+    assert html =~ "id=\"dashboard-pending-reviews\""
   end
 
   test "GET / renders current-month spending for the authenticated user", %{

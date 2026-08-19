@@ -11,6 +11,7 @@ defmodule ZaimuTomo.Review do
   require Logger
 
   alias ZaimuTomo.Repo
+  alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
   alias ZaimuTomo.Langfuse
@@ -148,6 +149,18 @@ defmodule ZaimuTomo.Review do
       nil -> {:error, "Review decision not found or not owned by user"}
       review_decision -> {:ok, review_decision}
     end
+  end
+
+  @doc """
+  Returns the number of the user's reviews awaiting a decision.
+  """
+  def pending_review_count(%Scope{} = scope) do
+    from(rd in ReviewDecision,
+      where: rd.user_id == ^scope.user.id,
+      where: rd.review_status == "pending",
+      select: count(rd.id)
+    )
+    |> Repo.one()
   end
 
   def get_review_status_counts(user_id) do
