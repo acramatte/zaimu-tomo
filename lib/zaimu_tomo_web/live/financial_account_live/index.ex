@@ -7,6 +7,8 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
   alias ZaimuTomo.FinancialAccounts
 
   @account_types [{"Savings", "savings"}, {"Cash", "cash"}, {"Investment", "investment"}]
+  @subtypes [{"Retirement", "retirement"}]
+  @liquidity_options [{"Liquid", "liquid"}, {"Restricted", "restricted"}, {"Illiquid", "illiquid"}]
 
   @impl true
   def render(assigns) do
@@ -89,6 +91,21 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
               label="Account number or IBAN"
               placeholder="CH00 0000 0000 0000 0000 0"
             />
+
+            <!-- New: subtype and liquidity for investment accounts -->
+            <.input
+              field={@form[:subtype]}
+              type="select"
+              label="Subtype"
+              options={@subtypes}
+            />
+            <.input
+              field={@form[:liquidity]}
+              type="select"
+              label="Liquidity"
+              options={@liquidity_options}
+            />
+
             <.input
               field={@form[:balance]}
               type="number"
@@ -138,7 +155,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
          {:ok, _account} <-
            FinancialAccounts.create_financial_account_with_balance(
              socket.assigns.current_scope,
-             Map.take(params, ["name", "account_type", "currency", "bank_name", "account_number"]),
+             Map.take(params, ["name", "account_type", "currency", "bank_name", "account_number", "subtype", "liquidity"]),
              %{amount_cents: amount_cents, recorded_on: get_field(form.source, :recorded_on)}
            ) do
       {:noreply,
@@ -185,6 +202,8 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
        currency: :string,
        bank_name: :string,
        account_number: :string,
+       subtype: :string,
+       liquidity: :string,
        balance: :string,
        recorded_on: :date
      }}
@@ -194,6 +213,8 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
       :currency,
       :bank_name,
       :account_number,
+      :subtype,
+      :liquidity,
       :balance,
       :recorded_on
     ])

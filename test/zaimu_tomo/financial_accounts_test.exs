@@ -133,4 +133,25 @@ defmodule ZaimuTomo.FinancialAccountsTest do
       })
     end
   end
+
+  test "creates investment account with subtype and liquidity (Swiss 3a / retirement restricted)" do
+    scope = user_scope_fixture()
+
+    assert {:ok, %{account: account}} =
+             FinancialAccounts.create_financial_account_with_balance(
+               scope,
+               %{
+                 name: "3a Retirement",
+                 account_type: :investment,
+                 currency: "CHF",
+                 subtype: "retirement",
+                 liquidity: :restricted
+               },
+               %{amount_cents: 1_000_00, recorded_on: ~D[2026-07-28]}
+             )
+
+    assert account.account_type == :investment
+    assert account.subtype == "retirement"
+    assert account.liquidity == :restricted
+  end
 end
