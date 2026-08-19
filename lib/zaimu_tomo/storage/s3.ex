@@ -14,9 +14,13 @@ defmodule ZaimuTomo.Storage.S3 do
 
   @impl true
   def get_object(key, destination, config) do
-    key
-    |> request(:get, "", config, into: File.stream!(destination, [:write, :binary]))
-    |> get_result(destination)
+    try do
+      key
+      |> request(:get, "", config, into: File.stream!(destination, [:write, :binary]))
+      |> get_result(destination)
+    rescue
+      error in File.Error -> {:error, error.reason}
+    end
   end
 
   @impl true

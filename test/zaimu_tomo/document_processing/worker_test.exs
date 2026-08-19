@@ -7,6 +7,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Repo
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
+  import Bitwise, only: [band: 2]
 
   defmodule TemporaryFileStorage do
     @behaviour ZaimuTomo.Storage.Adapter
@@ -16,7 +17,12 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
 
     @impl true
     def get_object(_key, destination, config) do
-      send(Keyword.fetch!(config, :test_pid), {:document_downloaded, destination})
+      send(
+        Keyword.fetch!(config, :test_pid),
+        {:document_downloaded, destination, File.stat!(destination),
+         File.stat!(Path.dirname(destination))}
+      )
+
       File.write(destination, "invoice bytes")
       {:ok, destination}
     end
@@ -29,7 +35,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   end
 
   describe "process/1" do
-    test "downloads the object to a temporary file and removes it after OCR" do
+    test "downloads the object to a private temporary file and removes it after OCR" do
       storage_config = Application.fetch_env!(:zaimu_tomo, :storage)
       mistral_config = Application.fetch_env!(:zaimu_tomo, :mistral)
       langfuse_config = Application.get_env(:zaimu_tomo, :langfuse)
@@ -60,7 +66,9 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert {:ok, %{status: "failed"}} =
                Worker.process(%{document: document, currency_hint: "CHF"})
 
-      assert_receive {:document_downloaded, temporary_path}
+      assert_receive {:document_downloaded, temporary_path, file_stat, directory_stat}
+      assert band(file_stat.mode, 0o777) == 0o600
+      assert band(directory_stat.mode, 0o777) == 0o700
       refute File.exists?(temporary_path)
     end
   end

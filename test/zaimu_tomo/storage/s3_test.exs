@@ -59,6 +59,22 @@ defmodule ZaimuTomo.Storage.S3Test do
     assert File.read!(destination) == "downloaded bytes"
   end
 
+  test "returns a filesystem error when the destination cannot be opened" do
+    Req.Test.stub(@req_stub, fn conn ->
+      assert conn.method == "GET"
+      Plug.Conn.send_resp(conn, 200, "downloaded bytes")
+    end)
+
+    destination =
+      Path.join(
+        System.tmp_dir!(),
+        "zaimu-s3-missing-#{System.unique_integer([:positive])}/invoice.pdf"
+      )
+
+    assert {:error, :enoent} =
+             S3.get_object("documents/invoice.pdf", destination, path_style_config())
+  end
+
   test "maps a missing object and successful deletion" do
     Req.Test.expect(@req_stub, fn conn ->
       assert conn.method == "HEAD"
