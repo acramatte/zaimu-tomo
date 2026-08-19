@@ -3,8 +3,10 @@
 <h1 class="view-title">
   Good morning, {@current_scope.user.display_name || "there"} <span class="accent">—</span> the books are quiet today.
 </h1>
-<p class="view-sub">
-  {@in_flight_count} document{if @in_flight_count == 1, do: "", else: "s"} in flight
+<p :if={@pending_review_count > 0} class="view-sub">
+  <.link id="dashboard-pending-reviews" navigate={~p"/reviews"}>
+    {@pending_review_count} document{if @pending_review_count == 1, do: "", else: "s"} need{if @pending_review_count == 1, do: "s", else: ""} review
+  </.link>
 </p>
 
 {live_render(@conn, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero")}

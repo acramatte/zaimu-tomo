@@ -6,7 +6,12 @@ defmodule ZaimuTomo.ReviewTest do
   import ZaimuTomo.DocumentsFixtures, only: [document_fixture: 1]
 
   import ZaimuTomo.ReviewFixtures,
-    only: [extracted_content_fixture: 2, extracted_content_fixture: 3]
+    only: [
+      approved_review_fixture: 2,
+      extracted_content_fixture: 2,
+      extracted_content_fixture: 3,
+      pending_review_fixture: 1
+    ]
 
   setup do
     original_config = Application.get_env(:zaimu_tomo, :langfuse)
@@ -66,6 +71,26 @@ defmodule ZaimuTomo.ReviewTest do
       assert payload.traceId == "trace-abc"
       assert payload.value == 0
       assert payload.comment == "amount was wrong"
+    end
+  end
+
+  describe "pending_review_count/1" do
+    test "counts only pending reviews owned by the scope" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      pending_document = document_fixture(scope)
+      pending_document |> extracted_content_fixture(user) |> pending_review_fixture()
+
+      approved_document = document_fixture(scope)
+      approved_document |> extracted_content_fixture(user) |> approved_review_fixture(user)
+
+      other_user = user_fixture()
+      other_scope = user_scope_fixture(other_user)
+      other_document = document_fixture(other_scope)
+      other_document |> extracted_content_fixture(other_user) |> pending_review_fixture()
+
+      assert Review.pending_review_count(scope) == 1
     end
   end
 
