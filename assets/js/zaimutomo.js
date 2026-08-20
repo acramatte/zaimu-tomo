@@ -61,11 +61,13 @@ function setupSidebarToggle() {
   const setSidebarExpanded = (expanded) => {
     app.classList.toggle("show-sidebar", expanded)
     btn.setAttribute("aria-expanded", expanded)
+    btn.setAttribute("aria-label", expanded ? "Collapse sidebar" : "Expand sidebar")
+    btn.title = expanded ? "Collapse sidebar" : "Expand sidebar"
     localStorage.setItem("zt:sidebar", expanded ? "expanded" : "collapsed")
   }
 
   if (localStorage.getItem("zt:sidebar") === "expanded") setSidebarExpanded(true)
-  else btn.setAttribute("aria-expanded", "false")
+  else setSidebarExpanded(false)
 
   const updateBtn = () => {
     btn.style.display = mq.matches ? "inline-flex" : "none"
