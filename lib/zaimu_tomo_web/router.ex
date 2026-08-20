@@ -56,11 +56,10 @@ defmodule ZaimuTomoWeb.Router do
   scope "/", ZaimuTomoWeb do
     pipe_through [:browser, :require_authenticated_user]
 
-    get "/", PageController, :home
-
     live_session :require_authenticated_user,
       root_layout: {ZaimuTomoWeb.Layouts, :zaimutomo},
       on_mount: [{ZaimuTomoWeb.UserAuth, :require_authenticated}] do
+      live "/", DashboardLive, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
 

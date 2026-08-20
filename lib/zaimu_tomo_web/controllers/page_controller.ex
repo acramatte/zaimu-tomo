@@ -282,24 +282,24 @@ defmodule ZaimuTomoWeb.PageController do
 
   @summary %{projection_eom: 47_640.00}
 
-  def home(conn, _params) do
+  def dashboard_assigns(scope) do
     today = Date.utc_today()
     previous_month = today |> Date.beginning_of_month() |> Date.add(-1)
 
-    spending = Accounting.monthly_spending(conn.assigns.current_scope, today)
-    previous_spending = Accounting.monthly_spending(conn.assigns.current_scope, previous_month)
+    spending = Accounting.monthly_spending(scope, today)
+    previous_spending = Accounting.monthly_spending(scope, previous_month)
 
     cash_accounts =
-      FinancialAccounts.list_cash_accounts_with_latest_balance(conn.assigns.current_scope)
+      FinancialAccounts.list_cash_accounts_with_latest_balance(scope)
 
     investment_accounts =
-      FinancialAccounts.list_investment_accounts_with_latest_balance(conn.assigns.current_scope)
+      FinancialAccounts.list_investment_accounts_with_latest_balance(scope)
 
     savings_accounts =
-      FinancialAccounts.list_savings_accounts_with_latest_balance(conn.assigns.current_scope)
+      FinancialAccounts.list_savings_accounts_with_latest_balance(scope)
 
     net_worth_by_currency =
-      FinancialAccounts.list_net_worth_by_currency(conn.assigns.current_scope)
+      FinancialAccounts.list_net_worth_by_currency(scope)
 
     spending_categories =
       spending.categories
@@ -308,33 +308,30 @@ defmodule ZaimuTomoWeb.PageController do
 
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
-    pending_review_count = Review.pending_review_count(conn.assigns.current_scope)
+    pending_review_count = Review.pending_review_count(scope)
 
-    conn
-    |> put_root_layout(html: {ZaimuTomoWeb.Layouts, :zaimutomo})
-    |> assign(:current_path, "/")
-    |> assign(:page_title, "Dashboard")
-    |> assign(:summary, @summary)
-    |> assign(:cash_accounts, cash_accounts)
-    |> assign(:investment_accounts, investment_accounts)
-    |> assign(:savings_accounts, savings_accounts)
-    |> assign(:net_worth_by_currency, net_worth_by_currency)
-    |> assign(:categories, @categories)
-    |> assign(:spending, spending)
-    |> assign(:previous_spending, previous_spending)
-    |> assign(:spending_categories, spending_categories)
-    |> assign(:spending_month, Calendar.strftime(spending.month_start, "%B"))
-    |> assign(:previous_spending_month, Calendar.strftime(previous_spending.month_start, "%B"))
-    |> assign(:month_pct, month_pct(spending.total_cents, previous_spending.total_cents))
-    |> assign(
-      :month_comparison_class,
-      month_comparison_class(spending.total_cents, previous_spending.total_cents)
-    )
-    |> assign(:donut_segments, donut_segments)
-    |> assign(:activity, @activity)
-    |> assign(:upcoming, @upcoming)
-    |> assign(:pending_review_count, pending_review_count)
-    |> render(:home)
+    %{
+      current_path: "/",
+      page_title: "Dashboard",
+      summary: @summary,
+      cash_accounts: cash_accounts,
+      investment_accounts: investment_accounts,
+      savings_accounts: savings_accounts,
+      net_worth_by_currency: net_worth_by_currency,
+      categories: @categories,
+      spending: spending,
+      previous_spending: previous_spending,
+      spending_categories: spending_categories,
+      spending_month: Calendar.strftime(spending.month_start, "%B"),
+      previous_spending_month: Calendar.strftime(previous_spending.month_start, "%B"),
+      month_pct: month_pct(spending.total_cents, previous_spending.total_cents),
+      month_comparison_class:
+        month_comparison_class(spending.total_cents, previous_spending.total_cents),
+      donut_segments: donut_segments,
+      activity: @activity,
+      upcoming: @upcoming,
+      pending_review_count: pending_review_count
+    }
   end
 
   defp spending_categories(categories, previous_categories) do
