@@ -74,6 +74,7 @@ defmodule ZaimuTomoWeb.Layouts do
 
   attr :navigate, :string, default: nil
   attr :current_path, :string, required: true
+  attr :label, :string, required: true
   slot :inner_block, required: true
 
   def nav_item(assigns) do
@@ -82,10 +83,12 @@ defmodule ZaimuTomoWeb.Layouts do
       :if={@navigate}
       navigate={@navigate}
       class={["nav-item", @current_path == @navigate && "active"]}
+      aria-label={@label}
+      data-tooltip={@label}
     >
       {render_slot(@inner_block)}
     </.link>
-    <a :if={!@navigate} class="nav-item" href="#">
+    <a :if={!@navigate} class="nav-item" href="#" aria-label={@label} data-tooltip={@label}>
       {render_slot(@inner_block)}
     </a>
     """
