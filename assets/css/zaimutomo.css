@@ -120,7 +120,7 @@ body {
   display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; letter-spacing: 0.04em; text-transform: uppercase;
   margin-top: 1px;
 }
-.sidebar-toggle { margin-left: auto; flex: 0 0 auto; }
+.sidebar-toggle { margin-left: auto; flex: 0 0 auto; border: 0; box-shadow: none; }
 
 .nav-section {
   font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
@@ -135,15 +135,15 @@ body {
   cursor: pointer;
   font-size: 13.5px;
   user-select: none;
-  border: 1px solid transparent;
+  position: relative;
 }
 .nav-item:hover { background: var(--panel-2); color: var(--ink); }
 .nav-item.active {
   background: var(--bg);
   color: var(--ink);
-  border-color: var(--hairline);
-  box-shadow: 0 1px 0 oklch(0.93 0.005 85);
 }
+.nav-active-marker { display: none; position: absolute; top: 4px; bottom: 4px; left: 0; width: 1px; background: var(--accent); }
+.nav-item.active .nav-active-marker { display: block; }
 .nav-item .ico { width: 16px; height: 16px; opacity: 0.75; flex-shrink: 0; }
 .nav-item .badge {
   margin-left: auto;

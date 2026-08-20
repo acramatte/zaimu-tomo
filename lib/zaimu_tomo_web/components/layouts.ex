@@ -86,9 +86,11 @@ defmodule ZaimuTomoWeb.Layouts do
       aria-label={@label}
       data-tooltip={@label}
     >
+      <span class="nav-active-marker" aria-hidden="true"></span>
       {render_slot(@inner_block)}
     </.link>
     <a :if={!@navigate} class="nav-item" href="#" aria-label={@label} data-tooltip={@label}>
+      <span class="nav-active-marker" aria-hidden="true"></span>
       {render_slot(@inner_block)}
     </a>
     """
