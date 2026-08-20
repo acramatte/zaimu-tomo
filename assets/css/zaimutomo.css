@@ -143,7 +143,7 @@ body {
   background: var(--bg);
   color: var(--ink);
 }
-.nav-active-marker { display: none; position: absolute; top: 4px; bottom: 4px; left: 0; width: 1px; background: var(--accent); }
+.nav-active-marker { display: none; position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--accent); }
 .nav-item.active .nav-active-marker { display: block; }
 .nav-item .ico { width: 16px; height: 16px; opacity: 0.75; flex-shrink: 0; }
 .nav-item .badge {
