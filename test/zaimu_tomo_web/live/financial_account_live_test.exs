@@ -52,4 +52,44 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
     assert render(view) =~ "EUR 123.45"
     assert render(view) =~ "2026-07-29"
   end
+
+  test "shows subtype and liquidity inputs only when account_type is investment", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/accounts")
+
+    # Simulate changing the account_type to savings and validate - fields should be absent
+    html =
+      view
+      |> form("#financial-account-form", %{"account" => %{"account_type" => "savings"}})
+      |> render_change()
+
+    refute html =~ "id=\"account_subtype\""
+    refute html =~ "id=\"account_liquidity\""
+
+    # Simulate changing the account_type to investment and validate - fields should be present
+    html =
+      view
+      |> form("#financial-account-form", %{"account" => %{"account_type" => "investment"}})
+      |> render_change()
+
+    assert html =~ "id=\"account_subtype\""
+    assert html =~ "id=\"account_liquidity\""
+
+    # Now submit a full investment account with subtype and liquidity
+    view
+    |> form("#financial-account-form", %{
+      "account" => %{
+        "name" => "Brokerage",
+        "account_type" => "investment",
+        "currency" => "usd",
+        "subtype" => "retirement",
+        "liquidity" => "restricted",
+        "balance" => "500.00",
+        "recorded_on" => "2026-07-28"
+      }
+    })
+    |> render_submit()
+
+    assert render(view) =~ "Brokerage"
+    assert render(view) =~ "USD 500.00"
+  end
 end
