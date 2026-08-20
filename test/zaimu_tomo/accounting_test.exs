@@ -257,7 +257,6 @@ defmodule ZaimuTomo.AccountingTest do
           where: je.user_id == ^user.id,
           order_by: [
             desc: je.updated_at,
-            desc: je.inserted_at,
             desc: je.id
           ],
           limit: 2,
