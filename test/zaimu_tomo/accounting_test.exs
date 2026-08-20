@@ -256,7 +256,7 @@ defmodule ZaimuTomo.AccountingTest do
         from(je in JournalEntry,
           where: je.user_id == ^user.id,
           order_by: [
-            desc: fragment("COALESCE(?, ?)", je.updated_at, je.inserted_at),
+            desc: je.updated_at,
             desc: je.inserted_at,
             desc: je.id
           ],
