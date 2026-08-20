@@ -176,9 +176,8 @@ defmodule ZaimuTomo.Accounting do
       where: je.user_id == ^user_id,
       preload: [:tax_deduction_claim],
       order_by: [
-        asc: fragment("CASE WHEN ? = 'uncategorized' THEN 0 ELSE 1 END", je.status),
-        desc: je.date,
-        desc: je.inserted_at
+        desc: je.updated_at,
+        desc: je.id
       ]
     )
     |> Repo.all()
