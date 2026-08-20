@@ -293,11 +293,25 @@
           setSidebarExpanded(!app.classList.contains('show-sidebar'))
         })
 
-        sidebar.addEventListener('click', event => {
-          if (mq.matches && event.target.closest('.nav-item')) {
+        let collapseAfterNavigation = false
+        this._onNavigate = () => {
+          if (collapseAfterNavigation && mq.matches) {
             setSidebarExpanded(false)
           }
+
+          collapseAfterNavigation = false
+        }
+        window.addEventListener('phx:navigate', this._onNavigate)
+
+        sidebar.addEventListener('click', event => {
+          const navItem = event.target.closest('.nav-item[data-phx-link]')
+          const opensNewTab = event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0
+
+          if (mq.matches && navItem && !opensNewTab) collapseAfterNavigation = true
         })
+      },
+      destroyed() {
+        window.removeEventListener('phx:navigate', this._onNavigate)
       }
     }
     </script>
