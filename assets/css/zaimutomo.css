@@ -103,7 +103,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 8px 18px;
+  padding: 8px;
 }
 .brand-mark {
   width: 28px; height: 28px; border-radius: 7px;
@@ -1180,7 +1180,7 @@ input.low-conf { border-color: var(--warn); background: var(--warn-tint); }
   .app.show-sidebar { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
   .app.show-sidebar .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); padding: 0; }
 
-  .app:not(.show-sidebar) .brand { justify-content: center; padding: 4px 0 18px; }
+  .app:not(.show-sidebar) .brand { justify-content: center; padding: 13.5px 0; }
   .app:not(.show-sidebar) .brand-mark,
   .app:not(.show-sidebar) .brand-name,
   .app:not(.show-sidebar) .nav-section,
