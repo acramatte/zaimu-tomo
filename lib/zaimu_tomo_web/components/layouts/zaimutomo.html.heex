@@ -19,7 +19,7 @@
     </script>
   </head>
   <body class="density-comfortable">
-    <div class="app">
+    <div class="app" phx-hook=".SidebarToggle">
       <!-- ========================
            SIDEBAR
            ======================== -->
@@ -123,6 +123,9 @@
            ======================== -->
       <main class="main">
         <div class="topbar">
+          <button class="btn sm ghost" id="sidebar-toggle" title="Toggle menu" aria-label="Toggle menu" style="display:none">
+            <svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+          </button>
           <div class="spacer"></div>
           <button class="btn sm" id="quick-add">
             <svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -259,5 +262,36 @@
         }
       }
     </script>
-  </body>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".SidebarToggle">
+    export default {
+      mounted() {
+        const app = this.el
+        const btn = app.querySelector('#sidebar-toggle')
+        const mq = window.matchMedia('(max-width: 1400px)')
+
+        const stored = localStorage.getItem('zt:sidebar')
+        if (stored === 'expanded') app.classList.add('show-sidebar')
+
+        const updateBtn = () => {
+          if (mq.matches) btn.style.display = 'inline-flex'
+          else btn.style.display = 'none'
+        }
+        updateBtn()
+        if (mq.addEventListener) mq.addEventListener('change', updateBtn)
+        else mq.addListener(updateBtn)
+
+        btn.addEventListener('click', () => {
+          if (app.classList.contains('show-sidebar')) {
+            app.classList.remove('show-sidebar')
+            localStorage.setItem('zt:sidebar','collapsed')
+          } else {
+            app.classList.add('show-sidebar')
+            localStorage.setItem('zt:sidebar','expanded')
+          }
+        })
+      }
+    }
+    </script>
+    </body>
 </html>
