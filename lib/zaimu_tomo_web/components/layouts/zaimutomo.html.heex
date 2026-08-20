@@ -268,10 +268,18 @@
       mounted() {
         const app = this.el
         const btn = app.querySelector('#sidebar-toggle')
+        const sidebar = app.querySelector('#sidebar')
         const mq = window.matchMedia('(max-width: 1400px)')
 
+        const setSidebarExpanded = (expanded) => {
+          app.classList.toggle('show-sidebar', expanded)
+          btn.setAttribute('aria-expanded', expanded)
+          localStorage.setItem('zt:sidebar', expanded ? 'expanded' : 'collapsed')
+        }
+
         const stored = localStorage.getItem('zt:sidebar')
-        if (stored === 'expanded') app.classList.add('show-sidebar')
+        if (stored === 'expanded') setSidebarExpanded(true)
+        else btn.setAttribute('aria-expanded', 'false')
 
         const updateBtn = () => {
           if (mq.matches) btn.style.display = 'inline-flex'
@@ -282,12 +290,12 @@
         else mq.addListener(updateBtn)
 
         btn.addEventListener('click', () => {
-          if (app.classList.contains('show-sidebar')) {
-            app.classList.remove('show-sidebar')
-            localStorage.setItem('zt:sidebar','collapsed')
-          } else {
-            app.classList.add('show-sidebar')
-            localStorage.setItem('zt:sidebar','expanded')
+          setSidebarExpanded(!app.classList.contains('show-sidebar'))
+        })
+
+        sidebar.addEventListener('click', event => {
+          if (mq.matches && event.target.closest('.nav-item')) {
+            setSidebarExpanded(false)
           }
         })
       }
