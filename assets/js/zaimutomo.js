@@ -48,6 +48,53 @@ export function initZaimu() {
   setupUpload()
   setupReviewModal()
   setupCategoryModal()
+  setupSidebarToggle()
+}
+
+function setupSidebarToggle() {
+  const app = document.getElementById("app-shell")
+  const btn = document.getElementById("sidebar-toggle")
+  const sidebar = document.getElementById("sidebar")
+  if (!app || !btn || !sidebar) return
+
+  const mq = window.matchMedia("(max-width: 1400px)")
+  const setSidebarExpanded = (expanded) => {
+    app.classList.toggle("show-sidebar", expanded)
+    btn.setAttribute("aria-expanded", expanded)
+    btn.setAttribute("aria-label", expanded ? "Collapse sidebar" : "Expand sidebar")
+    btn.title = expanded ? "Collapse sidebar" : "Expand sidebar"
+    localStorage.setItem("zt:sidebar", expanded ? "expanded" : "collapsed")
+  }
+
+  if (localStorage.getItem("zt:sidebar") === "expanded") setSidebarExpanded(true)
+  else setSidebarExpanded(false)
+
+  const updateBtn = () => {
+    btn.style.display = mq.matches ? "inline-flex" : "none"
+  }
+  updateBtn()
+  if (mq.addEventListener) mq.addEventListener("change", updateBtn)
+  else mq.addListener(updateBtn)
+
+  btn.addEventListener("click", () => {
+    setSidebarExpanded(!app.classList.contains("show-sidebar"))
+  })
+
+  let collapseAfterNavigation = false
+  window.addEventListener("phx:navigate", () => {
+    if (collapseAfterNavigation && mq.matches) setSidebarExpanded(false)
+    collapseAfterNavigation = false
+  })
+
+  sidebar.addEventListener("click", (event) => {
+    const navItem = event.target.closest(".nav-item[data-phx-link]")
+    const opensNewTab = event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0
+
+    if (mq.matches && navItem && !opensNewTab) {
+      collapseAfterNavigation = true
+      localStorage.setItem("zt:sidebar", "collapsed")
+    }
+  })
 }
 
 // ─── Tweaks panel ─────────────────────────────────────────────────────────────

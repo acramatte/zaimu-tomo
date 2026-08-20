@@ -9,7 +9,7 @@
   </.link>
 </p>
 
-{live_render(@conn, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero")}
+{live_render(@socket, ZaimuTomoWeb.ProcessingHeroLive, id: "processing-hero")}
 
 <div class="grid grid-12">
   <div class="span-12">
@@ -176,7 +176,7 @@
           <div class="card-title">Quick add</div>
           <div class="card-meta">drop · paste · click</div>
         </div>
-        {live_render(@conn, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
+        {live_render(@socket, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
         <div
           style="display:flex;justify-content:space-between;margin-top:14px;font-size:11.5px"
           class="muted"
