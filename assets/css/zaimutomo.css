@@ -267,6 +267,26 @@ body {
   margin: 0 0 24px;
 }
 
+.settings-view {
+  max-width: 900px;
+}
+
+@media (max-width: 720px) {
+  .settings-view {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .settings-view .card {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .settings-view .btn {
+    min-height: 44px;
+  }
+}
+
 /* ============================
    Cards / hairlines
    ============================ */

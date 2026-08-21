@@ -15,6 +15,13 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
       assert html =~ "Save Profile"
       assert html =~ "Change Email"
       assert html =~ "Save Password"
+      # structural expectations: concise header and section titles
+      assert html =~ "Account settings"
+      assert html =~ "Profile"
+      assert html =~ "Email"
+      assert html =~ "Password"
+      refute html =~ "https://phoenixframework.org/"
+      refute html =~ "Get Started"
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
