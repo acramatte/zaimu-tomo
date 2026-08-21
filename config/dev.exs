@@ -22,7 +22,10 @@ config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   # Use AutoPort to find an available port at dev startup so multiple
   # local instances don't conflict. AutoPort is a dev-only dependency.
-  http: [ip: {127, 0, 0, 1}, port: AutoPort.find(4000)],
+  # Use AutoPort if the module is available (deps may not be fetched yet
+  # when mix tasks run). Fall back to 4000 so commands like `mix deps.get`
+  # don't fail while fetching dependencies.
+  http: [ip: {127, 0, 0, 1}, port: (if Code.ensure_loaded?(AutoPort), do: AutoPort.find(4000), else: 4000)],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
