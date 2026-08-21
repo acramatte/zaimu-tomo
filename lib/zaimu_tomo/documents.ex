@@ -9,6 +9,14 @@ defmodule ZaimuTomo.Documents do
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Storage
+
+  @doc """
+  Returns a portable object key for an uploaded file.
+  """
+  def object_key_for(filename) when is_binary(filename) do
+    "documents/#{Ecto.UUID.generate()}#{Path.extname(filename)}"
+  end
 
   @doc """
   Subscribes to scoped notifications about any document changes.
@@ -151,6 +159,7 @@ defmodule ZaimuTomo.Documents do
     |> Repo.delete()
     |> case do
       {:ok, document} ->
+        _ = Storage.delete_object(document.object_key)
         broadcast_document(scope, {:deleted, document})
         {:ok, document}
 

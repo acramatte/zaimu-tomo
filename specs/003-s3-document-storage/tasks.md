@@ -39,11 +39,11 @@
 
 ## Phase 3: Flow Changes
 
-- [ ] T014 Replace `File.cp!` with `Storage.put_object` in `lib/zaimu_tomo_web/live/document_upload_live.ex` (`do_consume/1`), add best-effort delete on DB failure
-- [ ] T015 Replace `File.cp!` with `Storage.put_object` in `lib/zaimu_tomo_web/live/document_live/form.ex` (`handle_event("save", ...)`); clean up the new key on failed update and the prior key only after successful replacement
-- [ ] T016 Download to temp file in `lib/zaimu_tomo/document_processing/ocr_worker.ex` (`process/1`); remove it in an `after` block; remove `build_document_path/1`
-- [ ] T017 Add object deletion after successful row delete in `lib/zaimu_tomo/documents.ex` (`delete_document/2`)
-- [ ] T018 Add focused regression tests for storage failure cleanup, temp-file cleanup, and delete-after-row semantics
+- [x] T014 Replace `File.cp!` with `Storage.put_object` in `lib/zaimu_tomo_web/live/document_upload_live.ex` (`do_consume/1`), add best-effort delete on DB failure
+- [x] T015 Replace `File.cp!` with `Storage.put_object` in `lib/zaimu_tomo_web/live/document_live/form.ex` (`handle_event("save", ...)`); clean up the new key on failed update and the prior key only after successful replacement
+- [x] T016 Download to temp file in `lib/zaimu_tomo/document_processing/ocr_worker.ex` (`process/1`); remove it in an `after` block; remove `build_document_path/1`
+- [x] T017 Add object deletion after successful row delete in `lib/zaimu_tomo/documents.ex` (`delete_document/2`)
+- [x] T018 Add focused regression tests for storage failure cleanup, temp-file cleanup, and delete-after-row semantics
 
 ## Phase 4: Infrastructure
 

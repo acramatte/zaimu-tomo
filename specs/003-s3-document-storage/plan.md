@@ -2,7 +2,7 @@
 
 **Input**: User request + decisions documented in `/specs/003-s3-document-storage/spec.md`
 **Prerequisites**: spec.md, research.md
-**Status**: In progress — Phases 1–2 complete; Phases 3–6 remain
+**Status**: In progress — Phases 1–3 complete; Phases 4–6 remain
 
 ## Phase 0 — Pre-implementation decisions  *(complete — 2026-08-05)*
 
@@ -31,7 +31,7 @@
 
 **Verify**: `POSTGRES_PORT=55432 mix test test/zaimu_tomo/documents_test.exs` and migration round-trip (`mix ecto.rollback` / `mix ecto.migrate`).
 
-## Phase 3 — Flow changes
+## Phase 3 — Flow changes  *(complete)*
 
 1. `document_upload_live.ex` `do_consume/1`: PUT instead of `File.cp!`; best-effort delete on DB failure.
 2. `document_live/form.ex` `handle_event("save", ...)`: same consume change; on replacement, delete the old key only after the DB update succeeds and clean up the new key if the update fails.

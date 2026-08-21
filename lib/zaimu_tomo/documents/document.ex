@@ -20,5 +20,6 @@ defmodule ZaimuTomo.Documents.Document do
     |> cast(attrs, [:filename, :object_key])
     |> validate_required([:filename, :object_key])
     |> put_change(:user_id, user_scope.user.id)
+    |> foreign_key_constraint(:user_id)
   end
 end
