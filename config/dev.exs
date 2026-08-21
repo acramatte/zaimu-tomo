@@ -20,7 +20,9 @@ config :zaimu_tomo, ZaimuTomo.Repo,
 config :zaimu_tomo, ZaimuTomoWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  # Use AutoPort to find an available port at dev startup so multiple
+  # local instances don't conflict. AutoPort is a dev-only dependency.
+  http: [ip: {127, 0, 0, 1}, port: AutoPort.find(4000)],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
