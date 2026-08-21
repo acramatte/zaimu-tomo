@@ -31,42 +31,48 @@ defmodule ZaimuTomoWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :native, :boolean, default: false, doc: "render inside the Zaimutomo product shell"
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
+    <%= if @native do %>
+      {render_slot(@inner_block)}
+    <% else %>
+      <header class="navbar px-4 sm:px-6 lg:px-8">
+        <div class="flex-1">
+          <a href="/" class="flex-1 flex w-fit items-center gap-2">
+            <img src={~p"/images/logo.svg"} width="36" />
+            <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+          </a>
+        </div>
+        <div class="flex-none">
+          <ul class="flex flex-column px-1 space-x-4 items-center">
+            <li>
+              <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
+            </li>
+            <li>
+              <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
+            </li>
+            <li>
+              <.theme_toggle />
+            </li>
+            <li>
+              <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
+                Get Started <span aria-hidden="true">&rarr;</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
-      </div>
-    </main>
+      <main class="px-4 py-20 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-2xl space-y-4">
+          {render_slot(@inner_block)}
+        </div>
+      </main>
+    <% end %>
 
     <.flash_group flash={@flash} />
     """
@@ -103,7 +109,14 @@ defmodule ZaimuTomoWeb.Layouts do
     ~H"""
     <div class={"feed-item #{@item.status}"}>
       <div class="stat">
-        {if @item.filename, do: @item.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase() |> String.slice(0, 3), else: "DOC"}
+        {if @item.filename,
+          do:
+            @item.filename
+            |> Path.extname()
+            |> String.trim_leading(".")
+            |> String.upcase()
+            |> String.slice(0, 3),
+          else: "DOC"}
       </div>
       <div class="body">
         <div class="title">
@@ -126,6 +139,7 @@ defmodule ZaimuTomoWeb.Layouts do
     with {:ok, dt, _} <- DateTime.from_iso8601(ts) do
       now = DateTime.utc_now()
       diff = DateTime.diff(now, dt, :second)
+
       cond do
         diff < 60 -> "just now"
         diff < 3600 -> "#{div(diff, 60)}m ago"
