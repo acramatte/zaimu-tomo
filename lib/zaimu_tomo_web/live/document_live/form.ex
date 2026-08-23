@@ -7,78 +7,78 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.header>
-        {@page_title}
-        <:subtitle>Use this form to manage document records in your database.</:subtitle>
-      </.header>
+    <Layouts.flash_group flash={@flash} />
 
-      <.form for={@form} id="document-form" phx-change="validate" phx-submit="save">
-        <p class="mt-1 text-sm leading-6 text-gray-500">
-          Accepts PDF, JPEG, PNG, WEBP, HEIC, TIFF, DOC, and TXT files.
-        </p>
-        <div class="px-4 py-6 border-t border-gray-200">
-          <div
-            phx-drop-target={@uploads.document.ref}
-            class="phx-drop-target-active:scale-105 relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          >
-            <.icon name="hero-cloud-arrow-up" class="size-16 text-gray-400" />
-            <div class="mt-4 flex text-sm leading-6 text-gray-500 justify-center">
-              <label
-                for={@uploads.document.ref}
-                class="relative font-semibold text-primary focus-within:outline-none hover:text-gray-400 cursor-pointer"
-              >
-                <.live_file_input upload={@uploads.document} class="cursor-pointer" />
-              </label>
-              <p class="pl-1">or drag and drop</p>
-            </div>
+    <.header>
+      {@page_title}
+      <:subtitle>Use this form to manage document records in your database.</:subtitle>
+    </.header>
+
+    <.form for={@form} id="document-form" phx-change="validate" phx-submit="save">
+      <p class="mt-1 text-sm leading-6 text-gray-500">
+        Accepts PDF, JPEG, PNG, WEBP, HEIC, TIFF, DOC, and TXT files.
+      </p>
+      <div class="px-4 py-6 border-t border-gray-200">
+        <div
+          phx-drop-target={@uploads.document.ref}
+          class="phx-drop-target-active:scale-105 relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+        >
+          <.icon name="hero-cloud-arrow-up" class="size-16 text-gray-400" />
+          <div class="mt-4 flex text-sm leading-6 text-gray-500 justify-center">
+            <label
+              for={@uploads.document.ref}
+              class="relative font-semibold text-primary focus-within:outline-none hover:text-gray-400 cursor-pointer"
+            >
+              <.live_file_input upload={@uploads.document} class="cursor-pointer" />
+            </label>
+            <p class="pl-1">or drag and drop</p>
           </div>
         </div>
+      </div>
 
-        <section>
-          <%!-- render each document entry --%>
-          <article :for={entry <- @uploads.document.entries} class="upload-entry">
-            <%!-- entry.progress will update automatically for in-flight entries --%>
-            <progress value={entry.progress} max="100">{entry.progress}% </progress>
+      <section>
+        <%!-- render each document entry --%>
+        <article :for={entry <- @uploads.document.entries} class="upload-entry">
+          <%!-- entry.progress will update automatically for in-flight entries --%>
+          <progress value={entry.progress} max="100">{entry.progress}% </progress>
 
-            <%!-- a regular click event whose handler will invoke Phoenix.LiveView.cancel_upload/3 --%>
-            <button
-              type="button"
-              phx-click="cancel-upload"
-              phx-value-ref={entry.ref}
-              aria-label="cancel"
-            >
-              &times;
-            </button>
-            <p class="pointer-events-none mt-2 block truncate text-sm font-medium text-gray-900">
-              {entry.client_name}
-            </p>
-            <p class="pointer-events-none block text-sm font-medium text-gray-500">
-              {to_megabytes_or_kilobytes(entry.client_size)}
-            </p>
+          <%!-- a regular click event whose handler will invoke Phoenix.LiveView.cancel_upload/3 --%>
+          <button
+            type="button"
+            phx-click="cancel-upload"
+            phx-value-ref={entry.ref}
+            aria-label="cancel"
+          >
+            &times;
+          </button>
+          <p class="pointer-events-none mt-2 block truncate text-sm font-medium text-gray-900">
+            {entry.client_name}
+          </p>
+          <p class="pointer-events-none block text-sm font-medium text-gray-500">
+            {to_megabytes_or_kilobytes(entry.client_size)}
+          </p>
 
-            <%!-- Phoenix.Component.upload_errors/2 returns a list of error atoms --%>
-            <p
-              :for={err <- upload_errors(@uploads.document, entry)}
-              role="alert"
-              class="alert alert-error"
-            >
-              {error_to_string(err)}
-            </p>
-          </article>
-
-          <%!-- Phoenix.Component.upload_errors/1 returns a list of error atoms --%>
-          <p :for={err <- upload_errors(@uploads.document)} role="alert" class="alert alert-error">
+          <%!-- Phoenix.Component.upload_errors/2 returns a list of error atoms --%>
+          <p
+            :for={err <- upload_errors(@uploads.document, entry)}
+            role="alert"
+            class="alert alert-error"
+          >
             {error_to_string(err)}
           </p>
-        </section>
+        </article>
 
-        <footer>
-          <.button phx-disable-with="Saving..." variant="primary">Save Document</.button>
-          <.button navigate={return_path(@current_scope, @return_to, @document)}>Cancel</.button>
-        </footer>
-      </.form>
-    </Layouts.app>
+        <%!-- Phoenix.Component.upload_errors/1 returns a list of error atoms --%>
+        <p :for={err <- upload_errors(@uploads.document)} role="alert" class="alert alert-error">
+          {error_to_string(err)}
+        </p>
+      </section>
+
+      <footer>
+        <.button phx-disable-with="Saving..." variant="primary">Save Document</.button>
+        <.button navigate={return_path(@current_scope, @return_to, @document)}>Cancel</.button>
+      </footer>
+    </.form>
     """
   end
 
