@@ -99,12 +99,79 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
-  # ── Activity feed item ─────────────────────────────────────────────────────
+  # ── Dashboard activity feed item ───────────────────────────────────────────
+
+  attr :item, :map, required: true
+
+  def feed_item(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:amount, fn -> fmt_cents(assigns.item.amount_cents, assigns.item.currency) end)
+      |> assign_new(:ext, fn ->
+        assigns.item.filename
+        |> Path.extname()
+        |> String.trim_leading(".")
+        |> String.upcase()
+        |> String.slice(0, 3)
+        |> case do
+          "" -> "DOC"
+          ext -> ext
+        end
+      end)
+
+    ~H"""
+    <div class={"feed-item #{@item.status}"} id={"recent-activity-#{@item.id}"}>
+      <div class="stat">{@ext}</div>
+      <div class="body">
+        <div class="title">
+          {@item.merchant || if(@item.status == "processing", do: "Scanning…", else: @item.filename)}
+          <.status_pill status={@item.status} />
+        </div>
+        <div class="desc">
+          <%= case @item.status do %>
+            <% "processing" -> %>
+              Sent to OCR · extraction in progress
+            <% "review" -> %>
+              <span class="amt">{@amount}</span> · {@item.invoice_no || "—"} · ready to verify
+            <% "posted" -> %>
+              <span class="amt">{@amount}</span>{if @item.invoice_no,
+                do: " · #{@item.invoice_no}",
+                else: ""}
+            <% "failed" -> %>
+              {@item.error || "Processing failed"}
+            <% _ -> %>
+              {@amount}
+          <% end %>
+          · <span class="muted">{@item.filename}</span>
+        </div>
+      </div>
+      <div class="actions">
+        <a
+          :if={@item.status == "review" && @item.review_id}
+          class="btn sm primary"
+          href={~p"/reviews/#{@item.review_id}"}
+        >
+          Review
+        </a>
+        <a
+          :if={@item.status == "failed"}
+          class="btn sm"
+          href={~p"/documents/#{@item.document_id}/edit"}
+        >
+          View
+        </a>
+        <time>{ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@item.occurred_at))}</time>
+      </div>
+    </div>
+    """
+  end
+
+  # ── Static mock activity feed item ─────────────────────────────────────────
 
   attr :item, :map, required: true
   attr :categories, :list, default: []
 
-  def feed_item(assigns) do
+  def legacy_feed_item(assigns) do
     assigns =
       assigns
       |> assign_new(:cat, fn ->

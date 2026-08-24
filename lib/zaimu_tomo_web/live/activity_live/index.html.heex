@@ -24,7 +24,7 @@
       <div class="muted" style="padding:32px;text-align:center">Nothing here yet.</div>
     <% else %>
       <%= for item <- @items do %>
-        <.feed_item item={item} categories={@categories} />
+        <.legacy_feed_item item={item} categories={@categories} />
       <% end %>
     <% end %>
   </div>
