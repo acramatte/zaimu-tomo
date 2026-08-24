@@ -1,9 +1,20 @@
 defmodule ZaimuTomo.Storage.Memory do
   @moduledoc false
 
+  use GenServer
+
   @behaviour ZaimuTomo.Storage.Adapter
 
   @table __MODULE__
+
+  def start_link(_opts) do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  @impl true
+  def init(:ok) do
+    {:ok, :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])}
+  end
 
   @impl true
   def put_object(key, body, _config) do
@@ -46,14 +57,11 @@ defmodule ZaimuTomo.Storage.Memory do
 
   defp table do
     case :ets.whereis(@table) do
-      :undefined -> create_table()
+      :undefined -> GenServer.call(__MODULE__, :table)
       table -> table
     end
   end
 
-  defp create_table do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-  rescue
-    ArgumentError -> @table
-  end
+  @impl true
+  def handle_call(:table, _from, state), do: {:reply, @table, state}
 end

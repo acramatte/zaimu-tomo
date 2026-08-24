@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
 
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Storage
 
   @impl true
   def render(assigns) do
@@ -122,36 +123,50 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
 
   @impl true
   def handle_event("validate", %{"_target" => ["document"]}, socket) do
-    {done, in_progress} = uploaded_entries(socket, :document)
-    IO.inspect(done)
-    IO.inspect(in_progress)
     {:noreply, socket}
   end
 
   def handle_event("save", %{}, socket) do
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        dest = Path.join([:code.priv_dir(:zaimu_tomo), "uploads", Path.basename(path)])
-        File.cp!(path, dest)
-        {:ok, Map.put(entry, :object_key, "documents/#{Path.basename(dest)}")}
+        object_key = Documents.object_key_for(entry.client_name)
+
+        with {:ok, body} <- File.read(path),
+             {:ok, ^object_key} <- Storage.put_object(object_key, body) do
+          {:ok, %{object_key: object_key, client_name: entry.client_name}}
+        else
+          {:error, reason} -> {:ok, %{storage_error: reason}}
+        end
       end)
 
-    document_params =
-      case entries do
-        [entry | _] -> %{"object_key" => entry.object_key, "filename" => entry.client_name}
-        [] -> %{}
-      end
+    case entries do
+      [%{storage_error: _reason}] ->
+        {:noreply, put_flash(socket, :error, "Unable to store document")}
 
-    save_document(socket, socket.assigns.live_action, document_params)
+      [%{object_key: object_key, client_name: client_name}] ->
+        save_document(
+          socket,
+          socket.assigns.live_action,
+          %{"object_key" => object_key, "filename" => client_name},
+          object_key
+        )
+
+      [] ->
+        save_document(socket, socket.assigns.live_action, %{}, nil)
+    end
   end
 
-  defp save_document(socket, :edit, document_params) do
+  defp save_document(socket, :edit, document_params, new_object_key) do
     case Documents.update_document(
            socket.assigns.current_scope,
            socket.assigns.document,
            document_params
          ) do
       {:ok, document} ->
+        if new_object_key && new_object_key != socket.assigns.document.object_key do
+          _ = Storage.delete_object(socket.assigns.document.object_key)
+        end
+
         {:noreply,
          socket
          |> put_flash(:info, "Document updated successfully")
@@ -160,11 +175,12 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
          )}
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        cleanup_uploaded_object(new_object_key)
         {:noreply, assign(socket, form: to_form(changeset))}
     end
   end
 
-  defp save_document(socket, :new, document_params) do
+  defp save_document(socket, :new, document_params, new_object_key) do
     case Documents.create_document(socket.assigns.current_scope, document_params) do
       {:ok, document} ->
         {:noreply,
@@ -175,9 +191,13 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
          )}
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        cleanup_uploaded_object(new_object_key)
         {:noreply, assign(socket, form: to_form(changeset))}
     end
   end
+
+  defp cleanup_uploaded_object(nil), do: :ok
+  defp cleanup_uploaded_object(object_key), do: Storage.delete_object(object_key)
 
   defp return_path(_scope, "index", _document), do: ~p"/documents"
   defp return_path(_scope, "show", document), do: ~p"/documents/#{document}"

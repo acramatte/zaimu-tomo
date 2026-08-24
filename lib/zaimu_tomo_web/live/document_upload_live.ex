@@ -4,6 +4,7 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
   on_mount {ZaimuTomoWeb.UserAuth, :require_authenticated}
 
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.Storage
 
   @impl true
   def mount(_params, _session, socket) do
@@ -109,23 +110,34 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
 
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        unique_name = "#{Ecto.UUID.generate()}#{Path.extname(entry.client_name)}"
-        dest = Path.join([:code.priv_dir(:zaimu_tomo), "uploads", unique_name])
-        File.cp!(path, dest)
-        {:ok, %{object_key: "documents/#{unique_name}", client_name: entry.client_name}}
+        object_key = Documents.object_key_for(entry.client_name)
+
+        with {:ok, body} <- File.read(path),
+             {:ok, ^object_key} <- Storage.put_object(object_key, body) do
+          {:ok, %{object_key: object_key, client_name: entry.client_name}}
+        else
+          {:error, reason} -> {:ok, %{storage_error: reason}}
+        end
       end)
 
     Enum.reduce(entries, socket, fn saved, sock ->
-      case Documents.create_document(scope, %{
-             "object_key" => saved.object_key,
-             "filename" => saved.client_name
-           }) do
-        {:ok, document} ->
-          if sock.parent_pid, do: send(sock.parent_pid, {:document_uploaded, document})
-          push_event(sock, "upload:success", %{filename: document.filename})
+      case saved do
+        %{storage_error: _reason} ->
+          put_flash(sock, :error, "Unable to store document")
 
-        {:error, _} ->
-          sock
+        %{object_key: object_key, client_name: client_name} ->
+          case Documents.create_document(scope, %{
+                 "object_key" => object_key,
+                 "filename" => client_name
+               }) do
+            {:ok, document} ->
+              if sock.parent_pid, do: send(sock.parent_pid, {:document_uploaded, document})
+              push_event(sock, "upload:success", %{filename: document.filename})
+
+            {:error, _} ->
+              _ = Storage.delete_object(object_key)
+              put_flash(sock, :error, "Unable to save document")
+          end
       end
     end)
   end

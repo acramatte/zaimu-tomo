@@ -52,6 +52,7 @@ ENV LANG=en_US.UTF-8 \
 
 WORKDIR /app
 RUN chown nobody /app
+RUN mkdir -p /tmp/zaimu-tomo && chown nobody:root /tmp/zaimu-tomo && chmod 700 /tmp/zaimu-tomo
 
 COPY --from=builder --chown=nobody:root /app/_build/prod/rel/zaimu_tomo ./
 RUN mkdir -p /app/lib/zaimu_tomo-0.1.0/priv/uploads && chown -R nobody:root /app/lib/zaimu_tomo-0.1.0/priv/uploads

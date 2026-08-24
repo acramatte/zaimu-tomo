@@ -8,8 +8,10 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.DocumentProcessing.TemporaryFile
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Review
+  alias ZaimuTomo.Storage
   require Logger
 
   def start_link(command) do
@@ -19,19 +21,30 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   def process(%{document: %{object_key: object_key} = document, currency_hint: currency_hint}) do
     Langfuse.trace_document_processing(document, fn ->
       trace_id = Langfuse.current_trace_id()
-      full_path = build_document_path(object_key)
 
-      with {:ok, markdown, raw_llm_response} <- DocumentOCR.process(full_path),
-           {:ok, extracted_data} <-
-             ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
-           {:ok, verification} <- ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
-        persist_and_emit_success(
-          document,
-          extracted_data,
-          raw_llm_response,
-          verification,
-          trace_id
-        )
+      with {:ok, temporary_path} <- TemporaryFile.create(object_key) do
+        try do
+          with {:ok, ^temporary_path} <- Storage.get_object(object_key, temporary_path),
+               {:ok, markdown, raw_llm_response} <- DocumentOCR.process(temporary_path),
+               {:ok, extracted_data} <-
+                 ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
+               {:ok, verification} <-
+                 ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+            persist_and_emit_success(
+              document,
+              extracted_data,
+              raw_llm_response,
+              verification,
+              trace_id
+            )
+          else
+            {:error, reason} ->
+              Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
+              persist_and_emit_failure(document, reason)
+          end
+        after
+          File.rm(temporary_path)
+        end
       else
         {:error, reason} ->
           Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
@@ -131,10 +144,6 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
         {:error, {:persistence_failed, changeset.errors}}
     end
-  end
-
-  defp build_document_path(filename) do
-    Path.join([:code.priv_dir(:zaimu_tomo), "uploads", Path.basename(filename)])
   end
 
   # Error handling helper functions
