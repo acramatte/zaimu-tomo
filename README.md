@@ -37,15 +37,30 @@ ZaimuTomo integrates with Langfuse for prompt management (the extract and verify
 
 ## Run Locally
 
-You need Docker (for PostgreSQL) and an Elixir/Phoenix toolchain:
+You need Docker (for PostgreSQL and the local RustFS object store) and an
+Elixir/Phoenix toolchain:
 
 ```bash
-docker compose up -d db
+docker compose up -d db rustfs
+docker compose --profile bootstrap run --rm rustfs-init
 mix setup
 POSTGRES_PORT=55432 mix phx.server
 ```
 
 Then open [localhost:4000](http://localhost:4000). The bundled PostgreSQL service maps to host port `55432` to avoid collisions with other local projects.
+
+RustFS exposes its S3-compatible API on [localhost:9000](http://localhost:9000)
+and its local console on [localhost:9001](http://localhost:9001). The bootstrap
+command creates the disposable `zaimu-tomo-dev` bucket with versioning and
+Object Lock; Object Lock cannot be added to a bucket after it exists. To reset a
+local development bucket, remove the Compose volumes and bootstrap it again.
+
+The application uses generic `S3_*` settings only. Local defaults work with the
+bundled RustFS service, so no S3 variables are needed for ordinary development.
+For a different S3-compatible provider, set `S3_ENDPOINT`, `S3_REGION`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, and `S3_PATH_STYLE`.
+RustFS uses path-style addressing (`S3_PATH_STYLE=true`); a future
+virtual-hosted provider uses `false`.
 
 ### AI configuration
 

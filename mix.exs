@@ -52,6 +52,7 @@ defmodule ZaimuTomo.MixProject do
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
+      {:testcontainers, "~> 2.4", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
@@ -66,6 +67,9 @@ defmodule ZaimuTomo.MixProject do
       {:req, "~> 0.5"},
       {:aws_signature, "~> 0.4"},
       {:req_llm, "~> 1.11"},
+      # Testcontainers 2.4 pins 0.6.2 for Elixir 1.15, while this application
+      # already resolves UniQ 0.6.3 through ReqLLM on Elixir 1.19.
+      {:uniq, "== 0.6.3", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:usage_rules, "~> 1.2.5", only: [:dev]},

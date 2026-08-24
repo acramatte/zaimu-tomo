@@ -2,7 +2,7 @@
 
 **Input**: User request + decisions documented in `/specs/003-s3-document-storage/spec.md`
 **Prerequisites**: spec.md, research.md
-**Status**: In progress — Phases 1–3 complete; Phases 4–6 remain
+**Status**: In progress — Phases 1–4 complete; Phases 5–6 remain
 
 ## Phase 0 — Pre-implementation decisions  *(complete — 2026-08-05)*
 
@@ -40,9 +40,9 @@
 
 **Verify**: LiveView/unit tests green against Storage.Memory. The RustFS end-to-end check belongs to Phase 4, after the service and bucket exist.
 
-## Phase 4 — Infrastructure
+## Phase 4 — Infrastructure  *(complete — 2026-08-24)*
 
-1. `docker-compose.yml`: add `rustfs` service (digest-pinned `rustfs/rustfs:1.0.0-beta.12@sha256:...`, spec §7) + volumes (spec §7); create the dev bucket once with versioning + Object Lock via `mc mb --with-lock` (or the console).
+1. `docker-compose.yml`: add `rustfs` service (digest-pinned `rustfs/rustfs:1.0.0-beta.12@sha256:...`, spec §7) + volumes (spec §7); create the dev bucket idempotently with versioning + Object Lock via `rc bucket create --with-lock --with-versioning`.
 2. Keep the old uploads directory and `zaimu_tomo_uploads` volume for this migration release.
 3. `config/deploy.yml`: add the `rustfs` accessory and generic `S3_*` app env while retaining the old volume until Phase 5 validates migration.
 4. `.kamal/secrets.example`: add `RUSTFS_SECRET_KEY` and `S3_SECRET_ACCESS_KEY` with their initial shared-value relationship documented; keep endpoint/bucket/access-key ID in clear env.
@@ -50,7 +50,12 @@
 6. `README.md`: document the dev storage service and `S3_*` variables.
 7. Add an opt-in `:integration` Testcontainers suite using the digest-pinned RustFS image, `eu-central-1`, and an isolated bucket. Validate real SigV4 authentication plus path-style PUT/GET/HEAD/DELETE byte round-trips; keep Docker-required tests outside the default suite.
 
-**Verify**: fresh `docker compose up` boots db + RustFS readiness; create the locked dev bucket; dev app uploads and OCRs an invoice with zero env vars. On a Docker-capable machine/CI runner, `RUN_INTEGRATION=true mix test --only integration` passes; ordinary `mix test` and `mix precommit` remain Docker-free.
+**Verify**: fresh `docker compose up -d rustfs` reaches readiness; the bootstrap
+profile creates the locked, versioned dev bucket idempotently; default dev
+`S3_*` settings complete a storage PUT/HEAD/DELETE with no S3 environment
+variables. OCR still requires its separate Mistral API key. On a Docker-capable
+machine/CI runner, `RUN_INTEGRATION=true mix test --only integration` passes;
+ordinary `mix test` and `mix precommit` remain Docker-free.
 
 ## Phase 5 — Migration tooling
 

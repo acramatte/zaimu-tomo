@@ -62,22 +62,51 @@ env:
     AI_VERIFIER_BACKEND: "nousresearch"
     AI_VERIFIER_MODEL: "qwen/qwen3.6-35b-a3b"
     MISTRAL_URL: "https://api.mistral.ai/v1"
+    S3_ENDPOINT: "http://zaimu-tomo-rustfs:9000"
+    S3_REGION: "eu-central-1"
+    S3_BUCKET: "zaimu-tomo-prod"
+    S3_PATH_STYLE: "true"
+    S3_ACCESS_KEY_ID: "zaimu_tomo"
     LANGFUSE_HOST: <%= ENV.fetch("LANGFUSE_HOST", "https://cloud.langfuse.com") %>
     OTEL_SERVICE_NAME: "zaimu-tomo"
   secret:
     - SECRET_KEY_BASE
     - DATABASE_URL
     - MISTRAL_API_KEY
+    - S3_SECRET_ACCESS_KEY
     - NOUSRESEARCH_API_KEY
     - LANGFUSE_PUBLIC_KEY
     - LANGFUSE_SECRET_KEY
 
-# Uploaded documents are written under :code.priv_dir(:zaimu_tomo)/uploads.
-# This path includes the application version from mix.exs; update it when bumping the release version.
+# Retain legacy local uploads through the migration release. Phase 5 removes
+# this version-dependent path only after the RustFS copy, verification, and
+# restore check succeed.
 volumes:
   - zaimu_tomo_uploads:/app/lib/zaimu_tomo-0.1.0/priv/uploads
 
 accessories:
+  # The app speaks S3 through the generic S3_* variables above. RustFS-specific
+  # settings remain inside this self-hosted accessory.
+  rustfs:
+    # 1.0.0-beta.12
+    image: rustfs/rustfs:1.0.0-beta.12@sha256:41fe89380f4120a337790c02af192c3fe7bb55c3edc2e6e9357b487b47c6ab21
+    host: <%= ENV.fetch("KAMAL_SSH_HOST") %>
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    env:
+      clear:
+        RUSTFS_ACCESS_KEY: "zaimu_tomo"
+        RUSTFS_REGION: "eu-central-1"
+        RUSTFS_ADDRESS: ":9000"
+        RUSTFS_CONSOLE_ADDRESS: ":9001"
+        RUSTFS_CONSOLE_ENABLE: "true"
+        RUSTFS_OBS_LOG_DIRECTORY: "/logs"
+      secret:
+        - RUSTFS_SECRET_KEY
+    directories:
+      - data:/data
+      - logs:/logs
+
   db:
     image: postgres:18-alpine
     host: <%= ENV.fetch("KAMAL_SSH_HOST") %>
