@@ -2,7 +2,7 @@
 
 **Input**: User request + decisions documented in `/specs/003-s3-document-storage/spec.md`
 **Prerequisites**: spec.md, research.md
-**Status**: In progress — Phases 1–4 complete; Phases 5–6 remain
+**Status**: In progress — Phases 1–4 and Phase 5 tooling complete; production rollout and Phase 6 remain
 
 ## Phase 0 — Pre-implementation decisions  *(complete — 2026-08-05)*
 
@@ -57,14 +57,14 @@ variables. OCR still requires its separate Mistral API key. On a Docker-capable
 machine/CI runner, `RUN_INTEGRATION=true mix test --only integration` passes;
 ordinary `mix test` and `mix precommit` remain Docker-free.
 
-## Phase 5 — Migration tooling
+## Phase 5 — Migration tooling  *(tooling complete — production rollout pending)*
 
-1. `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` — idempotent backfill of existing local files, HEAD-before-PUT, non-zero on missing source/failed upload (spec §10).
-2. `mix zaimu_tomo.verify_storage` — HEAD every `documents.object_key`, report missing (R4).
-3. Validate the RustFS backup method. Back up/export objects first, then `pg_dump`, then `verify_storage`; do not assume a live `restic /data` walk is safe without validation (spec §9).
-4. Rollout (prod): drain workers and pause new uploads; with the old `zaimu_tomo_uploads` volume still mounted, run `mix zaimu_tomo.migrate_to_s3 --source-dir PATH`, confirm `verify_storage` reports 0 missing, perform a restore check, then publish a cleanup deployment that drops the volume and Dockerfile upload directory (spec §10).
+1. [x] `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` — idempotent backfill of existing local files, HEAD-before-PUT, non-zero on missing source/failed upload (spec §10). The same operation is available from the release as `bin/migrate_to_s3 SOURCE_DIR`.
+2. [x] `mix zaimu_tomo.verify_storage` — HEAD every `documents.object_key`, report missing (R4). The release exposes `bin/verify_storage`.
+3. [x] Validate the RustFS backup method: the supported S3 API path through rclone copied, checked, restored, and rechecked an object against the pinned local RustFS image. The documented production order is object export/check, `pg_dump`, then `verify_storage`; never assume a live `restic /data` walk is safe (spec §9).
+4. [ ] Rollout (prod): drain workers and pause new uploads; with the old `zaimu_tomo_uploads` volume still mounted, run `bin/migrate_to_s3 SOURCE_DIR`, rerun it, confirm `bin/verify_storage` reports 0 missing, perform a restore check, then publish a cleanup deployment that drops the volume and Dockerfile upload directory (spec §10).
 
-**Verify**: run `migrate_to_s3 --source-dir` on a copy of `priv/uploads`; rerun it to prove idempotency; `verify_storage` reports 0 missing; restore drill on a scratch VM; production rollout per step 4.
+**Verify**: automated migration and verification tests cover upload, safe rerun, missing sources, upload failures, present objects, and missing objects. The rclone export/check/restore/check validation passed against the pinned local RustFS image. A production restore drill and rollout remain step 4 acceptance criteria.
 
 ## Phase 6 — Full suite
 

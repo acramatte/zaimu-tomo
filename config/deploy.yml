@@ -126,4 +126,6 @@ accessories:
 aliases:
   console: app exec --interactive --reuse "bin/zaimu_tomo remote"
   migrate: app exec "bin/migrate"
+  migrate_to_s3: app exec "bin/migrate_to_s3 /app/lib/zaimu_tomo-0.1.0/priv/uploads"
+  verify_storage: app exec "bin/verify_storage"
   db_rollback: app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.rollback(ZaimuTomo.Repo, 1)'"

@@ -126,15 +126,89 @@ kamal app exec "bin/migrate"
 
 The configured aliases are invoked directly as Kamal commands, for example `kamal migrate` and `kamal db_rollback`, not through a `kamal alias ...` subcommand.
 
-## Document storage backup and migration
+## Document storage migration and backup
 
-Do not remove `zaimu_tomo_uploads` in this deployment. The next migration phase
-copies legacy document bytes from that volume to RustFS and verifies every
-database object key before a separate cleanup release removes the volume and
-the image directory preparation.
+Do not remove `zaimu_tomo_uploads` in the migration release. The legacy volume
+is the source for the copy to RustFS and remains mounted until the copy,
+verification, and restore check have all passed.
 
-For the future nightly backup job, make the object-store backup or supported
-export first, then run `pg_dump`, then `mix zaimu_tomo.verify_storage`. A plain
-live walk of RustFS `/data` is not assumed application-consistent: first validate
-a RustFS-supported online export or crash-consistent snapshot. Until then,
-briefly quiesce document writes across the object snapshot and PostgreSQL dump.
+### Migration release
+
+Use a maintenance window: drain document-processing work and pause new document
+uploads before the copy, then keep them paused until verification is complete.
+The application provides both local Mix tasks and release scripts. Both return a
+non-zero status after reporting every missing source, failed upload, missing
+object, or failed HEAD request.
+
+For a local or development copy, run:
+
+```sh
+mix zaimu_tomo.migrate_to_s3 --source-dir priv/uploads
+mix zaimu_tomo.verify_storage
+```
+
+The deployed release has the same operations without requiring Mix in the
+runtime image:
+
+```sh
+kamal app exec "bin/migrate_to_s3 /app/lib/zaimu_tomo-0.1.0/priv/uploads"
+kamal app exec "bin/verify_storage"
+```
+
+`migrate_to_s3` derives each legacy filename from the persisted object key,
+HEADs the destination first, and only uploads a missing object. It never changes
+a database row, overwrites an existing object, or deletes a legacy file. Re-run
+the command once after a successful copy: the second run must report only
+`skipped-existing`. `verify_storage` must then report zero missing and zero
+failed checks.
+
+Before publishing the separate cleanup release, perform and record a restore
+check on a scratch environment: restore the object export first, restore the
+PostgreSQL dump second, and run `bin/verify_storage`. Only then remove the
+legacy volume mount and the Dockerfile's legacy uploads directory.
+
+### RustFS-safe object export
+
+The backup path uses RustFS's supported S3 API through rclone rather than a
+live filesystem walk of `/data`. RustFS documents rclone with an S3 `Other`
+remote and `force_path_style = true`; use the production `eu-central-1` region.
+This approach was validated locally on 2026-08-24 against the pinned RustFS
+`1.0.0-beta.12` image with `rclone/rclone:1.71.1@sha256:d5971950c2b370fb04dd3292541b5bda6d9103143fd7e345aeb435a399388afc`:
+an S3 object was exported with `rclone copy --checksum`, verified with
+`rclone check --checksum`, restored into a fresh RustFS bucket, and checked
+again.
+
+Configure a `rustfs` rclone remote using a restricted read credential and a
+separate off-host `storagebox` destination remote. Keep those credentials out
+of the repository. A production backup uses a new, date-stamped destination on
+every run so it cannot overwrite a prior snapshot:
+
+```ini
+[rustfs]
+type = s3
+provider = Other
+access_key_id = <backup-read-access-key>
+secret_access_key = <backup-read-secret>
+endpoint = http://zaimu-tomo-rustfs:9000
+region = eu-central-1
+force_path_style = true
+```
+
+Nightly backup order is deliberate. While document writes are quiesced, export
+and verify objects first, dump PostgreSQL second, then verify the application's
+object keys:
+
+```sh
+rclone copy --checksum --immutable rustfs:zaimu-tomo-prod \
+  storagebox:zaimu-tomo/rustfs/$(date -u +%F)/
+rclone check --checksum rustfs:zaimu-tomo-prod \
+  storagebox:zaimu-tomo/rustfs/$(date -u +%F)/
+pg_dump "$DATABASE_URL" > /backups/zaimu-tomo/zaimu-tomo-$(date -u +%F).sql
+kamal app exec "bin/verify_storage"
+```
+
+The object export precedes the database dump because object creation precedes
+row insertion and row deletion precedes object deletion. A completed export may
+therefore include harmless orphan objects, but it must not be newer than the
+database dump. Do not replace this with `restic /data` against a live RustFS
+server unless an equivalent crash-consistent snapshot method has been validated.
