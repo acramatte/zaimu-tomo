@@ -47,20 +47,21 @@
 
 ## Phase 4: Infrastructure
 
-- [ ] T019 [P] Add digest-pinned `rustfs` service (`rustfs/rustfs:1.0.0-beta.12@sha256:...` — full digest in spec.md §7/§14) + volumes to `docker-compose.yml`; create dev bucket with versioning/Object Lock via `mc mb --with-lock` (spec.md §7)
-- [ ] T020 [P] Retain the uploads mkdir/chown through the migration release; add its removal to the Phase 5 cleanup release only
-- [ ] T021 Retain `zaimu_tomo_uploads` through migration; add a rustfs accessory (same digest-pinned image as compose) + generic `S3_*` env to `config/deploy.yml`
-- [ ] T022 Add `RUSTFS_SECRET_KEY` and `S3_SECRET_ACCESS_KEY` to `.kamal/secrets.example`, documenting their initial shared value; keep endpoint/bucket/access-key ID in clear env
-- [ ] T023 Update `DEPLOYMENT.md` (storage + backup sections)
-- [ ] T024 Update `README.md` (dev storage service, `S3_*` variables)
+- [x] T019 [P] Add digest-pinned `rustfs` service (`rustfs/rustfs:1.0.0-beta.12@sha256:...` — full digest in spec.md §7/§14) + volumes to `docker-compose.yml`; create dev bucket with versioning/Object Lock via RustFS `rc bucket create --with-lock --with-versioning` (spec.md §7)
+- [x] T020 [P] Retain the uploads mkdir/chown through the migration release; add its removal to the Phase 5 cleanup release only
+- [x] T021 Retain `zaimu_tomo_uploads` through migration; add a rustfs accessory (same digest-pinned image as compose) + generic `S3_*` env to `config/deploy.yml`
+- [x] T022 Add `RUSTFS_SECRET_KEY` and `S3_SECRET_ACCESS_KEY` to `.kamal/secrets.example`, documenting their initial shared value; keep endpoint/bucket/access-key ID in clear env
+- [x] T023 Update `DEPLOYMENT.md` (storage + backup sections)
+- [x] T024 Update `README.md` (dev storage service, `S3_*` variables)
+- [x] T025 [P] Add an opt-in `:integration` Testcontainers RustFS suite with real SigV4 path-style PUT/GET/HEAD/DELETE coverage; exclude it from ordinary `mix test` and `mix precommit`
 
 ## Phase 5: Migration Tooling
 
-- [ ] T025 Create `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` task (HEAD-before-PUT, idempotent, non-zero summary for missing/failed sources, spec.md §10)
-- [ ] T026 Create `mix zaimu_tomo.verify_storage` task (HEAD all object keys, R4)
-- [ ] T027 Validate and document a RustFS-safe object backup/export method; objects first, then `pg_dump`, then `verify_storage` (spec.md §9)
-- [ ] T028 Rollout: drain workers/pause uploads; run `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` against production data (old volume still mounted); rerun it; `verify_storage` reports 0 missing; restore check passes; then publish cleanup deployment removing `zaimu_tomo_uploads` and Dockerfile upload directory (spec.md §10)
+- [ ] T026 Create `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` task (HEAD-before-PUT, idempotent, non-zero summary for missing/failed sources, spec.md §10)
+- [ ] T027 Create `mix zaimu_tomo.verify_storage` task (HEAD all object keys, R4)
+- [ ] T028 Validate and document a RustFS-safe object backup/export method; objects first, then `pg_dump`, then `verify_storage` (spec.md §9)
+- [ ] T029 Rollout: drain workers/pause uploads; run `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` against production data (old volume still mounted); rerun it; `verify_storage` reports 0 missing; restore check passes; then publish cleanup deployment removing `zaimu_tomo_uploads` and Dockerfile upload directory (spec.md §10)
 
 ## Phase 6: Verification
 
-- [ ] T029 Full suite: `POSTGRES_PORT=55432 mix precommit`
+- [ ] T030 Full suite: `POSTGRES_PORT=55432 mix precommit`

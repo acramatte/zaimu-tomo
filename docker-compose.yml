@@ -14,5 +14,51 @@ services:
       # see https://github.com/docker-library/postgres/blob/22ca5c8d8e4b37bece4d38dbce1a060583b5308a/18/alpine3.22/Dockerfile#L196
       - pg_data:/var/lib/postgresql/18/docker
 
+  rustfs:
+    # 1.0.0-beta.12
+    image: rustfs/rustfs:1.0.0-beta.12@sha256:41fe89380f4120a337790c02af192c3fe7bb55c3edc2e6e9357b487b47c6ab21
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_REGION: eu-central-1
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_CONSOLE_ADDRESS: :9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOG_DIRECTORY: /logs
+    ports:
+      - "${RUSTFS_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - rustfs_data:/data
+      - rustfs_logs:/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  rustfs-init:
+    # 0.1.31
+    image: rustfs/rc:v0.1.31@sha256:f3dc331f76b14a852a1dc0bffc80509cc41424eaa9ea0306d9584edc211dcad6
+    profiles: [bootstrap]
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        rc alias set local http://rustfs:9000 "$${RUSTFS_ACCESS_KEY}" "$${RUSTFS_SECRET_KEY}"
+        --region eu-central-1 --bucket-lookup path &&
+        rc bucket create local/zaimu-tomo-dev --ignore-existing --region eu-central-1
+        --with-lock --with-versioning
+
 volumes:
   pg_data:
+  rustfs_data:
+  rustfs_logs:
