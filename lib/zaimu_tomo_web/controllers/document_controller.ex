@@ -1,8 +1,12 @@
 defmodule ZaimuTomoWeb.DocumentController do
   use ZaimuTomoWeb, :controller
 
+  require Logger
+
   alias ZaimuTomo.Storage
   alias ZaimuTomo.MediaPreview
+
+  @generic_unavailable_msg "Service unavailable"
 
   def preview(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
@@ -35,7 +39,9 @@ defmodule ZaimuTomoWeb.DocumentController do
                 send_resp(conn, 404, "Not found")
 
               {:error, reason} ->
-                send_resp(conn, 503, "Unavailable: #{inspect(reason)}")
+                # Log internal error server-side; do NOT disclose internal details to client
+                Logger.error("Document preview failed for id=#{document.id}: #{inspect(reason)}")
+                conn |> send_resp(503, @generic_unavailable_msg)
             end
 
           {:error, :not_previewable} ->
@@ -73,7 +79,9 @@ defmodule ZaimuTomoWeb.DocumentController do
             send_resp(conn, 404, "Not found")
 
           {:error, reason} ->
-            send_resp(conn, 503, "Unavailable: #{inspect(reason)}")
+            # Log internal error server-side; do NOT disclose internal details to client
+            Logger.error("Document download failed for id=#{document.id}: #{inspect(reason)}")
+            conn |> send_resp(503, @generic_unavailable_msg)
         end
     end
   end

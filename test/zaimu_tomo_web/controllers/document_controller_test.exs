@@ -85,4 +85,62 @@ defmodule ZaimuTomoWeb.DocumentControllerTest do
     conn = get(conn, ~p"/documents/#{document.id}/preview")
     assert conn.status == 404
   end
+
+  test "storage adapter failure returns generic 503 for preview without leaking internals", %{conn: conn, scope: scope} do
+    document =
+      document_fixture(scope, %{filename: "invoice.pdf", object_key: "documents/invoice-fail.pdf"})
+
+    # Define a simple failing adapter for this test and swap into app env
+    defmodule TestFailStorageAdapter do
+      @behaviour ZaimuTomo.Storage.Adapter
+
+      def put_object(_, _, _), do: {:ok, "x"}
+      def get_object(_, _, _), do: {:error, :econnrefused}
+      def read_object(_, _), do: {:error, :econnrefused}
+      def delete_object(_, _), do: :ok
+      def head_object(_, _), do: {:error, :econnrefused}
+    end
+
+    old = Application.get_env(:zaimu_tomo, :storage)
+    Application.put_env(:zaimu_tomo, :storage, Keyword.put(old, :adapter, TestFailStorageAdapter))
+
+    try do
+      conn = get(conn, ~p"/documents/#{document.id}/preview")
+      assert conn.status == 503
+      assert conn.resp_body =~ "Service unavailable"
+      # ensure no adapter internals leaked
+      refute conn.resp_body =~ "econnrefused"
+      refute conn.resp_body =~ document.object_key
+    after
+      Application.put_env(:zaimu_tomo, :storage, old)
+    end
+  end
+
+  test "storage adapter failure returns generic 503 for download without leaking internals", %{conn: conn, scope: scope} do
+    document =
+      document_fixture(scope, %{filename: "invoice.pdf", object_key: "documents/invoice-fail2.pdf"})
+
+    defmodule TestFailStorageAdapter2 do
+      @behaviour ZaimuTomo.Storage.Adapter
+
+      def put_object(_, _, _), do: {:ok, "x"}
+      def get_object(_, _, _), do: {:error, :econnrefused}
+      def read_object(_, _), do: {:error, :econnrefused}
+      def delete_object(_, _), do: :ok
+      def head_object(_, _), do: {:error, :econnrefused}
+    end
+
+    old = Application.get_env(:zaimu_tomo, :storage)
+    Application.put_env(:zaimu_tomo, :storage, Keyword.put(old, :adapter, TestFailStorageAdapter2))
+
+    try do
+      conn = get(conn, ~p"/documents/#{document.id}/download")
+      assert conn.status == 503
+      assert conn.resp_body =~ "Service unavailable"
+      refute conn.resp_body =~ "econnrefused"
+      refute conn.resp_body =~ document.object_key
+    after
+      Application.put_env(:zaimu_tomo, :storage, old)
+    end
+  end
 end

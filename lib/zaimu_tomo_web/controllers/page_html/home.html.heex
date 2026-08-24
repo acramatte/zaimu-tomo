@@ -1,17 +1,11 @@
 <% posted_count = Enum.count(@activity, &(&1.status == "posted")) %>
 
 <h1 class="view-title">
-  Good morning, {@current_scope.user.display_name || "there"} <span class="accent">—</span>
-  the books are quiet today.
+  Good morning, {@current_scope.user.display_name || "there"} <span class="accent">—</span> the books are quiet today.
 </h1>
 <p :if={@pending_review_count > 0} class="view-sub">
   <.link id="dashboard-pending-reviews" navigate={~p"/reviews"}>
-    {@pending_review_count} document{if @pending_review_count == 1, do: "", else: "s"} need{if @pending_review_count ==
-                                                                                                 1,
-                                                                                               do:
-                                                                                                 "s",
-                                                                                               else:
-                                                                                                 ""} review
+    {@pending_review_count} document{if @pending_review_count == 1, do: "", else: "s"} need{if @pending_review_count == 1, do: "s", else: ""} review
   </.link>
 </p>
 
@@ -29,54 +23,28 @@
           <div class="h">No account balances yet</div>
           <div class="muted">Add an account and its balance to see net worth.</div>
         </div>
-        <div
-          :for={total <- @net_worth_by_currency}
-          class="hero-num"
-          id={"dashboard-net-worth-#{total.currency}"}
-        >
+        <div :for={total <- @net_worth_by_currency} class="hero-num" id={"dashboard-net-worth-#{total.currency}"}>
           <span>{fmt_cents(total.total_cents, total.currency)}</span>
-          <span class="cents">
-             ·  {total.account_count} account{if total.account_count == 1, do: "", else: "s"}
-          </span>
+          <span class="cents"> · {total.account_count} account{if total.account_count == 1, do: "", else: "s"}</span>
         </div>
         <div class="hero-row">
           <div class="hero-stat">
             <div class="label">Cash</div>
             <div :if={@cash_accounts == []} class="v">—</div>
             <div :if={@cash_accounts == []} class="delta muted">Add a cash account</div>
-            <div
-              :for={%{account: account, balance_snapshot: snapshot} <- @cash_accounts}
-              id={"dashboard-cash-#{account.id}"}
-            >
-              <div class="v">
-                {if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}
-              </div>
-              <div class="delta muted">
-                {account.name}{if snapshot,
-                  do: " · #{snapshot.recorded_on}",
-                  else: " · no balance"}
-              </div>
+            <div :for={%{account: account, balance_snapshot: snapshot} <- @cash_accounts} id={"dashboard-cash-#{account.id}"}>
+              <div class="v">{if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}</div>
+              <div class="delta muted">{account.name}{if snapshot, do: " · #{snapshot.recorded_on}", else: " · no balance"}</div>
             </div>
             <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
           </div>
           <div class="hero-stat">
             <div class="label">Investments</div>
             <div :if={@investment_accounts == []} class="v">—</div>
-            <div :if={@investment_accounts == []} class="delta muted">
-              Add an investment account
-            </div>
-            <div
-              :for={%{account: account, balance_snapshot: snapshot} <- @investment_accounts}
-              id={"dashboard-investments-#{account.id}"}
-            >
-              <div class="v">
-                {if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}
-              </div>
-              <div class="delta muted">
-                {account.name}{if snapshot,
-                  do: " · #{snapshot.recorded_on}",
-                  else: " · no balance"}
-              </div>
+            <div :if={@investment_accounts == []} class="delta muted">Add an investment account</div>
+            <div :for={%{account: account, balance_snapshot: snapshot} <- @investment_accounts} id={"dashboard-investments-#{account.id}"}>
+              <div class="v">{if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}</div>
+              <div class="delta muted">{account.name}{if snapshot, do: " · #{snapshot.recorded_on}", else: " · no balance"}</div>
             </div>
             <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
           </div>
@@ -84,18 +52,9 @@
             <div class="label">Savings</div>
             <div :if={@savings_accounts == []} class="v">—</div>
             <div :if={@savings_accounts == []} class="delta muted">Add a savings account</div>
-            <div
-              :for={%{account: account, balance_snapshot: snapshot} <- @savings_accounts}
-              id={"dashboard-savings-#{account.id}"}
-            >
-              <div class="v">
-                {if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}
-              </div>
-              <div class="delta muted">
-                {account.name}{if snapshot,
-                  do: " · #{snapshot.recorded_on}",
-                  else: " · no balance"}
-              </div>
+            <div :for={%{account: account, balance_snapshot: snapshot} <- @savings_accounts} id={"dashboard-savings-#{account.id}"}>
+              <div class="v">{if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}</div>
+              <div class="delta muted">{account.name}{if snapshot, do: " · #{snapshot.recorded_on}", else: " · no balance"}</div>
             </div>
             <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
           </div>

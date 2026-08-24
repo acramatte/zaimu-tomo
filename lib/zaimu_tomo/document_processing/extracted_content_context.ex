@@ -34,11 +34,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - List of extracted content records
   """
   def get_by_document(document_id, limit \\ 50) do
-    query =
-      from ec in ExtractedContent,
-        where: ec.document_id == ^document_id,
-        order_by: [desc: :inserted_at],
-        limit: ^limit
+    query = from ec in ExtractedContent,
+            where: ec.document_id == ^document_id,
+            order_by: [desc: :inserted_at],
+            limit: ^limit
 
     Repo.all(query)
   end
@@ -53,10 +52,9 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - %ExtractedContent{} or nil
   """
   def get_by_id(extraction_id) do
-    query =
-      from ec in ExtractedContent,
-        where: ec.id == ^extraction_id,
-        limit: 1
+    query = from ec in ExtractedContent,
+            where: ec.id == ^extraction_id,
+            limit: 1
 
     Repo.one(query)
   end
@@ -71,11 +69,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - %ExtractedContent{} or nil
   """
   def get_latest_by_document(document_id) do
-    query =
-      from ec in ExtractedContent,
-        where: ec.document_id == ^document_id,
-        order_by: [desc: :inserted_at, desc: :id],
-        limit: 1
+    query = from ec in ExtractedContent,
+            where: ec.document_id == ^document_id,
+            order_by: [desc: :inserted_at, desc: :id],
+            limit: 1
 
     Repo.one(query)
   end
@@ -131,12 +128,12 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - Tuple with results and metadata
   """
   def list_extracted_content(filters \\ []) do
-    query = from(ec in ExtractedContent)
+    query = from ec in ExtractedContent
 
     query = apply_filters(query, filters)
 
     limit = Keyword.get(filters, :limit, 50)
-    query = order_by(query, desc: :inserted_at)
+    query = order_by(query, [desc: :inserted_at])
     query = limit(query, ^limit)
 
     results = Repo.all(query)
@@ -158,9 +155,9 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
   """
   def retry_extraction(extraction_id, max_attempts \\ 3)
   def retry_extraction(_extraction_id, 0), do: {:error, :max_attempts_reached}
+  def retry_extraction(extraction_id, _max_attempts), do: {:ok, %{status: "retry_scheduled", extraction_id: extraction_id}}
 
-  def retry_extraction(extraction_id, _max_attempts),
-    do: {:ok, %{status: "retry_scheduled", extraction_id: extraction_id}}
+
 
   defp apply_filters(query, filters) do
     query
@@ -181,22 +178,16 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     end_date = filters[:end_date]
 
     if start_date || end_date do
-      start_date =
-        start_date ||
-          DateTime.utc_now()
-          |> DateTime.to_naive()
-          |> DateTime.shift(<<"1970-01-01">>, years: -100)
-
+      start_date = start_date || DateTime.utc_now() |> DateTime.to_naive() |> DateTime.shift(<<"1970-01-01">>, years: -100)
       end_date = end_date || DateTime.utc_now() |> DateTime.to_naive()
 
-      where(
-        query,
-        [ec],
+      where(query, [ec],
         ec.inserted_at >= ^start_date and
-          ec.inserted_at <= ^end_date
+        ec.inserted_at <= ^end_date
       )
     else
       query
     end
   end
+
 end
