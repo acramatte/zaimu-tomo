@@ -33,6 +33,20 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ document.filename
     end
 
+    test "selecting a preview via query param does not read storage on index", %{
+      conn: conn,
+      document: document
+    } do
+      # ensure memory store is empty and we did not put the object's bytes
+      assert [] = :ets.tab2list(Memory)
+
+      {:ok, _index_live, html} = live(conn, ~p"/documents?preview=#{document.id}")
+
+      assert html =~ "Documents"
+      # the preview pane is rendered but no storage reads should have occurred
+      assert [] = :ets.tab2list(Memory)
+    end
+
     test "updates document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 
@@ -155,7 +169,11 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ "Processing"
     end
 
-    test "needs review — extraction succeeded, decision pending", %{conn: conn, scope: scope, user: user} do
+    test "needs review — extraction succeeded, decision pending", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
       doc = document_fixture(scope)
       ec = extracted_content_fixture(doc, user)
       pending_review_fixture(ec)

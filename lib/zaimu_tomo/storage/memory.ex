@@ -37,6 +37,14 @@ defmodule ZaimuTomo.Storage.Memory do
   end
 
   @impl true
+  def read_object(key, _config) do
+    case :ets.lookup(table(), key) do
+      [{^key, body}] -> {:ok, body}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  @impl true
   def delete_object(key, _config) do
     :ets.delete(table(), key)
     :ok
