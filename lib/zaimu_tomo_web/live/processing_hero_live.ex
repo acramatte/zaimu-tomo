@@ -48,8 +48,7 @@ defmodule ZaimuTomoWeb.ProcessingHeroLive do
   def handle_info(:prune_processing_docs, socket) do
     schedule_prune()
 
-    {:noreply,
-     assign(socket, :processing_docs, processing_documents(socket.assigns.current_scope))}
+    {:noreply, assign(socket, :processing_docs, processing_documents(socket.assigns.current_scope))}
   end
 
   def handle_info(_message, socket), do: {:noreply, socket}

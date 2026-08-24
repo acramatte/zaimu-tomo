@@ -31,7 +31,8 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
             PDF, JPG, HEIC · sent to OCR · review takes <span class="kbd">~30s</span>
           </div>
           <div class="sub" style="margin-top:10px">
-            or paste with <span class="kbd">⌘V</span> · click to <span class="kbd">browse</span>
+            or paste with <span class="kbd">⌘V</span>
+            · click to <span class="kbd">browse</span>
           </div>
         </label>
       </div>
