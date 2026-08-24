@@ -57,9 +57,9 @@
 
 ## Phase 5: Migration Tooling
 
-- [ ] T026 Create `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` task (HEAD-before-PUT, idempotent, non-zero summary for missing/failed sources, spec.md §10)
-- [ ] T027 Create `mix zaimu_tomo.verify_storage` task (HEAD all object keys, R4)
-- [ ] T028 Validate and document a RustFS-safe object backup/export method; objects first, then `pg_dump`, then `verify_storage` (spec.md §9)
+- [x] T026 Create `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` task (HEAD-before-PUT, idempotent, non-zero summary for missing/failed sources, spec.md §10)
+- [x] T027 Create `mix zaimu_tomo.verify_storage` task (HEAD all object keys, R4)
+- [x] T028 Validate and document a RustFS-safe object backup/export method; objects first, then `pg_dump`, then `verify_storage` (spec.md §9)
 - [ ] T029 Rollout: drain workers/pause uploads; run `mix zaimu_tomo.migrate_to_s3 --source-dir PATH` against production data (old volume still mounted); rerun it; `verify_storage` reports 0 missing; restore check passes; then publish cleanup deployment removing `zaimu_tomo_uploads` and Dockerfile upload directory (spec.md §10)
 
 ## Phase 6: Verification

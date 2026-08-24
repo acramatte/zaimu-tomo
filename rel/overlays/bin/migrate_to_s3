@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: bin/migrate_to_s3 SOURCE_DIR" >&2
+  exit 64
+fi
+
+cd -P -- "$(dirname -- "$0")"
+SOURCE_DIR=$1
+export SOURCE_DIR
+exec ./zaimu_tomo eval 'ZaimuTomo.Release.migrate_to_s3_from_env!()'

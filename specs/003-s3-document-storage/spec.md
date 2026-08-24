@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feat/s3-document-storage`
 **Created**: 2026-08-05
-**Status**: In progress — Phases 1–4 complete; Phases 5–6 remain
+**Status**: In progress — Phases 1–4 and Phase 5 tooling complete; production rollout and Phase 6 remain
 **Input**: User request — "documents are stored on the filesystem, a temporary setup that will not scale; move them to an S3-compatible store (RustFS)". Follow-up decisions: start with self-hosted RustFS, keep a cheap migration path to Hetzner Object Storage.
 
 ## 1. Context and problem
@@ -263,10 +263,10 @@ Threat model: single VPS; while on RustFS the object data lives on one host disk
 
 ### While on RustFS (self-hosted store)
 
-- **Nightly cron on the VPS**: create the object-store backup/export **before** `pg_dump`, then run `verify_storage`. This order follows the write protocol (object PUT before row insert; row delete before object delete): a completed object snapshot can contain harmless orphans, but must not be newer than the database dump. RPO = 1 day.
-- **Snapshot method is an operational acceptance criterion**: validate a RustFS-supported online backup/export or a crash-consistent filesystem snapshot before adopting `restic /data` against a live server. A plain file walk of a live object-store data directory is not assumed application-consistent. Until the method is validated, briefly quiesce document writes during the object snapshot plus `pg_dump` window.
+- **Nightly cron on the VPS**: while document writes are quiesced, create the object-store export **before** `pg_dump`, then run `verify_storage`. This order follows the write protocol (object PUT before row insert; row delete before object delete): a completed object snapshot can contain harmless orphans, but must not be newer than the database dump. RPO = 1 day.
+- **Validated export method**: use rclone against the RustFS S3 API (`provider = Other`, `force_path_style = true`, `region = eu-central-1`) and an off-host destination. On 2026-08-24, `rclone copy --checksum`, `rclone check --checksum`, restore to a fresh bucket, and a second check passed against the pinned RustFS image. A plain file walk or `restic /data` against a live server is still not assumed application-consistent; use it only after validating an equivalent crash-consistent snapshot method.
 - **Restore order matters**: restore the object snapshot FIRST, then the DB. A `documents` row whose `object_key` is missing from the store is the failure mode; the reverse order only orphans bytes.
-- Enable bucket versioning + Object Lock at bucket creation — confirmed supported on RustFS `1.0.0-beta.12` (object lock must be enabled when the bucket is created, and it requires versioning). Cheap protection on top of restic; an optional governance-mode retention (e.g. 7 days) can be added later.
+- Enable bucket versioning + Object Lock at bucket creation — confirmed supported on RustFS `1.0.0-beta.12` (object lock must be enabled when the bucket is created, and it requires versioning). Cheap protection on top of the off-host export; an optional governance-mode retention (e.g. 7 days) can be added later.
 - Test a restore quarterly; record RPO/RTO in `DEPLOYMENT.md`.
 
 ### After Hetzner migration (managed store)
@@ -277,7 +277,7 @@ Threat model: single VPS; while on RustFS the object data lives on one host disk
 
 ## 10. Migration of existing files
 
-`mix zaimu_tomo.migrate_to_s3 --source-dir PATH` (idempotent, safe to re-run):
+`mix zaimu_tomo.migrate_to_s3 --source-dir PATH` (or release `bin/migrate_to_s3 PATH`) is idempotent and safe to re-run:
 
 - The database migration has already converted `/uploads/<uuid>.<ext>` to its destination key `documents/<uuid>.<ext>`. For each row, derive the legacy source filename from `Path.basename(object_key)` and look for it under the explicit `--source-dir`; do not mutate the row again.
 - HEAD the destination first. If it exists, skip it. If it is missing, PUT the source file once with the existing `object_key`; do not overwrite an existing object.
@@ -320,4 +320,4 @@ Expected Elixir code changes: none, if R1–R4 were followed.
 - **RustFS image pin**: `rustfs/rustfs:1.0.0-beta.12@sha256:41fe89380f4120a337790c02af192c3fe7bb55c3edc2e6e9357b487b47c6ab21` in both `docker-compose.yml` and `config/deploy.yml` — tag **and** digest pinned (no `latest` floats), matching the existing Postgres pin convention (`postgres@sha256:...`). Digest verified on Docker Hub 2026-08-05 (multi-arch: amd64 + arm64). Still pre-1.0, so the pin is a known-risk choice with a simple upgrade path (bump tag + digest together).
 - **Versioning + Object Lock**: confirmed supported (docs.rustfs.com — object-lock page). Enable both at bucket creation; Object Lock cannot be enabled on an existing bucket and requires versioning.
 - **Content-Type mapping**: lives inside `Storage.S3`, derived from the key extension, default `application/octet-stream`. No shared helper (YAGNI); callers stay dumb — `put_object/2` needs no content-type argument.
-- **`verify_storage` cadence**: on-demand for migrations **and** as a step in the nightly backup cron (after `pg_dump` + restic), so missing objects are caught within a day — one cron owns backup + verification.
+- **`verify_storage` cadence**: on-demand for migrations **and** as a step in the nightly backup cron (after the rclone export/check + `pg_dump`), so missing objects are caught within a day — one cron owns backup + verification.

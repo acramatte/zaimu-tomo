@@ -49,14 +49,29 @@ defmodule ZaimuTomo.Documents do
 
   """
   def list_documents(%Scope{} = scope) do
-    ec_query = from ec in ExtractedContent,
-      order_by: [desc: ec.inserted_at],
-      preload: :review_decision
+    ec_query =
+      from ec in ExtractedContent,
+        order_by: [desc: ec.inserted_at],
+        preload: :review_decision
 
     from(d in Document,
       where: d.user_id == ^scope.user.id,
       order_by: [desc: d.inserted_at],
       preload: [extracted_content: ^ec_query]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns every persisted document object key in a stable order.
+
+  This is intentionally unscoped because storage maintenance commands verify
+  the complete document collection.
+  """
+  def list_document_object_keys do
+    from(d in Document,
+      order_by: [asc: d.id],
+      select: d.object_key
     )
     |> Repo.all()
   end
@@ -80,9 +95,10 @@ defmodule ZaimuTomo.Documents do
   end
 
   def get_document_with_content!(%Scope{} = scope, id) do
-    ec_query = from ec in ExtractedContent,
-      order_by: [desc: ec.inserted_at],
-      preload: :review_decision
+    ec_query =
+      from ec in ExtractedContent,
+        order_by: [desc: ec.inserted_at],
+        preload: :review_decision
 
     Document
     |> Repo.get_by!(id: id, user_id: scope.user.id)
