@@ -47,6 +47,20 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert [] = :ets.tab2list(Memory)
     end
 
+    test "clicking Preview patches the index and shows the preview in place", %{
+      conn: conn,
+      document: document
+    } do
+      {:ok, index_live, _html} = live(conn, ~p"/documents")
+
+      index_live
+      |> element("#documents-#{document.id} a", "Preview")
+      |> render_click()
+
+      assert_patch(index_live, ~p"/documents?preview=#{document.id}")
+      assert has_element?(index_live, ".doc-preview")
+    end
+
     test "updates document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 

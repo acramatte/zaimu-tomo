@@ -116,7 +116,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
               >
                 Delete
               </.link>
-              <.link navigate={~p"/documents?preview=#{document.id}"} class="btn sm">Preview</.link>
+              <.link patch={~p"/documents?preview=#{document.id}"} class="btn sm">Preview</.link>
               <a class="btn sm" href={~p"/documents/#{document}/download"}>Download</a>
             </div>
             <div>
