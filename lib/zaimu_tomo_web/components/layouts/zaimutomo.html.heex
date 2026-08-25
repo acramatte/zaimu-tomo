@@ -13,7 +13,10 @@
     <link rel="manifest" href={~p"/site.webmanifest"} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
@@ -27,8 +30,7 @@
         <div class="brand">
           <div class="brand-mark">Z</div>
           <div class="brand-name">
-            Zaimutomo
-            <small>Personal books</small>
+            Zaimutomo <small>Personal books</small>
           </div>
           <button
             class="btn sm ghost sidebar-toggle"
@@ -38,7 +40,16 @@
             aria-expanded="false"
             style="display:none"
           >
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg
+              class="ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
               <rect width="18" height="18" x="3" y="3" rx="2" />
               <path d="M9 3v18" />
               <path d="m14 9 3 3-3 3" />
@@ -48,49 +59,111 @@
 
         <div class="nav-section">Workspace</div>
         <.nav_item navigate={~p"/"} current_path={@current_path} label="Dashboard">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="2" width="5" height="6" rx="1" /><rect x="9" y="2" width="5" height="4" rx="1" />
-            <rect x="2" y="10" width="5" height="4" rx="1" /><rect x="9" y="8" width="5" height="6" rx="1" />
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <rect x="2" y="2" width="5" height="6" rx="1" /><rect
+              x="9"
+              y="2"
+              width="5"
+              height="4"
+              rx="1"
+            />
+            <rect x="2" y="10" width="5" height="4" rx="1" /><rect
+              x="9"
+              y="8"
+              width="5"
+              height="6"
+              rx="1"
+            />
           </svg>
           <span class="nav-label">Dashboard</span>
         </.nav_item>
         <.nav_item navigate={~p"/accounts"} current_path={@current_path} label="Accounts">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <path d="M2 13h12M4 13V7M7 13V4M10 13V9M13 13V6" />
           </svg>
           <span class="nav-label">Accounts</span>
         </.nav_item>
         <.nav_item navigate={~p"/activity"} current_path={@current_path} label="Activity">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <path d="M2 8h2.5l1.5-4 3 8 1.5-4H14" />
           </svg>
           <span class="nav-label">Activity</span>
-          <span class="badge" id="nav-activity-badge" style={if assigns[:in_flight_count] == 0, do: "display:none", else: ""}>
+          <span
+            class="badge"
+            id="nav-activity-badge"
+            style={if assigns[:in_flight_count] == 0, do: "display:none", else: ""}
+          >
             {assigns[:in_flight_count] || 0}
           </span>
         </.nav_item>
-        <.nav_item navigate={~p"/journal_entries"} current_path={@current_path} label="Journal entries">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <.nav_item
+          navigate={~p"/journal_entries"}
+          current_path={@current_path}
+          label="Journal entries"
+        >
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <path d="M3 2h8a2 2 0 0 1 2 2v10H5a2 2 0 0 1-2-2V2z" />
             <path d="M6 5h5M6 8h5M6 11h3" />
           </svg>
           <span class="nav-label">Journal entries</span>
         </.nav_item>
         <.nav_item navigate={~p"/documents"} current_path={@current_path} label="Documents">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <path d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
             <path d="M9 2v3h3" />
           </svg>
           <span class="nav-label">Documents</span>
         </.nav_item>
         <.nav_item navigate={~p"/reviews"} current_path={@current_path} label="Reviews">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <circle cx="8" cy="8" r="6" /><path d="M5 8l2 2 4-4" />
           </svg>
           <span class="nav-label">Reviews</span>
         </.nav_item>
         <.nav_item current_path={@current_path} label="Budgets">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <path d="M2 13h12M4 13V7M7 13V4M10 13V9M13 13V6" />
           </svg>
           <span class="nav-label">Budgets</span>
@@ -98,54 +171,88 @@
 
         <div class="nav-section">Settings</div>
         <.nav_item navigate={~p"/users/settings"} current_path={@current_path} label="Settings">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <circle cx="8" cy="6" r="3" /><path d="M2.5 14a5.5 5.5 0 0 1 11 0" />
           </svg>
           <span class="nav-label">Settings</span>
         </.nav_item>
         <.nav_item current_path={@current_path} label="Rules and categories">
-          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
             <circle cx="5" cy="5" r="2" /><path d="M7 5h7M2 11h7" /><circle cx="11" cy="11" r="2" />
           </svg>
           <span class="nav-label">Rules &amp; categories</span>
         </.nav_item>
 
-          <%= if @current_scope do %>
-        <div class="user-card">
-          <div class="avatar">
-            {String.slice(@current_scope.user.email, 0, 2) |> String.upcase()}
-          </div>
-          <div class="user-identity" style="min-width:0;flex:1">
-            <div class="name">{@current_scope.user.display_name || @current_scope.user.email}</div>
-            <div class="meta">{@current_scope.user.base_currency}</div>
-          </div>
+        <%= if @current_scope do %>
+          <div class="user-card">
+            <div class="avatar">
+              {String.slice(@current_scope.user.email, 0, 2) |> String.upcase()}
+            </div>
+            <div class="user-identity" style="min-width:0;flex:1">
+              <div class="name">
+                {@current_scope.user.display_name || @current_scope.user.email}
+              </div>
+              <div class="meta">{@current_scope.user.base_currency}</div>
+            </div>
             <form action={~p"/users/log-out"} method="post" style="display:contents">
               <input type="hidden" name="_method" value="delete" />
               <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
               <button type="submit" class="icon-btn" title="Sign out">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                <svg
+                  viewBox="0 0 16 16"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
                   <path d="M6 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3M10 11l3-3-3-3M13 8H6" />
                 </svg>
               </button>
             </form>
-        </div>
-          <% end %>
+          </div>
+        <% end %>
       </aside>
-
-      <!-- ========================
+      
+<!-- ========================
            MAIN
            ======================== -->
       <main class="main">
         <div class="topbar">
           <div class="spacer"></div>
           <button class="btn sm" id="quick-add">
-            <svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg
+              class="ico"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
               <path d="M7 2v10M2 7h10" />
             </svg>
             New expense
           </button>
           <div class="bell" id="bell" title="Notifications">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
               <path d="M4 7a4 4 0 0 1 8 0v3l1 2H3l1-2V7z" />
               <path d="M6.5 13a1.5 1.5 0 0 0 3 0" />
             </svg>
@@ -159,12 +266,14 @@
             </div>
           </div>
         </div>
-
-        <!-- Notification dropdown -->
+        
+<!-- Notification dropdown -->
         <div class="notif-pop" id="notif-pop">
           <header>
             <span>Activity</span>
-            <span class="muted" style="font-size:11px;font-family:'Geist Mono',monospace">live · ws connected</span>
+            <span class="muted" style="font-size:11px;font-family:'Geist Mono',monospace">
+              live · ws connected
+            </span>
           </header>
           <div class="feed" id="notif-feed">
             <%= for item <- Enum.take(assigns[:activity] || [], 6) do %>
@@ -172,20 +281,20 @@
             <% end %>
           </div>
         </div>
-
-        <!-- View -->
+        
+<!-- View -->
         <div class="view" id="view">
           {@inner_content}
         </div>
       </main>
     </div>
-
-    <!-- Global drag overlay -->
+    
+<!-- Global drag overlay -->
     <div class="drop-overlay" id="drop-overlay">
       <div class="msg">drop to scan</div>
     </div>
-
-    <!-- Review modal (Step 2 of 3) -->
+    
+<!-- Review modal (Step 2 of 3) -->
     <div class="modal-bg" id="review-modal">
       <div class="modal">
         <header>
@@ -196,15 +305,17 @@
         <div class="modal-body" id="review-body"></div>
         <footer>
           <button class="btn ghost" id="review-cancel">Cancel</button>
-          <span class="muted" style="font-size:12px;margin-left:6px">Edits will retrain your extractor</span>
+          <span class="muted" style="font-size:12px;margin-left:6px">
+            Edits will retrain your extractor
+          </span>
           <div class="spacer"></div>
           <button class="btn" id="review-reject">Reject document</button>
           <button class="btn primary" id="review-approve">Approve &amp; categorize</button>
         </footer>
       </div>
     </div>
-
-    <!-- Category modal (Step 3 of 3) -->
+    
+<!-- Category modal (Step 3 of 3) -->
     <div class="modal-bg" id="cat-modal">
       <div class="modal" style="max-width:680px;grid-template-rows:auto auto auto">
         <header>
@@ -221,13 +332,15 @@
         <footer>
           <button class="btn ghost" id="cat-back">Back to review</button>
           <div class="spacer"></div>
-          <span class="muted" style="font-size:12px" id="cat-selected-label">Pick one to post the journal entry</span>
+          <span class="muted" style="font-size:12px" id="cat-selected-label">
+            Pick one to post the journal entry
+          </span>
           <button class="btn primary" id="cat-confirm" disabled>Post entry</button>
         </footer>
       </div>
     </div>
-
-    <!-- Tweaks panel -->
+    
+<!-- Tweaks panel -->
     <div class="tweaks-panel" id="tweaks-panel">
       <header>
         <span>Tweaks</span>
@@ -247,11 +360,13 @@
           <button data-val="inbox">Inbox</button>
           <button data-val="hero">Hero</button>
         </div>
-        <div class="tweak-help" id="async-help">Toast + bell badge when documents finish processing.</div>
+        <div class="tweak-help" id="async-help">
+          Toast + bell badge when documents finish processing.
+        </div>
       </div>
     </div>
-
-    <!-- Toasts -->
+    
+<!-- Toasts -->
     <div class="toast-container" id="toasts"></div>
 
     <script :type={Phoenix.LiveView.ColocatedHook} name=".NavActive">
@@ -273,6 +388,5 @@
         }
       }
     </script>
-
-    </body>
+  </body>
 </html>

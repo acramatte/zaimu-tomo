@@ -78,12 +78,14 @@ defmodule ZaimuTomoWeb.PageHTML do
     {arcs, _offset} =
       Enum.reduce(assigns.segments, {[], 0.0}, fn seg, {acc, off} ->
         len = Float.round(seg.value / total * circumference, 2)
+
         arc = %{
           color: seg.color,
           len: len,
           gap: Float.round(circumference - len, 2),
           offset: Float.round(-off, 2)
         }
+
         {acc ++ [arc], off + len}
       end)
 
@@ -105,5 +107,4 @@ defmodule ZaimuTomoWeb.PageHTML do
     </svg>
     """
   end
-
 end

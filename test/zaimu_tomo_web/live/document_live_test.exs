@@ -47,6 +47,25 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert [] = :ets.tab2list(Memory)
     end
 
+    test "clicking the Preview link patches the index LiveView and shows preview in-place", %{
+      conn: conn,
+      document: document
+    } do
+      {:ok, index_live, _html} = live(conn, ~p"/documents")
+
+      # Click the Preview link as the user would. This must perform a LiveView patch
+      # (in-place update) rather than a navigate/redirect.
+      index_live
+      |> element("#documents-#{document.id} a", "Preview")
+      |> render_click()
+
+      # assert the LiveView applied a patch with the preview query param
+      assert_patch(index_live, ~p"/documents?preview=#{document.id}")
+
+      # the preview UI should appear without a full redirect/remount
+      assert has_element?(index_live, ".doc-preview")
+    end
+
     test "updates document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 

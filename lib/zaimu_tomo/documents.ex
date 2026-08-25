@@ -49,9 +49,10 @@ defmodule ZaimuTomo.Documents do
 
   """
   def list_documents(%Scope{} = scope) do
-    ec_query = from ec in ExtractedContent,
-      order_by: [desc: ec.inserted_at],
-      preload: :review_decision
+    ec_query =
+      from ec in ExtractedContent,
+        order_by: [desc: ec.inserted_at],
+        preload: :review_decision
 
     from(d in Document,
       where: d.user_id == ^scope.user.id,
@@ -80,9 +81,10 @@ defmodule ZaimuTomo.Documents do
   end
 
   def get_document_with_content!(%Scope{} = scope, id) do
-    ec_query = from ec in ExtractedContent,
-      order_by: [desc: ec.inserted_at],
-      preload: :review_decision
+    ec_query =
+      from ec in ExtractedContent,
+        order_by: [desc: ec.inserted_at],
+        preload: :review_decision
 
     Document
     |> Repo.get_by!(id: id, user_id: scope.user.id)
