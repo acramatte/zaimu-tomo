@@ -79,6 +79,28 @@ defmodule ZaimuTomo.Documents do
     Repo.get_by!(Document, id: id, user_id: scope.user.id)
   end
 
+  @doc """
+  Fetches a document within the authenticated scope.
+
+  Returns `{:error, :not_found}` when the document does not exist or belongs to
+  another user, so callers can treat inaccessible documents as missing.
+
+  ## Examples
+
+      iex> fetch_document(scope, "123")
+      {:ok, %Document{}}
+
+      iex> fetch_document(scope, "999")
+      {:error, :not_found}
+
+  """
+  def fetch_document(%Scope{} = scope, id) do
+    case Repo.get_by(Document, id: id, user_id: scope.user.id) do
+      nil -> {:error, :not_found}
+      document -> {:ok, document}
+    end
+  end
+
   def get_document_with_content!(%Scope{} = scope, id) do
     ec_query = from ec in ExtractedContent,
       order_by: [desc: ec.inserted_at],
