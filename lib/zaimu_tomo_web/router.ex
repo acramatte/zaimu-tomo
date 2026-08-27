@@ -68,6 +68,10 @@ defmodule ZaimuTomoWeb.Router do
 
       live "/activity", ActivityLive.Index, :index
 
+      # preview/download must be regular browser GETs handled inside authenticated scope
+      get "/documents/:id/preview", DocumentController, :preview
+      get "/documents/:id/download", DocumentController, :download
+
       live "/documents", DocumentLive.Index, :index
       live "/documents/new", DocumentLive.Form, :new
       live "/documents/:id", DocumentLive.Show, :show

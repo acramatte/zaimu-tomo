@@ -17,6 +17,14 @@ defmodule ZaimuTomo.Storage do
   @spec head_object(key()) :: :ok | {:error, :not_found | term()}
   def head_object(key), do: adapter().head_object(key, config())
 
+  @doc """
+  Reads an object fully into memory and returns its binary.
+
+  Returns {:ok, binary} | {:error, :not_found | term()}
+  """
+  @spec read_object(key()) :: {:ok, binary()} | {:error, :not_found | term()}
+  def read_object(key), do: adapter().read_object(key, config())
+
   defp adapter do
     config()
     |> Keyword.fetch!(:adapter)

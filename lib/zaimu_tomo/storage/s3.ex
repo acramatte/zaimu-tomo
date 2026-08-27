@@ -80,6 +80,24 @@ defmodule ZaimuTomo.Storage.S3 do
 
   defp get_result(result, _destination), do: error_result(result)
 
+  @impl true
+  def read_object(key, config) do
+    try do
+      key
+      |> request(:get, "", config)
+      |> read_result()
+    rescue
+      error in File.Error -> {:error, error.reason}
+    end
+  end
+
+  @doc false
+  defp read_result({:ok, %Req.Response{status: status, body: body}}) when status in 200..299,
+    do: {:ok, IO.iodata_to_binary(body)}
+
+  defp read_result({:ok, %Req.Response{status: 404}}), do: {:error, :not_found}
+  defp read_result(result), do: error_result(result)
+
   defp empty_result({:ok, %Req.Response{status: status}}) when status in 200..299, do: :ok
   defp empty_result(result), do: error_result(result)
 
