@@ -33,12 +33,51 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ document.filename
     end
 
+    test "selecting a preview via query param does not read storage on index", %{
+      conn: conn,
+      document: document
+    } do
+      # ensure memory store is empty and we did not put the object's bytes
+      assert [] = :ets.tab2list(Memory)
+
+      {:ok, _index_live, html} = live(conn, ~p"/documents?preview=#{document.id}")
+
+      assert html =~ "Documents"
+      # the preview pane is rendered but no storage reads should have occurred
+      assert [] = :ets.tab2list(Memory)
+    end
+
+    test "clicking Preview patches the index and shows the preview in place", %{
+      conn: conn,
+      document: document
+    } do
+      {:ok, index_live, _html} = live(conn, ~p"/documents")
+
+      index_live
+      |> element("#documents-#{document.id} [aria-label=\"Preview document\"]")
+      |> render_click()
+
+      assert_patch(index_live, ~p"/documents?preview=#{document.id}")
+      assert has_element?(index_live, "#document-preview")
+      assert has_element?(index_live, "#document-preview iframe, #document-preview img, #document-preview .doc-modal-empty")
+    end
+
+    test "pressing Escape closes the preview", %{conn: conn, document: document} do
+      {:ok, index_live, _html} = live(conn, ~p"/documents?preview=#{document.id}")
+
+      assert has_element?(index_live, "#document-preview")
+
+      render_keydown(index_live, "close-preview", %{"key" => "Escape"})
+
+      refute has_element?(index_live, "#document-preview")
+    end
+
     test "updates document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 
       assert {:ok, form_live, _html} =
                index_live
-               |> element("#documents-#{document.id} a", "Edit")
+               |> element("#documents-#{document.id} [aria-label=\"Edit document\"]")
                |> render_click()
                |> follow_redirect(conn, ~p"/documents/#{document}/edit")
 
@@ -52,7 +91,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     test "deletes document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 
-      assert index_live |> element("#documents-#{document.id} a", "Delete") |> render_click()
+      assert index_live |> element("#documents-#{document.id} [aria-label=\"Delete document\"]") |> render_click()
       refute has_element?(index_live, "#documents-#{document.id}")
     end
   end
@@ -155,7 +194,11 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ "Processing"
     end
 
-    test "needs review — extraction succeeded, decision pending", %{conn: conn, scope: scope, user: user} do
+    test "needs review — extraction succeeded, decision pending", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
       doc = document_fixture(scope)
       ec = extracted_content_fixture(doc, user)
       pending_review_fixture(ec)

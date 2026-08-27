@@ -10,4 +10,5 @@ defmodule ZaimuTomo.Storage.Adapter do
   @callback get_object(key(), Path.t(), config()) :: {:ok, Path.t()} | {:error, term()}
   @callback delete_object(key(), config()) :: :ok | {:error, term()}
   @callback head_object(key(), config()) :: :ok | {:error, :not_found | term()}
+  @callback read_object(key(), config()) :: {:ok, binary()} | {:error, :not_found | term()}
 end
