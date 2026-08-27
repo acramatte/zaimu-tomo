@@ -2,7 +2,7 @@ defmodule ZaimuTomo.FinancialAccountsFixtures do
   def financial_account_fixture(scope, attrs \\ %{}) do
     account_attrs =
       attrs
-      |> Map.take([:name, :account_type, :currency, :bank_name, :account_number])
+      |> Map.take([:name, :account_type, :currency, :bank_name, :account_number, :subtype, :liquidity])
       |> Enum.into(%{name: "Savings", account_type: :savings, currency: "EUR"})
 
     balance_attrs =

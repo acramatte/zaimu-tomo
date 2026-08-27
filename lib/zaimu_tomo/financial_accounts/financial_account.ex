@@ -7,6 +7,8 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
   schema "financial_accounts" do
     field :name, :string
     field :account_type, Ecto.Enum, values: [:cash, :savings, :investment]
+    field :subtype, :string
+    field :liquidity, Ecto.Enum, values: [:liquid, :restricted, :illiquid], default: :liquid
     field :currency, :string
     field :bank_name, :string
     field :account_number, :string
@@ -21,7 +23,7 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
   @doc false
   def changeset(financial_account, attrs, user_scope) do
     financial_account
-    |> cast(attrs, [:name, :account_type, :currency, :bank_name, :account_number, :source])
+    |> cast(attrs, [:name, :account_type, :subtype, :liquidity, :currency, :bank_name, :account_number, :source])
     |> Currency.normalize_and_validate(:currency)
     |> validate_required([:name, :account_type, :currency])
     |> update_change(:bank_name, &String.trim/1)

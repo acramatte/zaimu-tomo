@@ -7,6 +7,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
   alias ZaimuTomo.FinancialAccounts
 
   @account_types [{"Savings", "savings"}, {"Cash", "cash"}, {"Investment", "investment"}]
+  @liquidity_options [{"Liquid", "liquid"}, {"Restricted", "restricted"}, {"Illiquid", "illiquid"}]
 
   @impl true
   def render(assigns) do
@@ -44,7 +45,9 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
             <div class="title">{account.name}</div>
             <div class="desc muted">
               {account_type_label(account.account_type)}
+              {if account.subtype, do: " · #{account.subtype}", else: ""}
               {if account.bank_name, do: " · #{account.bank_name}", else: ""}
+              {if account.liquidity, do: " · #{String.capitalize(to_string(account.liquidity))}", else: ""}
               {if snapshot, do: " · as of #{snapshot.recorded_on}", else: " · no balance recorded"}
             </div>
           </div>
@@ -76,6 +79,20 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
               options={@account_types}
               required
             />
+
+            <.input
+              field={@form[:subtype]}
+              label="Subtype"
+              placeholder="retirement"
+            />
+
+            <.input
+              field={@form[:liquidity]}
+              type="select"
+              label="Liquidity"
+              options={@liquidity_options}
+            />
+
             <.input
               field={@form[:currency]}
               label="Currency"
@@ -137,9 +154,9 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
          {:ok, amount_cents} <- amount_to_cents(get_field(form.source, :balance)),
          {:ok, _account} <-
            FinancialAccounts.create_financial_account_with_balance(
-             socket.assigns.current_scope,
-             Map.take(params, ["name", "account_type", "currency", "bank_name", "account_number"]),
-             %{amount_cents: amount_cents, recorded_on: get_field(form.source, :recorded_on)}
+            socket.assigns.current_scope,
+            Map.take(params, ["name", "account_type", "subtype", "liquidity", "currency", "bank_name", "account_number"]),
+            %{amount_cents: amount_cents, recorded_on: get_field(form.source, :recorded_on)}
            ) do
       {:noreply,
        socket
@@ -179,9 +196,11 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
     params = Map.put_new(params, "recorded_on", Date.to_iso8601(Date.utc_today()))
 
     {%{},
-     %{
+     {
        name: :string,
        account_type: :string,
+       subtype: :string,
+       liquidity: :string,
        currency: :string,
        bank_name: :string,
        account_number: :string,
@@ -191,6 +210,8 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
     |> cast(params, [
       :name,
       :account_type,
+      :subtype,
+      :liquidity,
       :currency,
       :bank_name,
       :account_number,
@@ -200,6 +221,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
     |> Currency.normalize_and_validate(:currency)
     |> validate_required([:name, :account_type, :currency, :balance, :recorded_on])
     |> validate_inclusion(:account_type, Enum.map(@account_types, &elem(&1, 1)))
+    |> validate_inclusion(:liquidity, Enum.map(@liquidity_options, &elem(&1, 1)))
     |> then(&to_form(&1, as: :account, action: action))
   end
 
