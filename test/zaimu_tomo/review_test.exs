@@ -2,7 +2,11 @@ defmodule ZaimuTomo.ReviewTest do
   use ZaimuTomo.DataCase, async: false
 
   alias ZaimuTomo.Review
+  alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review.ReviewDecision
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
+
   import ZaimuTomo.DocumentsFixtures, only: [document_fixture: 1]
 
   import ZaimuTomo.ReviewFixtures,
@@ -111,5 +115,111 @@ defmodule ZaimuTomo.ReviewTest do
       assert decision.review_status == "rejected"
       assert decision.rejection_reason == "Duplicate invoice"
     end
+  end
+
+  describe "approve_invoice/3 with a duplicate invoice" do
+    test "blocks the posting and rolls the review back to pending" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      original = create_approved_invoice(scope, user, "INV-777")
+
+      duplicate = create_pending_invoice(scope, user, "INV-777")
+
+      assert {:error, :duplicate_invoice} =
+               Review.approve_invoice(duplicate.extracted_content_id, user.id)
+
+      # The review stays pending and no journal entry was created for it.
+      assert pending_review?(duplicate.id)
+      refute entry_exists_for?(duplicate.id)
+
+      # The original entry is untouched.
+      assert entry_exists_for?(original.id)
+    end
+  end
+
+  describe "amend_invoice/4 with a duplicate invoice" do
+    test "blocks the amended posting and rolls the review back to pending" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      _original = create_approved_invoice(scope, user, "INV-777")
+
+      document = document_fixture(scope)
+      extracted_content = extracted_content_fixture(document, user)
+      {:ok, _} = Review.create_initial_decision(extracted_content)
+
+      amended_data = %{
+        "issuer" => "Acme Corp",
+        "invoice_number" => "INV-777",
+        "invoice_date" => "2026-06-09",
+        "amount_to_pay_cents" => "4200",
+        "currency" => "CHF",
+        "reason_for_payment" => "Corrected data"
+      }
+
+      assert {:error, :duplicate_invoice} =
+               Review.amend_invoice(extracted_content.id, user.id, amended_data)
+
+      pending = Repo.get_by!(ReviewDecision, extracted_content_id: extracted_content.id)
+      assert pending.review_status == "pending"
+      assert pending.decision_data == nil
+    end
+  end
+
+  defp create_approved_invoice(scope, user, invoice_number) do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        extracted_data: %{
+          amount_to_pay_cents: 4200,
+          invoice_date: "2026-06-09",
+          invoice_number: invoice_number,
+          currency: "CHF",
+          reason_for_payment: "Office supplies",
+          issuer: "Acme Corp"
+        }
+      })
+
+    {:ok, _} = Review.create_initial_decision(extracted_content)
+    {:ok, decision} = Review.approve_invoice(extracted_content.id, user.id)
+
+    %{
+      id: decision.id,
+      extracted_content_id: extracted_content.id
+    }
+  end
+
+  defp create_pending_invoice(scope, user, invoice_number) do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        extracted_data: %{
+          amount_to_pay_cents: 4200,
+          invoice_date: "2026-06-09",
+          invoice_number: invoice_number,
+          currency: "CHF",
+          reason_for_payment: "Same invoice uploaded twice",
+          issuer: "Acme Corp"
+        }
+      })
+
+    {:ok, decision} = Review.create_initial_decision(extracted_content)
+
+    %{
+      id: decision.id,
+      extracted_content_id: extracted_content.id
+    }
+  end
+
+  defp pending_review?(review_decision_id) do
+    decision = Repo.get!(ReviewDecision, review_decision_id)
+    decision.review_status == "pending"
+  end
+
+  defp entry_exists_for?(review_decision_id) do
+    match?({:ok, _}, Accounting.get_journal_entry_for_decision(review_decision_id))
   end
 end

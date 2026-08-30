@@ -8,6 +8,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]
+  @duplicate_invoice_index "journal_entries_user_issuer_number_unique_index"
 
   @typedoc "Journal entry schema struct"
   @type t :: %__MODULE__{
@@ -71,7 +72,15 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint(:review_decision_id)
+    |> unique_constraint(:invoice_number,
+      name: @duplicate_invoice_index,
+      message: "has already been recorded for this issuer"
+    )
   end
+
+  @doc "Name of the unique (user, issuer, invoice number) index."
+  @spec duplicate_invoice_index() :: String.t()
+  def duplicate_invoice_index, do: @duplicate_invoice_index
 
   @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_categorize(%__MODULE__{} = entry, attrs) do

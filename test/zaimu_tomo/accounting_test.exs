@@ -8,8 +8,10 @@ defmodule ZaimuTomo.AccountingTest do
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounts
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review
   alias ZaimuTomo.Review.EventLog
 
   describe "post_entry/6" do
@@ -326,11 +328,232 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
-  defp create_entry(scope, user) do
+  describe "duplicate_candidates/2" do
+    test "finds a numbered match case-insensitively regardless of whitespace" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user, invoice_number: "  INV-777  ", issuer: "Acme Corp")
+      _other = create_entry(scope, user, invoice_number: "INV-888", issuer: "Acme Corp")
+
+      data = %ExtractedData{
+        issuer: " acme corp ",
+        invoice_number: "inv-777",
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert [%JournalEntry{id: id}] = Accounting.duplicate_candidates(user.id, data)
+      assert id == entry.id
+      assert Accounting.strong_match?(data, Accounting.duplicate_candidates(user.id, data))
+    end
+
+    test "a numbered entry found through the unnumbered tuple is only a possible duplicate" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: "INV-777")
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: nil,
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      candidates = Accounting.duplicate_candidates(user.id, data)
+      assert [%JournalEntry{invoice_number: "INV-777"}] = candidates
+      refute Accounting.strong_match?(data, candidates)
+      refute Accounting.strong_match?(%{data | invoice_number: "INV-777"}, [])
+    end
+
+    test "does not soft-match (or raise) when the amount is missing" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: nil)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: nil,
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: nil,
+        currency: "CHF"
+      }
+
+      assert [] = Accounting.duplicate_candidates(user.id, data)
+    end
+
+    test "never crosses the user boundary" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: "INV-777", issuer: "Acme Corp")
+
+      other_user = user_fixture()
+      other_scope = user_scope_fixture(other_user)
+
+      _other_entry =
+        create_entry(other_scope, other_user, invoice_number: "INV-777", issuer: "Acme Corp")
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: "INV-777",
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert [%JournalEntry{}] = Accounting.duplicate_candidates(user.id, data)
+      assert [%JournalEntry{}] = Accounting.duplicate_candidates(other_user.id, data)
+    end
+
+    test "soft-matches unnumbered invoices only on the exact tuple" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: nil,
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert [%JournalEntry{}] = Accounting.duplicate_candidates(user.id, data)
+
+      assert [] =
+               Accounting.duplicate_candidates(user.id, %{
+                 data
+                 | amount_to_pay_cents: 43_00
+               })
+
+      assert [] =
+               Accounting.duplicate_candidates(user.id, %{
+                 data
+                 | invoice_date: "2026-06-10"
+               })
+    end
+
+    test "treats a whitespace-only number as missing and soft-matches" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: nil)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: "   ",
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert [%JournalEntry{}] = Accounting.duplicate_candidates(user.id, data)
+    end
+
+    test "does not soft-match with a non-ISO date or missing currency" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: nil,
+        invoice_date: "Jun 9, 2026",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert [] = Accounting.duplicate_candidates(user.id, data)
+
+      assert [] =
+               Accounting.duplicate_candidates(user.id, %{
+                 data
+                 | invoice_date: "2026-06-09",
+                   currency: nil
+               })
+    end
+
+    test "the database blocks a second numbered entry for the same issuer" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: "INV-777", issuer: "Acme Corp")
+
+      document = document_fixture(scope)
+
+      extracted_content =
+        extracted_content_fixture(document, user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 42_00,
+            invoice_date: "2026-06-09",
+            invoice_number: "INV-777",
+            currency: "CHF",
+            reason_for_payment: "Same invoice again",
+            issuer: "Acme Corp"
+          }
+        })
+
+      {:ok, _} = Review.create_initial_decision(extracted_content)
+
+      assert {:error, :duplicate_invoice} =
+               Review.approve_invoice(extracted_content.id, user.id)
+    end
+
+    test "the database index normalizes issuer and number case and whitespace" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: "INV-777", issuer: "Acme Corp")
+
+      # A separate pending decision, so only the invoice index can reject the row.
+      extracted_content = extracted_content_fixture(document_fixture(scope), user, %{})
+      {:ok, decision} = Review.create_initial_decision(extracted_content)
+
+      changeset =
+        JournalEntry.changeset_for_create(%{
+          review_decision_id: decision.id,
+          user_id: user.id,
+          amount_cents: 42_00,
+          currency: "CHF",
+          date: ~D[2026-06-09],
+          issuer: " acme corp ",
+          invoice_number: "inv-777 ",
+          status: "uncategorized"
+        })
+
+      assert {:error, changeset} = Repo.insert(changeset)
+      assert Accounting.duplicate_error?(changeset)
+    end
+
+    test "duplicate_error?/1 ignores unrelated changeset errors" do
+      changeset =
+        %JournalEntry{}
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.add_error(:invoice_number, "has already been recorded for this issuer")
+
+      refute Accounting.duplicate_error?(changeset)
+    end
+  end
+
+  defp create_entry(scope, user, overrides \\ []) do
     document = document_fixture(scope)
-    extracted_content = extracted_content_fixture(document, user)
+
+    extracted_data =
+      %{
+        amount_to_pay_cents: 42_00,
+        invoice_date: "2026-06-09",
+        invoice_number: "INV-" <> String.slice(Ecto.UUID.generate(), 0, 8),
+        currency: "CHF",
+        reason_for_payment: "Office supplies",
+        issuer: "Acme Corp"
+      }
+      |> Map.merge(Map.new(overrides))
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{extracted_data: extracted_data})
+
     decision = approved_review_fixture(extracted_content, user)
-    {:ok, entry} = Accounting.create_from_decision(decision)
+
+    # Approving posts the journal entry transactionally in the review context.
+    {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
     entry
   end
 
