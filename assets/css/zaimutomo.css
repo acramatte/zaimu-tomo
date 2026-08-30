@@ -451,6 +451,17 @@ body {
   font-family: 'Geist', sans-serif;
   color: var(--muted);
 }
+.duplicate-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
+}
+.duplicate-candidate:last-of-type { border-bottom: 0; }
+.duplicate-candidate .btn { margin-left: auto; }
 .budget-row .name {
   font-family: 'Geist', sans-serif;
   font-size: 13.5px;

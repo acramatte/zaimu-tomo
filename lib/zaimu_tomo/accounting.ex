@@ -15,7 +15,82 @@ defmodule ZaimuTomo.Accounting do
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias Ecto.Multi
+
+  # ---------------------------------------------------------------------------
+  # Duplicate detection
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Returns journal entries already recorded for this user that appear to be the
+  same invoice as `data` (an `%ExtractedData{}` with the invoice's final,
+  reviewer-confirmed values).
+
+  * With an invoice number, the strong match is (user, issuer, invoice number),
+    compared case-insensitively with surrounding whitespace trimmed.
+  * Without a number, a soft match requires the exact tuple (issuer, date,
+    amount, currency). A missing component never matches.
+
+  Candidates from other users are never returned.
+  """
+  @spec duplicate_candidates(integer() | nil, ExtractedData.t()) :: [JournalEntry.t()]
+  def duplicate_candidates(nil, %ExtractedData{}), do: []
+
+  def duplicate_candidates(user_id, %ExtractedData{} = data) do
+    base =
+      from(je in JournalEntry,
+        where: je.user_id == ^user_id,
+        where: fragment("lower(btrim(?)) = lower(btrim(?))", je.issuer, ^data.issuer),
+        order_by: [desc: je.inserted_at],
+        limit: 5
+      )
+
+    base
+    |> candidate_filters(data)
+    |> Repo.all()
+  end
+
+  # Numbered and unnumbered matches are mutually exclusive: a nonblank invoice
+  # number is the identity, otherwise the exact tuple is compared.
+  defp candidate_filters(query, %ExtractedData{} = data) do
+    number = data.invoice_number
+
+    if is_binary(number) and String.trim(number) != "" do
+      where(
+        query,
+        [je],
+        fragment("lower(btrim(?)) = lower(btrim(?))", je.invoice_number, ^number)
+      )
+    else
+      soft_match_filters(query, data)
+    end
+  end
+
+  defp soft_match_filters(query, %ExtractedData{} = data) do
+    # The caller only reaches here when the invoice number is blank, so the
+    # tuple requires a date and currency to compare against.
+    if missing?(data.currency) do
+      where(query, false)
+    else
+      case Date.from_iso8601(data.invoice_date || "") do
+        {:ok, date} ->
+          where(
+            query,
+            [je],
+            je.date == ^date and
+              je.amount_cents == ^data.amount_to_pay_cents and
+              fragment("lower(btrim(?)) = lower(btrim(?))", je.currency, ^data.currency)
+          )
+
+        {:error, _} ->
+          where(query, false)
+      end
+    end
+  end
+
+  defp missing?(nil), do: true
+  defp missing?(value), do: String.trim(value) == ""
 
   # ---------------------------------------------------------------------------
   # Entry creation (called after invoice approval / amendment)
@@ -24,6 +99,28 @@ defmodule ZaimuTomo.Accounting do
   @spec create_from_decision(%ReviewDecision{}, map()) ::
           {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
   def create_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
+    create_multi_from_decision(decision, tax_claim_attrs)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{journal_entry: entry, tax_deduction_claim: claim}} ->
+        {:ok, %{entry | tax_deduction_claim: claim}}
+
+      {:error, _operation, changeset, _changes} ->
+        {:error, changeset}
+    end
+  end
+
+  @doc """
+  Builds an `Ecto.Multi` that creates the journal entry and its tax deduction
+  claim for an approved/amended review decision.
+
+  The step names (`:journal_entry`, `:tax_deduction_claim`) are stable so
+  callers can compose this multi into a larger transaction, such as the
+  review-to-journal-entry transition that must roll back on a duplicate
+  invoice.
+  """
+  @spec create_multi_from_decision(%ReviewDecision{}, map()) :: Ecto.Multi.t()
+  def create_multi_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
     data = decision.decision_data || decision.original_data
 
     attrs = %{
@@ -45,14 +142,49 @@ defmodule ZaimuTomo.Accounting do
     |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: entry} ->
       TaxDeductionClaim.changeset_for_create(entry, tax_claim_attrs) |> repo.insert()
     end)
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{journal_entry: entry, tax_deduction_claim: claim}} ->
-        {:ok, %{entry | tax_deduction_claim: claim}}
+  end
 
-      {:error, _operation, changeset, _changes} ->
-        {:error, changeset}
+  @doc """
+  Maps a journal-entry insert failure to a domain error when the entry violates
+  the unique (user, issuer, invoice number) constraint.
+
+  Returns the original failure otherwise, so callers can pass through
+  unrelated changeset errors unchanged.
+  """
+  @spec duplicate_error?(Ecto.Changeset.t()) :: boolean()
+  def duplicate_error?(%Ecto.Changeset{} = changeset) do
+    case changeset.errors[:invoice_number] do
+      {message, _opts} -> message =~ "already been recorded"
+      _ -> false
     end
+  end
+
+  def duplicate_error?(_other), do: false
+
+  @doc """
+  Fetches the journal entry created for a review decision, if any.
+  """
+  @spec get_journal_entry_for_decision(integer() | String.t()) ::
+          {:ok, JournalEntry.t()} | :error
+  def get_journal_entry_for_decision(review_decision_id) do
+    case Repo.get_by(JournalEntry, review_decision_id: review_decision_id) do
+      nil ->
+        :error
+
+      entry ->
+        {:ok, Repo.preload(entry, :tax_deduction_claim)}
+    end
+  end
+
+  @doc """
+  True when any candidate matched on its invoice number — the strong,
+  blocking kind of duplicate.
+  """
+  @spec strong_candidate?([JournalEntry.t()]) :: boolean()
+  def strong_candidate?(candidates) do
+    Enum.any?(candidates, fn candidate ->
+      is_binary(candidate.invoice_number) and String.trim(candidate.invoice_number) != ""
+    end)
   end
 
   # ---------------------------------------------------------------------------
