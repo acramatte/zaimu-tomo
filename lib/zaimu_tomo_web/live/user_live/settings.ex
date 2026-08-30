@@ -9,19 +9,20 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="text-center">
-        <.header>
-          Account Settings
-          <:subtitle>Manage your profile, email address and password settings</:subtitle>
-        </.header>
-      </div>
+    <Layouts.flash_group flash={@flash} />
 
-      <div class="text-left">
-        <.header>
-          Profile
-          <:subtitle>How you appear in Zaimutomo and your primary currency</:subtitle>
-        </.header>
+    <h1 class="view-title">Account settings</h1>
+    <p class="view-sub">Manage your profile, email address and password settings</p>
+
+    <div class="grid gap-[18px]">
+      <!-- Profile -->
+      <section class="card" aria-labelledby="profile-settings-title">
+        <div class="card-head">
+          <div>
+            <h2 id="profile-settings-title" class="card-title">Profile</h2>
+            <div class="card-meta">How you appear in Zaimutomo and your primary currency</div>
+          </div>
+        </div>
 
         <.form
           for={@profile_form}
@@ -36,6 +37,7 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             placeholder="How you'd like to be addressed"
             autocomplete="name"
           />
+
           <.input
             field={@profile_form[:base_currency]}
             type="text"
@@ -44,17 +46,28 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             maxlength="3"
             required
           />
-          <.button variant="primary" phx-disable-with="Saving...">Save Profile</.button>
+
+          <div class="mt-4">
+            <.button variant="primary" phx-disable-with="Saving...">Save Profile</.button>
+          </div>
         </.form>
+      </section>
 
-        <div class="divider" />
+    <!-- Email -->
+      <section class="card" aria-labelledby="email-settings-title">
+        <div class="card-head">
+          <div>
+            <h2 id="email-settings-title" class="card-title">Email</h2>
+            <div class="card-meta">Used to sign in and receive notifications</div>
+          </div>
+        </div>
 
-        <.header>
-          Email
-          <:subtitle>Used to sign in and receive notifications</:subtitle>
-        </.header>
-
-        <.form for={@email_form} id="email_form" phx-submit="update_email" phx-change="validate_email">
+        <.form
+          for={@email_form}
+          id="email_form"
+          phx-submit="update_email"
+          phx-change="validate_email"
+        >
           <.input
             field={@email_form[:email]}
             type="email"
@@ -62,15 +75,21 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             autocomplete="username"
             required
           />
-          <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+
+          <div class="mt-4">
+            <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+          </div>
         </.form>
+      </section>
 
-        <div class="divider" />
-
-        <.header>
-          Password
-          <:subtitle>Set or update the password used for this account</:subtitle>
-        </.header>
+    <!-- Password -->
+      <section class="card" aria-labelledby="password-settings-title">
+        <div class="card-head">
+          <div>
+            <h2 id="password-settings-title" class="card-title">Password</h2>
+            <div class="card-meta">Set or update the password used for this account</div>
+          </div>
+        </div>
 
         <.form
           for={@password_form}
@@ -88,6 +107,7 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             autocomplete="username"
             value={@current_email}
           />
+
           <.input
             field={@password_form[:password]}
             type="password"
@@ -95,18 +115,20 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             autocomplete="new-password"
             required
           />
+
           <.input
             field={@password_form[:password_confirmation]}
             type="password"
             label="Confirm new password"
             autocomplete="new-password"
           />
-          <.button variant="primary" phx-disable-with="Saving...">
-            Save Password
-          </.button>
+
+          <div class="mt-4">
+            <.button variant="primary" phx-disable-with="Saving...">Save Password</.button>
+          </div>
         </.form>
-      </div>
-    </Layouts.app>
+      </section>
+    </div>
     """
   end
 
