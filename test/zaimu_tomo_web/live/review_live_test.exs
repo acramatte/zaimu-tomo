@@ -2,8 +2,14 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
   use ZaimuTomoWeb.ConnCase
 
   import Phoenix.LiveViewTest
+  import ZaimuTomo.AccountsFixtures
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
+
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
+  alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Repo
 
   setup :register_and_log_in_user
 
@@ -354,5 +360,316 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert show_live
            |> form("#feedback_form", feedback: %{comment: "The amount was parsed incorrectly"})
            |> render_submit() =~ "Your feedback has been recorded."
+  end
+
+  describe "duplicate invoice detection" do
+    @base_data %{
+      amount_to_pay_cents: 4200,
+      invoice_date: "2026-06-09",
+      invoice_number: "INV-777",
+      currency: "CHF",
+      reason_for_payment: "Office supplies",
+      issuer: "Acme Corp"
+    }
+
+    test "blocks approval of an exact duplicate and links to the recorded entry", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      original_document = document_fixture(scope)
+
+      original_content =
+        extracted_content_fixture(original_document, user, %{extracted_data: @base_data})
+
+      {:ok, _} = Review.create_initial_decision(original_content)
+      {:ok, _} = Review.approve_invoice(original_content.id, user.id)
+
+      duplicate_document = document_fixture(scope)
+
+      duplicate_content =
+        extracted_content_fixture(duplicate_document, user, %{extracted_data: @base_data})
+
+      review = pending_review_fixture(duplicate_content)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Invoice already recorded"
+      assert html =~ "INV-777"
+      refute has_element?(show_live, "button", "Approve & post")
+      assert has_element?(show_live, "a", "Open entry")
+
+      # Approving through the (now hidden) action is refused at the context
+      # level too: the review stays pending and no entry appears.
+      render_click(show_live, "approve")
+      decision = Repo.get!(ReviewDecision, review.id)
+      assert decision.review_status == "pending"
+      assert Accounting.get_journal_entry_for_decision(review.id) == :error
+    end
+
+    test "warns but allows posting for an unnumbered tuple match", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      original_document = document_fixture(scope)
+
+      original_content =
+        extracted_content_fixture(original_document, user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: nil})
+        })
+
+      {:ok, _} = Review.create_initial_decision(original_content)
+      {:ok, _} = Review.approve_invoice(original_content.id, user.id)
+
+      duplicate_document = document_fixture(scope)
+
+      duplicate_content =
+        extracted_content_fixture(duplicate_document, user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: nil})
+        })
+
+      review = pending_review_fixture(duplicate_content)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Possible duplicate"
+      refute has_element?(show_live, "button", "Approve & post")
+
+      # The plain approve event does not post a possible duplicate.
+      render_click(show_live, "approve")
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+
+      assert {:error, {:redirect, %{to: to}}} =
+               show_live |> element("button", "Post anyway") |> render_click()
+
+      assert to =~ "/journal_entries/"
+    end
+
+    test "treats a numbered entry matched by the unnumbered tuple as a possible duplicate", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      original_document = document_fixture(scope)
+
+      original_content =
+        extracted_content_fixture(original_document, user, %{extracted_data: @base_data})
+
+      {:ok, _} = Review.create_initial_decision(original_content)
+      {:ok, _} = Review.approve_invoice(original_content.id, user.id)
+
+      content =
+        extracted_content_fixture(document_fixture(scope), user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: nil})
+        })
+
+      review = pending_review_fixture(content)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Possible duplicate"
+      refute html =~ "Invoice already recorded"
+      assert has_element?(show_live, "button", "Post anyway")
+    end
+
+    test "renders an unnumbered review with a missing amount", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      content =
+        extracted_content_fixture(document_fixture(scope), user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: nil, amount_to_pay_cents: nil})
+        })
+
+      review = pending_review_fixture(content)
+
+      assert {:ok, _show_live, html} = live(conn, ~p"/reviews/#{review}")
+      refute html =~ "Possible duplicate"
+    end
+
+    test "amending into a possible duplicate posts only through Post anyway", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      unnumbered = Map.merge(@base_data, %{invoice_number: nil})
+
+      original_content =
+        extracted_content_fixture(document_fixture(scope), user, %{extracted_data: unnumbered})
+
+      {:ok, _} = Review.create_initial_decision(original_content)
+      {:ok, _} = Review.approve_invoice(original_content.id, user.id)
+
+      content =
+        extracted_content_fixture(document_fixture(scope), user, %{
+          extracted_data: Map.merge(unnumbered, %{amount_to_pay_cents: 1})
+        })
+
+      review = pending_review_fixture(content)
+      {:ok, edit_live, _html} = live(conn, ~p"/reviews/#{review}/edit")
+
+      submit = fn amount ->
+        edit_live
+        |> form("#review_form", %{
+          "review_decision" => %{"review_notes" => "Amended"},
+          "decision_data" => %{
+            "issuer" => "Acme Corp",
+            "invoice_number" => "",
+            "invoice_date" => "2026-06-09",
+            "amount_to_pay_cents" => amount,
+            "currency" => "CHF",
+            "reason_for_payment" => "Amended data"
+          }
+        })
+        |> render_submit()
+      end
+
+      assert submit.("4200") =~ "Possible duplicate"
+      # Saving again re-checks and re-asks instead of posting.
+      assert submit.("4200") =~ "Post anyway"
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+
+      assert {:error, {:redirect, %{to: to}}} =
+               edit_live |> element("button", "Post anyway") |> render_click()
+
+      assert to =~ "/journal_entries/"
+    end
+
+    test "a non-integer amount in the amend form does not crash the duplicate check", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      content =
+        extracted_content_fixture(document_fixture(scope), user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: nil})
+        })
+
+      review = pending_review_fixture(content)
+      {:ok, edit_live, _html} = live(conn, ~p"/reviews/#{review}/edit")
+
+      html =
+        edit_live
+        |> form("#review_form", %{
+          "review_decision" => %{"review_notes" => "Amended"},
+          "decision_data" => %{
+            "issuer" => "Acme Corp",
+            "invoice_number" => "",
+            "invoice_date" => "2026-06-09",
+            "amount_to_pay_cents" => "12.50",
+            "currency" => "CHF",
+            "reason_for_payment" => "Amended data"
+          }
+        })
+        |> render_submit()
+
+      assert is_binary(html)
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+    end
+
+    test "never shows another user's entry as a candidate", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      other_user = user_fixture()
+      other_scope = user_scope_fixture(other_user)
+      other_document = document_fixture(other_scope)
+
+      other_content =
+        extracted_content_fixture(other_document, other_user, %{extracted_data: @base_data})
+
+      {:ok, _} = Review.create_initial_decision(other_content)
+      {:ok, _} = Review.approve_invoice(other_content.id, other_user.id)
+
+      document = document_fixture(scope)
+      content = extracted_content_fixture(document, user, %{extracted_data: @base_data})
+      review = pending_review_fixture(content)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      refute html =~ "Invoice already recorded"
+      refute html =~ "Possible duplicate"
+      assert has_element?(show_live, "button", "Approve & post")
+    end
+
+    test "flags a strong duplicate when the amended data matches a recorded invoice", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      document = document_fixture(scope)
+
+      content =
+        extracted_content_fixture(document, user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: "INV-OTHER"})
+        })
+
+      review = pending_review_fixture(content)
+
+      original_document = document_fixture(scope)
+
+      original_content =
+        extracted_content_fixture(original_document, user, %{extracted_data: @base_data})
+
+      {:ok, _} = Review.create_initial_decision(original_content)
+      {:ok, _} = Review.approve_invoice(original_content.id, user.id)
+
+      {:ok, edit_live, _html} = live(conn, ~p"/reviews/#{review}/edit")
+
+      message =
+        edit_live
+        |> form("#review_form", %{
+          "review_decision" => %{"review_notes" => "Amended"},
+          "decision_data" => %{
+            "issuer" => "Acme Corp",
+            "invoice_number" => "INV-777",
+            "invoice_date" => "2026-06-09",
+            "amount_to_pay_cents" => "4200",
+            "currency" => "CHF",
+            "reason_for_payment" => "Amended data"
+          }
+        })
+        |> render_submit()
+
+      assert message =~ "Invoice already recorded"
+      assert render(edit_live) =~ "This invoice number is already recorded for this issuer"
+    end
+
+    test "posts successfully when the amended data has no duplicate", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      document = document_fixture(scope)
+
+      content =
+        extracted_content_fixture(document, user, %{
+          extracted_data: Map.merge(@base_data, %{invoice_number: "INV-OTHER"})
+        })
+
+      review = pending_review_fixture(content)
+
+      {:ok, edit_live, _html} = live(conn, ~p"/reviews/#{review}/edit")
+
+      assert {:error, {:redirect, %{to: to}}} =
+               edit_live
+               |> form("#review_form", %{
+                 "review_decision" => %{"review_notes" => "Amended"},
+                 "decision_data" => %{
+                   "issuer" => "Acme Corp",
+                   "invoice_number" => "INV-999",
+                   "invoice_date" => "2026-06-09",
+                   "amount_to_pay_cents" => "4200",
+                   "currency" => "CHF",
+                   "reason_for_payment" => "Amended data"
+                 }
+               })
+               |> render_submit()
+
+      assert to =~ "/journal_entries/"
+    end
   end
 end
