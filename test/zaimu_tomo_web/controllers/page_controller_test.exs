@@ -313,7 +313,8 @@ defmodule ZaimuTomoWeb.PageControllerTest do
 
     extracted_content = extracted_content_fixture(document, user)
     decision = approved_review_fixture(extracted_content, user)
-    {:ok, entry} = Accounting.create_from_decision(decision)
+    # Approving posts the journal entry transactionally in the review context.
+    {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
     entry
   end
 
