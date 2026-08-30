@@ -44,10 +44,10 @@ Elixir/Phoenix toolchain:
 docker compose up -d db rustfs
 docker compose --profile bootstrap run --rm rustfs-init
 mix setup
-POSTGRES_PORT=55432 mix phx.server
+mix phx.server
 ```
 
-Then open [localhost:4000](http://localhost:4000). The bundled PostgreSQL service maps to host port `55432` to avoid collisions with other local projects.
+Then open [localhost:4000](http://localhost:4000). The bundled PostgreSQL service maps to host port `5432`; set `POSTGRES_PORT` in the shell (or as a Compose variable) to override if another local Postgres already uses that port.
 
 RustFS exposes its S3-compatible API on [localhost:9000](http://localhost:9000)
 and its local console on [localhost:9001](http://localhost:9001). The bootstrap

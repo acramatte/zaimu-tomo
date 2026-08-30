@@ -16,10 +16,10 @@ Add <X> so that <Y>. [WHY]
 
 <design decisions — what was extracted/shared and why>. [optional but expected for non-trivial changes]
 
-Tests: POSTGRES_PORT=55432 mix test <file_a> <file_b>
+Tests: mix test <file_a> <file_b>
 ```
 
-`Tests:` examples: code change → `Tests: POSTGRES_PORT=55432 mix test test/..._test.exs`; docs-only → `Tests: docs-only change; verified with git diff --check`.
+`Tests:` examples: code change → `Tests: mix test test/..._test.exs`; docs-only → `Tests: docs-only change; verified with git diff --check`.
 
 **Branches** are simple and feature-focused (`feat/<slug>` / `fix/<slug>`), with no base suffix unless complex merge work genuinely requires one. Always create a dedicated branch/worktree before touching files, and fork worktrees from an explicit ref (`git worktree add -b feat/<name> <dir> origin/main`), never bare `HEAD`. Use a separate worktree whenever concurrent sessions are possible.
 
