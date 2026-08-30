@@ -10,7 +10,9 @@ defmodule ZaimuTomo.Review do
   import Ecto.Query, warn: false
   require Logger
 
+  alias Ecto.Multi
   alias ZaimuTomo.Repo
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Review.EventLog
@@ -48,17 +50,19 @@ defmodule ZaimuTomo.Review do
   # ---------------------------------------------------------------------------
 
   def approve_invoice(extracted_content_id, user_id, notes \\ nil) do
-    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <-
-           update_review_decision(decision, %{
-             review_status: "approved",
-             decision_type: "approved",
-             review_notes: notes,
-             review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-           }) do
-      write_event_log("invoice_approved", extracted_content_id, user_id, %{notes: notes})
-      emit_review_completed_event(updated, "approved")
-      {:ok, updated}
+    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id) do
+      post_review_transaction(
+        decision,
+        %{
+          review_status: "approved",
+          decision_type: "approved",
+          review_notes: notes,
+          review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        "invoice_approved",
+        %{notes: notes},
+        "approved"
+      )
     end
   end
 
@@ -83,23 +87,21 @@ defmodule ZaimuTomo.Review do
   end
 
   def amend_invoice(extracted_content_id, user_id, amended_data, notes \\ nil) do
-    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <-
-           update_review_decision(decision, %{
-             review_status: "amended",
-             decision_type: "amended",
-             status: "completed",
-             decision_data: amended_data,
-             review_notes: notes,
-             review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-           }) do
-      write_event_log("invoice_amended", extracted_content_id, user_id, %{
-        amended_data: amended_data,
-        notes: notes
-      })
-
-      emit_review_completed_event(updated, "amended")
-      {:ok, updated}
+    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id) do
+      post_review_transaction(
+        decision,
+        %{
+          review_status: "amended",
+          decision_type: "amended",
+          status: "completed",
+          decision_data: amended_data,
+          review_notes: notes,
+          review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        },
+        "invoice_amended",
+        %{amended_data: amended_data, notes: notes},
+        "amended"
+      )
     end
   end
 
@@ -217,24 +219,70 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  defp write_event_log(event_type, invoice_id, user_id, metadata) do
-    result =
-      EventLog.changeset_for_create(%{
-        event_type: event_type,
-        invoice_id: to_string(invoice_id),
-        user_id: user_id,
-        metadata: metadata,
-        status: "completed"
-      })
-      |> Repo.insert()
+  # Marks a pending review as approved or amended and posts its journal entry in
+  # ONE transaction.
+  #
+  # The journal entry is created from the decision's effective data (amended data
+  # when present, original otherwise) in the same transaction that updates the
+  # review, so a duplicate invoice — enforced by the unique
+  # (user, issuer, invoice number) index — rolls the whole transition back and
+  # the review stays pending. Returns `{:error, :duplicate_invoice}` in that
+  # case, `{:error, changeset}` for other failures.
+  defp post_review_transaction(decision, changeset_attrs, event_type, event_metadata, status) do
+    Multi.new()
+    |> Multi.update(
+      :review_decision,
+      ReviewDecision.changeset_for_update(decision, changeset_attrs)
+    )
+    |> Multi.merge(fn %{review_decision: updated} ->
+      Accounting.create_multi_from_decision(updated, %{})
+    end)
+    |> Multi.run(:event_log, fn repo, %{review_decision: updated} ->
+      write_event_log(
+        repo,
+        event_type,
+        updated.extracted_content_id,
+        updated.user_id,
+        event_metadata
+      )
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{review_decision: updated}} ->
+        emit_review_completed_event(updated, status)
+        {:ok, updated}
 
-    case result do
+      {:error, :journal_entry, %Ecto.Changeset{} = changeset, _changes} ->
+        if Accounting.duplicate_error?(changeset) do
+          {:error, :duplicate_invoice}
+        else
+          {:error, changeset}
+        end
+
+      {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+        {:error, changeset}
+    end
+  end
+
+  defp write_event_log(event_type, invoice_id, user_id, metadata) do
+    write_event_log(Repo, event_type, invoice_id, user_id, metadata)
+  end
+
+  defp write_event_log(repo, event_type, invoice_id, user_id, metadata) do
+    case EventLog.changeset_for_create(%{
+           event_type: event_type,
+           invoice_id: to_string(invoice_id),
+           user_id: user_id,
+           metadata: metadata,
+           status: "completed"
+         })
+         |> repo.insert() do
       {:ok, _} ->
-        :ok
+        {:ok, nil}
 
       {:error, reason} ->
         Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
-        :ok
+        {:ok, nil}
     end
   end
 
