@@ -20,12 +20,16 @@ defmodule ZaimuTomo.LLMClient do
           max_tokens: pos_integer() | nil
         ]
   @type workflow_config :: [extractor: role_config(), verifier: role_config()]
-  @type backend_config :: [provider: atom(), base_url: String.t(), api_key: String.t() | nil]
+  @type backend_config :: [
+          provider: atom(),
+          base_url: String.t(),
+          api_key: String.t() | nil
+        ]
   @type resolved_backend_config :: [
           provider: atom(),
           base_url: String.t(),
           model: String.t(),
-          api_key: String.t()
+          api_key: String.t() | nil
         ]
   @type extraction_payload :: ExtractedData.t() | map()
   @type validation_errors :: map()
@@ -352,14 +356,26 @@ defmodule ZaimuTomo.LLMClient do
     backend_config = Application.fetch_env!(:zaimu_tomo, backend)
 
     api_key =
-      case Keyword.fetch!(backend_config, :api_key) do
-        api_key when is_binary(api_key) and byte_size(api_key) > 0 -> api_key
-        _ -> raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
-      end
+      backend_api_key!(
+        Keyword.get(backend_config, :provider),
+        Keyword.get(backend_config, :api_key),
+        backend
+      )
 
     backend_config
     |> Keyword.put(:model, model_for(role))
     |> Keyword.put(:api_key, api_key)
+  end
+
+  # ReqLLM's Ollama provider sends no Authorization header.
+  defp backend_api_key!(:ollama, _api_key, _backend), do: nil
+
+  defp backend_api_key!(_provider, api_key, _backend)
+       when is_binary(api_key) and byte_size(api_key) > 0,
+       do: api_key
+
+  defp backend_api_key!(_provider, _api_key, backend) do
+    raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
   end
 
   @spec normalize_backend(backend() | String.t() | term()) :: backend()
@@ -390,11 +406,15 @@ defmodule ZaimuTomo.LLMClient do
 
   @spec req_llm_opts(resolved_backend_config()) :: keyword()
   defp req_llm_opts(config) do
-    [
-      api_key: Keyword.fetch!(config, :api_key),
+    base_opts = [
       temperature: 0.0,
       telemetry: [payloads: :none]
     ]
+
+    case Keyword.fetch!(config, :api_key) do
+      nil -> base_opts
+      api_key -> Keyword.put(base_opts, :api_key, api_key)
+    end
   end
 
   @spec backend_summary(role(), resolved_backend_config()) :: String.t()
