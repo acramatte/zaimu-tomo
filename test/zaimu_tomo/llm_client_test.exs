@@ -310,6 +310,30 @@ defmodule ZaimuTomo.LLMClientTest do
         LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
       end
     end
+
+    test "resolves the native ollama backend without an API key" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "gemma4:e4b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      Application.put_env(:zaimu_tomo, :ollama,
+        provider: :ollama,
+        base_url: "http://localhost:11434/v1",
+        api_key: nil,
+        requires_api_key: false
+      )
+
+      on_exit(fn ->
+        Application.delete_env(:zaimu_tomo, :ollama)
+      end)
+
+      # With no api_key configured, the request must pass the credential
+      # guard and fail at the transport layer (no local Ollama in CI),
+      # rather than raising the api_key ArgumentError.
+      assert {:error, {:llm_request_failed, _reason}} =
+               LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
+    end
   end
 
   describe "model_for/1" do

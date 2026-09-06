@@ -69,9 +69,12 @@ config :zaimu_tomo, :ai_workflow,
   ]
 
 config :zaimu_tomo, :ollama,
-  provider: :openai,
+  # Native ReqLLM Ollama provider: no Authorization header is sent, so
+  # OLLAMA_API_KEY is no longer read.
+  provider: :ollama,
   base_url: System.get_env("OLLAMA_URL", "http://localhost:11434/v1"),
-  api_key: System.get_env("OLLAMA_API_KEY", "ollama")
+  api_key: nil,
+  requires_api_key: false
 
 config :zaimu_tomo, :flm,
   provider: :openai,

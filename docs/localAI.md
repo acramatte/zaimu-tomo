@@ -43,13 +43,14 @@ Because the backend is a generic OpenAI-compatible client, `FLM_URL` can point a
 
 ## Ollama
 
+Ollama uses ReqLLM's native Ollama provider, which sends no Authorization header, so no API key is needed:
+
 ```bash
 export AI_EXTRACTOR_BACKEND=ollama
 export AI_EXTRACTOR_MODEL="gemma4:e4b"
 export AI_VERIFIER_BACKEND=ollama
 export AI_VERIFIER_MODEL="gemma4:e4b"
 export OLLAMA_URL="http://localhost:11434/v1"
-export OLLAMA_API_KEY="ollama"
 ```
 
 ## Mistral (cloud)

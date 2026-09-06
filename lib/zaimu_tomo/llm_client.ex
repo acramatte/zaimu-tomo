@@ -20,12 +20,17 @@ defmodule ZaimuTomo.LLMClient do
           max_tokens: pos_integer() | nil
         ]
   @type workflow_config :: [extractor: role_config(), verifier: role_config()]
-  @type backend_config :: [provider: atom(), base_url: String.t(), api_key: String.t() | nil]
+  @type backend_config :: [
+          provider: atom(),
+          base_url: String.t(),
+          api_key: String.t() | nil,
+          requires_api_key: boolean()
+        ]
   @type resolved_backend_config :: [
           provider: atom(),
           base_url: String.t(),
           model: String.t(),
-          api_key: String.t()
+          api_key: String.t() | nil
         ]
   @type extraction_payload :: ExtractedData.t() | map()
   @type validation_errors :: map()
@@ -351,10 +356,19 @@ defmodule ZaimuTomo.LLMClient do
     backend = backend_for(role)
     backend_config = Application.fetch_env!(:zaimu_tomo, backend)
 
+    # The native ReqLLM Ollama provider attaches no Authorization header at
+    # all, so the api_key contract does not apply there.
     api_key =
-      case Keyword.fetch!(backend_config, :api_key) do
-        api_key when is_binary(api_key) and byte_size(api_key) > 0 -> api_key
-        _ -> raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
+      if Keyword.get(backend_config, :requires_api_key, true) do
+        case Keyword.fetch!(backend_config, :api_key) do
+          api_key when is_binary(api_key) and byte_size(api_key) > 0 ->
+            api_key
+
+          _ ->
+            raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
+        end
+      else
+        nil
       end
 
     backend_config
@@ -390,11 +404,15 @@ defmodule ZaimuTomo.LLMClient do
 
   @spec req_llm_opts(resolved_backend_config()) :: keyword()
   defp req_llm_opts(config) do
-    [
-      api_key: Keyword.fetch!(config, :api_key),
+    base_opts = [
       temperature: 0.0,
       telemetry: [payloads: :none]
     ]
+
+    case Keyword.fetch!(config, :api_key) do
+      nil -> base_opts
+      api_key -> Keyword.put(base_opts, :api_key, api_key)
+    end
   end
 
   @spec backend_summary(role(), resolved_backend_config()) :: String.t()

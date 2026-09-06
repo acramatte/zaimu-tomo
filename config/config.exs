@@ -36,9 +36,12 @@ config :zaimu_tomo, :ai_workflow,
   verifier: [backend: :flm, model: "phi4-mini-it:4b", max_tokens: 4096]
 
 config :zaimu_tomo, :ollama,
-  provider: :openai,
+  # Native ReqLLM Ollama provider: no Authorization header is sent, so no
+  # api_key is configured and requires_api_key is false.
+  provider: :ollama,
   base_url: "http://localhost:11434/v1",
-  api_key: "ollama"
+  api_key: nil,
+  requires_api_key: false
 
 config :zaimu_tomo, :flm,
   provider: :openai,
