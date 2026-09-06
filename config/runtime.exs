@@ -73,8 +73,7 @@ config :zaimu_tomo, :ollama,
   # OLLAMA_API_KEY is no longer read.
   provider: :ollama,
   base_url: System.get_env("OLLAMA_URL", "http://localhost:11434/v1"),
-  api_key: nil,
-  requires_api_key: false
+  api_key: nil
 
 config :zaimu_tomo, :flm,
   provider: :openai,

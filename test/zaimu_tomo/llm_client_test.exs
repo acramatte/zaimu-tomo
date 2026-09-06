@@ -7,6 +7,46 @@ defmodule ZaimuTomo.LLMClientTest do
   alias ReqLLM.ToolCall
   alias ZaimuTomo.LLMClient
 
+  defmodule OllamaStub do
+    def init(test_pid), do: test_pid
+
+    def call(conn, test_pid) do
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      request = Jason.decode!(body)
+      send(test_pid, {:ollama_request, conn.request_path, conn.req_headers, request})
+
+      object =
+        if request["model"] == "extractor" do
+          %{
+            amount_to_pay_cents: 1200,
+            invoice_date: "2026-01-01",
+            currency: "CHF",
+            reason_for_payment: "Services",
+            issuer: "Example Ltd"
+          }
+        else
+          %{status: "verified", reason: "All fields match."}
+        end
+
+      response = %{
+        id: "test-response",
+        model: request["model"],
+        choices: [
+          %{
+            index: 0,
+            message: %{role: "assistant", content: Jason.encode!(object)},
+            finish_reason: "stop"
+          }
+        ],
+        usage: %{prompt_tokens: 10, completion_tokens: 10, total_tokens: 20}
+      }
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, Jason.encode!(response))
+    end
+  end
+
   setup do
     original_workflow = Application.fetch_env!(:zaimu_tomo, :ai_workflow)
 
@@ -311,28 +351,45 @@ defmodule ZaimuTomo.LLMClientTest do
       end
     end
 
-    test "resolves the native ollama backend without an API key" do
-      Application.put_env(:zaimu_tomo, :ai_workflow,
-        extractor: [backend: :ollama, model: "gemma4:e4b"],
-        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
-      )
+    test "extracts and verifies through Ollama without credentials" do
+      original_config = Application.fetch_env!(:zaimu_tomo, :ollama)
+      original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
+
+      on_exit(fn ->
+        Application.put_env(:zaimu_tomo, :ollama, original_config)
+        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+      end)
+
+      server =
+        start_supervised!({Bandit, plug: {OllamaStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
 
       Application.put_env(:zaimu_tomo, :ollama,
         provider: :ollama,
-        base_url: "http://localhost:11434/v1",
-        api_key: nil,
-        requires_api_key: false
+        base_url: "http://127.0.0.1:#{port}/v1"
       )
 
-      on_exit(fn ->
-        Application.delete_env(:zaimu_tomo, :ollama)
-      end)
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor"],
+        verifier: [backend: :ollama, model: "verifier"]
+      )
 
-      # With no api_key configured, the request must pass the credential
-      # guard and fail at the transport layer (no local Ollama in CI),
-      # rather than raising the api_key ArgumentError.
-      assert {:error, {:llm_request_failed, _reason}} =
-               LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
+      assert {:ok, extracted} = LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
+      assert extracted.amount_to_pay_cents == 1200
+
+      assert {:ok, %{"status" => "verified"}} =
+               LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted)
+
+      for model <- ["extractor", "verifier"] do
+        assert_receive {:ollama_request, "/v1/chat/completions", headers, body}
+        refute List.keymember?(headers, "authorization", 0)
+        assert body["model"] == model
+        assert body["messages"] != []
+        assert body["response_format"]["type"] == "json_schema"
+        assert is_map(body["response_format"]["json_schema"]["schema"]["properties"])
+      end
     end
   end
 

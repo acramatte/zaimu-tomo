@@ -23,8 +23,7 @@ defmodule ZaimuTomo.LLMClient do
   @type backend_config :: [
           provider: atom(),
           base_url: String.t(),
-          api_key: String.t() | nil,
-          requires_api_key: boolean()
+          api_key: String.t() | nil
         ]
   @type resolved_backend_config :: [
           provider: atom(),
@@ -356,24 +355,27 @@ defmodule ZaimuTomo.LLMClient do
     backend = backend_for(role)
     backend_config = Application.fetch_env!(:zaimu_tomo, backend)
 
-    # The native ReqLLM Ollama provider attaches no Authorization header at
-    # all, so the api_key contract does not apply there.
     api_key =
-      if Keyword.get(backend_config, :requires_api_key, true) do
-        case Keyword.fetch!(backend_config, :api_key) do
-          api_key when is_binary(api_key) and byte_size(api_key) > 0 ->
-            api_key
-
-          _ ->
-            raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
-        end
-      else
-        nil
-      end
+      backend_api_key!(
+        Keyword.get(backend_config, :provider),
+        Keyword.get(backend_config, :api_key),
+        backend
+      )
 
     backend_config
     |> Keyword.put(:model, model_for(role))
     |> Keyword.put(:api_key, api_key)
+  end
+
+  # ReqLLM's Ollama provider sends no Authorization header.
+  defp backend_api_key!(:ollama, _api_key, _backend), do: nil
+
+  defp backend_api_key!(_provider, api_key, _backend)
+       when is_binary(api_key) and byte_size(api_key) > 0,
+       do: api_key
+
+  defp backend_api_key!(_provider, _api_key, backend) do
+    raise ArgumentError, "AI backend #{inspect(backend)} requires a non-empty api_key"
   end
 
   @spec normalize_backend(backend() | String.t() | term()) :: backend()

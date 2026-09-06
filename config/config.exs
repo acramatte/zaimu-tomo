@@ -37,11 +37,10 @@ config :zaimu_tomo, :ai_workflow,
 
 config :zaimu_tomo, :ollama,
   # Native ReqLLM Ollama provider: no Authorization header is sent, so no
-  # api_key is configured and requires_api_key is false.
+  # API key is needed.
   provider: :ollama,
   base_url: "http://localhost:11434/v1",
-  api_key: nil,
-  requires_api_key: false
+  api_key: nil
 
 config :zaimu_tomo, :flm,
   provider: :openai,
