@@ -299,6 +299,8 @@ defmodule ZaimuTomoWeb.PageController do
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
     pending_review_count = Review.pending_review_count(scope)
+    ytd_spending = Spending.monthly_history(scope, today, today.month)
+    ytd_points = Spending.ytd_points(ytd_spending)
 
     %{
       current_path: "/",
@@ -318,6 +320,9 @@ defmodule ZaimuTomoWeb.PageController do
       month_comparison_class:
         Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents),
       donut_segments: donut_segments,
+      ytd_spending: ytd_spending,
+      ytd_points: ytd_points,
+      ytd_year: today.year,
       activity: @activity,
       upcoming: @upcoming,
       pending_review_count: pending_review_count
