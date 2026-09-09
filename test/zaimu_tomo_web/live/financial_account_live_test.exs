@@ -52,4 +52,22 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
     assert render(view) =~ "EUR 123.45"
     assert render(view) =~ "2026-07-29"
   end
+
+  test "shows a validation error for an amount with more than two decimals", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/accounts")
+
+    view
+    |> form("#financial-account-form", %{
+      "account" => %{
+        "name" => "Emergency fund",
+        "account_type" => "savings",
+        "currency" => "EUR",
+        "balance" => "12.345",
+        "recorded_on" => "2026-07-28"
+      }
+    })
+    |> render_submit()
+
+    assert render(view) =~ "must have at most two decimal places"
+  end
 end

@@ -54,6 +54,12 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     |> String.reverse()
   end
 
+  # ── Recurring expenses ─────────────────────────────────────────────────────
+
+  def frequency_label(:monthly), do: "Monthly"
+  def frequency_label(:quarterly), do: "Quarterly"
+  def frequency_label(:yearly), do: "Annual"
+
   # ── Status pill ────────────────────────────────────────────────────────────
 
   attr :status, :string, required: true
