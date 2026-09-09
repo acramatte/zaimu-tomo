@@ -102,48 +102,112 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
-  # ── Bar chart ──────────────────────────────────────────────────────────────
+  # ── Line chart ─────────────────────────────────────────────────────────────
 
   attr :months, :list, required: true
   attr :currency, :string, required: true
 
-  def bar_chart(assigns) do
+  def line_chart(assigns) do
     max_value = assigns.months |> Enum.map(& &1.value) |> Enum.max(fn -> 1 end) |> max(1)
+    point_count = length(assigns.months)
 
-    months =
-      Enum.map(assigns.months, fn month ->
+    points =
+      assigns.months
+      |> Enum.with_index()
+      |> Enum.map(fn {month, index} ->
+        x = (index + 0.5) / point_count * 100
+        y = 92 - max(month.value, 0) / max_value * 84
         exact_value = fmt_cents(month.value, assigns.currency)
 
         Map.merge(month, %{
-          pct: max(2.0, Float.round(month.value / max_value * 100, 1)),
-          compact_value: compact_cents(month.value),
+          x: Float.round(x, 2),
+          y: Float.round(y, 2),
+          tooltip_below: y < 28,
           exact_value: exact_value,
           accessible_label: "#{month.full_label}: #{exact_value}"
         })
       end)
 
-    assigns = assign(assigns, months: months)
+    axis_ticks =
+      for step <- 0..3 do
+        value = round(max_value * (3 - step) / 3)
+
+        %{
+          y: Float.round(8.0 + step * 28, 2),
+          compact_value: compact_cents(value)
+        }
+      end
+
+    line_points = Enum.map_join(points, " ", &"#{&1.x},#{&1.y}")
+    first_point = List.first(points)
+    last_point = List.last(points)
+    area_points = "#{first_point.x},92 #{line_points} #{last_point.x},92"
+
+    assigns =
+      assign(assigns,
+        points: points,
+        axis_ticks: axis_ticks,
+        line_points: line_points,
+        area_points: area_points,
+        point_count: point_count
+      )
 
     ~H"""
-    <div class="bar-chart" id="spending-bar-chart">
-      <%= for month <- @months do %>
-        <.link
-          navigate={month.href}
-          class={["bar-col", month.active && "active"]}
-          aria-label={month.accessible_label}
+    <div
+      class="line-chart"
+      id="spending-line-chart"
+      role="group"
+      aria-label="Monthly spending year to date"
+    >
+      <div class="line-axis" aria-hidden="true">
+        <%= for tick <- @axis_ticks do %>
+          <span class="line-axis-label" style={"top:#{tick.y}%"}>
+            <span class="line-axis-currency">{@currency}</span> {tick.compact_value}
+          </span>
+        <% end %>
+      </div>
+      <div class="line-plot">
+        <svg
+          class="line-plot-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
         >
-          <span class="bar-tooltip" role="tooltip">
-            {month.full_label} · <strong>{month.exact_value}</strong>
+          <%= for tick <- @axis_ticks do %>
+            <line
+              class="line-grid"
+              x1="0"
+              y1={tick.y}
+              x2="100"
+              y2={tick.y}
+              vector-effect="non-scaling-stroke"
+            />
+          <% end %>
+          <polygon class="line-area" points={@area_points} vector-effect="non-scaling-stroke" />
+          <polyline class="line-stroke" points={@line_points} vector-effect="non-scaling-stroke" />
+        </svg>
+        <%= for point <- @points do %>
+          <span
+            class={["line-point", point.tooltip_below && "tooltip-below"]}
+            style={"left:#{point.x}%;top:#{point.y}%"}
+            role="img"
+            tabindex="0"
+            aria-label={point.accessible_label}
+          >
+            <span class="line-dot" aria-hidden="true"></span>
+            <span class="line-tooltip" role="tooltip">
+              {point.full_label} · <strong>{point.exact_value}</strong>
+            </span>
           </span>
-          <span class="bar-value" aria-hidden="true">
-            <span class="bar-value-currency">{@currency}</span> {month.compact_value}
-          </span>
-          <span class="bar-track" aria-hidden="true">
-            <span class="bar-fill" style={"height:#{month.pct}%"}></span>
-          </span>
-          <span class="bar-label" aria-hidden="true">{month.label}</span>
-        </.link>
-      <% end %>
+        <% end %>
+      </div>
+      <div
+        class="line-labels"
+        style={"grid-template-columns:repeat(#{@point_count},minmax(0,1fr))"}
+        aria-hidden="true"
+      >
+        <span :for={point <- @points} class="line-label">{point.label}</span>
+      </div>
     </div>
     """
   end

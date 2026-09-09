@@ -276,7 +276,7 @@ body {
   border-radius: var(--radius);
   padding: var(--pad-card-y) var(--pad-card);
 }
-.spending-history-card { margin-top: var(--gap-grid); }
+.spending-ytd-card { margin-top: var(--gap-grid); }
 
 .card-head {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -541,70 +541,85 @@ body {
 }
 
 /* ============================
-   Bar chart
+   Line chart
    ============================ */
-.bar-chart {
-  display: flex;
-  gap: 12px;
-  height: 180px;
-  padding-top: 34px;
-}
-.bar-col {
-  position: relative;
-  flex: 1;
-  min-width: 0;
+.line-chart {
   display: grid;
-  grid-template-rows: 18px minmax(0, 1fr) 14px;
-  align-items: end;
-  gap: 6px;
-  height: 100%;
-  text-decoration: none;
-  color: inherit;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: 210px 20px;
+  column-gap: 10px;
+  padding-top: 8px;
 }
-.bar-col:focus-visible { outline: none; }
-.bar-track {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+.line-axis {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
 }
-.bar-fill {
-  width: 100%;
-  max-width: 44px;
-  background: var(--panel-2);
-  border: 1px solid var(--hairline);
-  border-radius: 5px 5px 0 0;
-  transition: background 150ms, border-color 150ms, transform 150ms;
-}
-.bar-col:hover .bar-fill,
-.bar-col:focus-visible .bar-fill { background: var(--accent-tint); border-color: var(--accent); transform: translateY(-2px); }
-.bar-col.active .bar-fill { background: var(--accent); border-color: var(--accent); }
-.bar-value,
-.bar-label {
-  justify-self: center;
+.line-axis-label {
+  position: absolute;
+  right: 0;
+  translate: 0 -50%;
+  color: var(--muted);
   font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.bar-value {
-  color: var(--ink-2);
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
+.line-plot {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
 }
-.bar-label {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
+.line-plot-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-.bar-col:hover .bar-label,
-.bar-col:focus-visible .bar-label { color: var(--ink); }
-.bar-tooltip {
+.line-grid {
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+.line-area {
+  fill: var(--accent-tint);
+  opacity: 0.55;
+}
+.line-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line-point {
+  position: absolute;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  translate: -50% -50%;
+  outline: none;
+}
+.line-dot {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  transition: scale 140ms ease, box-shadow 140ms ease;
+}
+.line-point:hover .line-dot,
+.line-point:focus-visible .line-dot {
+  scale: 1.35;
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 5px var(--accent-tint);
+}
+.line-tooltip {
   position: absolute;
   z-index: 2;
   left: 50%;
-  top: -32px;
+  bottom: 16px;
   translate: -50% 4px;
   padding: 6px 8px;
   border: 1px solid var(--hairline-strong);
@@ -621,12 +636,38 @@ body {
   pointer-events: none;
   transition: opacity 120ms ease, translate 120ms ease, visibility 120ms;
 }
-.bar-tooltip strong { color: var(--ink); font-weight: 600; }
-.bar-col:hover .bar-tooltip,
-.bar-col:focus-visible .bar-tooltip { opacity: 1; visibility: visible; translate: -50% 0; }
+.line-point.tooltip-below .line-tooltip {
+  top: 16px;
+  bottom: auto;
+}
+.line-tooltip strong { color: var(--ink); font-weight: 600; }
+.line-point:hover .line-tooltip,
+.line-point:focus-visible .line-tooltip {
+  opacity: 1;
+  visibility: visible;
+  translate: -50% 0;
+}
+.line-labels {
+  display: grid;
+  grid-column: 2;
+  grid-row: 2;
+}
+.line-label {
+  align-self: end;
+  color: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
 @media (max-width: 640px) {
-  .bar-chart { gap: 7px; }
-  .bar-value-currency { display: none; }
+  .line-chart {
+    grid-template-columns: 42px minmax(0, 1fr);
+    column-gap: 4px;
+  }
+  .line-axis-currency { display: none; }
+  .line-label:nth-child(even):not(:last-child) { visibility: hidden; }
 }
 
 /* ============================

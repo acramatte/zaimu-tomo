@@ -29,23 +29,24 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     assert html =~ "CHF 173.45"
     assert html =~ "Software"
     assert html =~ "Transport"
-    assert html =~ "Last 6 months"
-    assert html =~ "spending-bar-chart"
-    assert has_element?(live, "#spending-bar-chart .bar-value", "CHF 173")
+    assert html =~ "#{today.year} year to date"
+    assert html =~ "spending-line-chart"
 
     assert has_element?(
              live,
-             "#spending-bar-chart .bar-col[aria-label='#{current_month}: CHF 173.45']"
+             "#spending-line-chart .line-point[aria-label='#{current_month}: CHF 173.45']"
            )
 
     assert has_element?(
              live,
-             "#spending-bar-chart .bar-tooltip",
+             "#spending-line-chart .line-tooltip",
              "#{current_month} · CHF 173.45"
            )
+
+    refute has_element?(live, "#spending-line-chart a")
   end
 
-  test "uses compact visible chart values while keeping the exact amount accessible", %{
+  test "uses compact Y-axis values while keeping exact point values accessible", %{
     conn: conn,
     scope: scope,
     user: user
@@ -56,11 +57,11 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
 
     {:ok, live, _html} = live(conn, ~p"/spending")
 
-    assert has_element?(live, "#spending-bar-chart .bar-value", "CHF 1.2k")
+    assert has_element?(live, "#spending-line-chart .line-axis-label", "CHF 1.2k")
 
     assert has_element?(
              live,
-             "#spending-bar-chart .bar-col[aria-label='#{current_month}: CHF 1,234.56']"
+             "#spending-line-chart .line-point[aria-label='#{current_month}: CHF 1,234.56']"
            )
   end
 
@@ -74,7 +75,9 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     {:ok, _live, html} = live(conn, ~p"/spending?month=2026-03")
 
     assert html =~ "March 2026 spending"
+    assert html =~ "2026 year to date"
     assert html =~ "CHF 99.99"
+    assert length(Regex.scan(~r/class="line-point/, html)) == 3
   end
 
   test "falls back to the current month for an invalid month param", %{conn: conn} do
@@ -133,7 +136,7 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     assert html =~ "No categorized spending in January 2026"
   end
 
-  test "shows a history empty state when no spending exists at all", %{
+  test "shows a YTD empty state when no spending exists in the selected year", %{
     conn: conn,
     scope: scope,
     user: user
@@ -143,7 +146,7 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     {:ok, _live, html} = live(conn, ~p"/spending?month=2020-01")
 
     assert html =~ "No spending recorded yet"
-    refute html =~ "history-chart"
+    refute html =~ "ytd-chart"
   end
 
   defp href_for(html, aria_label) do

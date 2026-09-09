@@ -4,8 +4,6 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
   alias ZaimuTomo.Accounting
   alias ZaimuTomoWeb.Spending
 
-  @history_months 6
-
   @impl true
   def mount(params, _session, socket) do
     {:ok, apply_month(socket, selected_month(params))}
@@ -27,7 +25,7 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       |> Spending.merge_categories(previous_spending.categories)
       |> Spending.display_categories()
 
-    history = Spending.monthly_history(scope, month_start, @history_months)
+    ytd_spending = Spending.monthly_history(scope, month_start, month_start.month)
 
     socket
     |> assign(:page_title, "Spending history")
@@ -49,9 +47,8 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       :month_comparison_class,
       Spending.month_comparison_class(spending.total_cents, previous_spending.total_cents)
     )
-    |> assign(:history, history)
-    |> assign(:history_bars, history_bars(history, month_start))
-    |> assign(:history_months, @history_months)
+    |> assign(:ytd_spending, ytd_spending)
+    |> assign(:ytd_points, ytd_points(ytd_spending))
     |> assign(:is_current_month, month_start == Date.beginning_of_month(Date.utc_today()))
     |> assign(:prev_month, month_param(Spending.shift_month(month_start, -1)))
     |> assign(:next_month, month_param(Spending.shift_month(month_start, 1)))
@@ -85,14 +82,12 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
     Calendar.strftime(month_start, "%Y-%m")
   end
 
-  defp history_bars(history, selected_month_start) do
-    Enum.map(history, fn month ->
+  defp ytd_points(monthly_spending) do
+    Enum.map(monthly_spending, fn month ->
       %{
         label: Calendar.strftime(month.month_start, "%b"),
         full_label: Calendar.strftime(month.month_start, "%B %Y"),
-        value: month.total_cents,
-        href: ~p"/spending?month=#{month_param(month.month_start)}",
-        active: month.month_start == selected_month_start
+        value: month.total_cents
       }
     end)
   end
@@ -179,17 +174,21 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
       </div>
     </div>
 
-    <div class="card spending-history-card">
+    <div class="card spending-ytd-card">
       <div class="card-head">
-        <div class="card-title">Last {@history_months} months</div>
-        <div class="card-meta">click a bar to open that month</div>
+        <div class="card-title">{@month_start.year} year to date</div>
+        <div class="card-meta">monthly spending through {@month_label}</div>
       </div>
-      <div :if={Enum.all?(@history, &(&1.total_cents == 0))} id="history-empty" class="empty-state">
+      <div
+        :if={Enum.all?(@ytd_spending, &(&1.total_cents == 0))}
+        id="ytd-empty"
+        class="empty-state"
+      >
         <div class="h">No spending recorded yet</div>
         <div class="muted">Posted journal entries will build this trend over time.</div>
       </div>
-      <div :if={!Enum.all?(@history, &(&1.total_cents == 0))} id="history-chart">
-        <.bar_chart months={@history_bars} currency={@spending.currency} />
+      <div :if={!Enum.all?(@ytd_spending, &(&1.total_cents == 0))} id="ytd-chart">
+        <.line_chart months={@ytd_points} currency={@spending.currency} />
       </div>
     </div>
     """
