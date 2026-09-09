@@ -31,10 +31,7 @@ defmodule ZaimuTomo.Activity do
   defp to_activity_item(%Document{} = document) do
     content = List.first(document.extracted_content)
     decision = content && content.review_decision
-
-    data =
-      (decision && (decision.decision_data || decision.original_data)) ||
-        (content && content.extracted_data)
+    data = effective_activity_data(content, decision)
 
     %{
       id: activity_id(document, content, decision),
@@ -50,6 +47,17 @@ defmodule ZaimuTomo.Activity do
       document_id: document.id
     }
   end
+
+  defp effective_activity_data(_content, %{decision_data: data}) when not is_nil(data),
+    do: data
+
+  defp effective_activity_data(_content, %{original_data: data}) when not is_nil(data),
+    do: data
+
+  defp effective_activity_data(%{extracted_data: data}, _decision) when not is_nil(data),
+    do: data
+
+  defp effective_activity_data(_content, _decision), do: nil
 
   defp activity_status(nil, _decision), do: "processing"
   defp activity_status(%{status: "failed"}, _decision), do: "failed"

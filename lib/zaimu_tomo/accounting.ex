@@ -21,7 +21,7 @@ defmodule ZaimuTomo.Accounting do
   # Entry creation (called after invoice approval / amendment)
   # ---------------------------------------------------------------------------
 
-  @spec create_from_decision(%ReviewDecision{}, map()) ::
+  @spec create_from_decision(ReviewDecision.t(), map()) ::
           {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
   def create_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
     data = decision.decision_data || decision.original_data

@@ -31,8 +31,7 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
             PDF, JPG, HEIC · sent to OCR · review takes <span class="kbd">~30s</span>
           </div>
           <div class="sub" style="margin-top:10px">
-            or paste with <span class="kbd">⌘V</span>
-            · click to <span class="kbd">browse</span>
+            or paste with <span class="kbd">⌘V</span> · click to <span class="kbd">browse</span>
           </div>
         </label>
       </div>
@@ -106,8 +105,6 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
   end
 
   defp do_consume(socket) do
-    scope = socket.assigns.current_scope
-
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
         object_key = Documents.object_key_for(entry.client_name)
@@ -121,25 +118,33 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
       end)
 
     Enum.reduce(entries, socket, fn saved, sock ->
-      case saved do
-        %{storage_error: _reason} ->
-          put_flash(sock, :error, "Unable to store document")
-
-        %{object_key: object_key, client_name: client_name} ->
-          case Documents.create_document(scope, %{
-                 "object_key" => object_key,
-                 "filename" => client_name
-               }) do
-            {:ok, document} ->
-              if sock.parent_pid, do: send(sock.parent_pid, {:document_uploaded, document})
-              push_event(sock, "upload:success", %{filename: document.filename})
-
-            {:error, _} ->
-              _ = Storage.delete_object(object_key)
-              put_flash(sock, :error, "Unable to save document")
-          end
-      end
+      handle_saved_entry(sock, saved)
     end)
+  end
+
+  defp handle_saved_entry(sock, %{storage_error: _reason}) do
+    put_flash(sock, :error, "Unable to store document")
+  end
+
+  defp handle_saved_entry(sock, %{object_key: object_key, client_name: client_name}) do
+    case Documents.create_document(sock.assigns.current_scope, %{
+           "object_key" => object_key,
+           "filename" => client_name
+         }) do
+      {:ok, document} ->
+        notify_parent(sock, document)
+        push_event(sock, "upload:success", %{filename: document.filename})
+
+      {:error, _} ->
+        _ = Storage.delete_object(object_key)
+        put_flash(sock, :error, "Unable to save document")
+    end
+  end
+
+  defp notify_parent(sock, document) do
+    if sock.parent_pid, do: send(sock.parent_pid, {:document_uploaded, document})
+
+    sock
   end
 
   defp error_to_string(:too_large), do: "Too large"
