@@ -16,18 +16,23 @@ defmodule ZaimuTomoWeb.DocumentController do
          {:ok, mime, ext} <- preview_media(document) do
       send_preview(conn, document, mime, ext)
     else
-      {:error, :not_found} -> send_resp(conn, 404, "Not found")
-      {:error, :not_previewable} -> send_resp(conn, 415, "Preview not available for this file type")
+      {:error, :not_found} ->
+        send_resp(conn, 404, "Not found")
+
+      {:error, :not_previewable} ->
+        send_resp(conn, 415, "Preview not available for this file type")
     end
   end
 
   def download(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
-    with {:ok, document} <- Documents.fetch_document(scope, id) do
-      send_download_response(conn, document)
-    else
-      {:error, :not_found} -> send_resp(conn, 404, "Not found")
+    case Documents.fetch_document(scope, id) do
+      {:ok, document} ->
+        send_download_response(conn, document)
+
+      {:error, :not_found} ->
+        send_resp(conn, 404, "Not found")
     end
   end
 

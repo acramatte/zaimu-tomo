@@ -30,10 +30,9 @@ defmodule ZaimuTomoWeb.PageHTML do
       end)
 
     d_path =
-      pts
-      |> Enum.with_index()
-      |> Enum.map(fn {{x, y}, i} -> "#{if i == 0, do: "M", else: "L"}#{x} #{y}" end)
-      |> Enum.join(" ")
+      Enum.map_join(pts, " ", fn {{x, y}, i} ->
+        "#{if i == 0, do: "M", else: "L"}#{x} #{y}"
+      end)
 
     {last_x, last_y} = List.last(pts)
     d_area = "#{d_path} L #{trunc(w)} #{trunc(h)} L 0 #{trunc(h)} Z"
@@ -78,12 +77,14 @@ defmodule ZaimuTomoWeb.PageHTML do
     {arcs, _offset} =
       Enum.reduce(assigns.segments, {[], 0.0}, fn seg, {acc, off} ->
         len = Float.round(seg.value / total * circumference, 2)
+
         arc = %{
           color: seg.color,
           len: len,
           gap: Float.round(circumference - len, 2),
           offset: Float.round(-off, 2)
         }
+
         {acc ++ [arc], off + len}
       end)
 
@@ -105,5 +106,4 @@ defmodule ZaimuTomoWeb.PageHTML do
     </svg>
     """
   end
-
 end
