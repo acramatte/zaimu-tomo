@@ -21,6 +21,8 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     timestamps(type: :utc_datetime)
   end
 
+  @type t :: %__MODULE__{}
+
   def effective_data(%__MODULE__{} = decision) do
     decision.decision_data || decision.original_data || %ExtractedData{}
   end
