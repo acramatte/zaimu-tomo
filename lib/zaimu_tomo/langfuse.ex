@@ -74,17 +74,19 @@ defmodule ZaimuTomo.Langfuse do
   defp score_sender, do: config() |> Keyword.get(:score_sender, &send_score/1)
 
   defp send_score(payload) do
-    with {:ok, base_url, public_key, secret_key} <- prompt_api_config() do
-      case Req.post("#{base_url}/api/public/scores",
-             json: payload,
-             headers: [{"authorization", basic_auth(public_key, secret_key)}]
-           ) do
-        {:ok, %Req.Response{status: status}} when status in 200..299 -> {:ok, :score_created}
-        {:ok, %Req.Response{status: status}} -> {:error, {:score_creation_failed, status}}
-        {:error, reason} -> {:error, {:score_creation_failed, reason}}
-      end
-    else
-      {:error, reason} -> {:error, reason}
+    case prompt_api_config() do
+      {:ok, base_url, public_key, secret_key} ->
+        case Req.post("#{base_url}/api/public/scores",
+               json: payload,
+               headers: [{"authorization", basic_auth(public_key, secret_key)}]
+             ) do
+          {:ok, %Req.Response{status: status}} when status in 200..299 -> {:ok, :score_created}
+          {:ok, %Req.Response{status: status}} -> {:error, {:score_creation_failed, status}}
+          {:error, reason} -> {:error, {:score_creation_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

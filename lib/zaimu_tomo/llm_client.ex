@@ -57,29 +57,29 @@ defmodule ZaimuTomo.LLMClient do
       issuer: [type: :string, required: true]
     ]
 
-    with {:ok, prompt} <-
-           Langfuse.fetch_prompt("extract-invoice", %{
-             currency_hint: currency_hint,
-             ocr_markdown: markdown
-           }) do
-      case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
-             ReqLLM.generate_object(model, prompt.content, schema, opts)
-           end) do
-        {:ok, response} ->
-          response
-          |> ReqLLM.Response.object()
-          |> parse_extracted_data(config)
+    case Langfuse.fetch_prompt("extract-invoice", %{
+           currency_hint: currency_hint,
+           ocr_markdown: markdown
+         }) do
+      {:ok, prompt} ->
+        case Langfuse.trace_llm_generation("extract-invoice", model.id, prompt, fn ->
+               ReqLLM.generate_object(model, prompt.content, schema, opts)
+             end) do
+          {:ok, response} ->
+            response
+            |> ReqLLM.Response.object()
+            |> parse_extracted_data(config)
 
-        {:error, reason} ->
-          failure = request_failure(reason)
+          {:error, reason} ->
+            failure = request_failure(reason)
 
-          Logger.error(
-            "[LLM] Invoice extraction request failed with #{backend_summary(:extractor, config)}: #{inspect(failure)}"
-          )
+            Logger.error(
+              "[LLM] Invoice extraction request failed with #{backend_summary(:extractor, config)}: #{inspect(failure)}"
+            )
 
-          {:error, failure}
-      end
-    else
+            {:error, failure}
+        end
+
       {:error, reason} ->
         Logger.error("[LLM] Invoice extraction prompt fetch failed: #{inspect(reason)}")
         {:error, reason}
@@ -144,51 +144,51 @@ defmodule ZaimuTomo.LLMClient do
         field_issues: [type: :string, required: false]
       ]
 
-      with {:ok, prompt} <-
-             Langfuse.fetch_prompt("verify-extraction", %{
-               extracted_json: Jason.encode!(json_payload),
-               ocr_markdown: markdown
-             }) do
-        case Langfuse.trace_llm_generation("verify-extraction", model.id, prompt, fn ->
-               ReqLLM.generate_object(model, prompt.content, schema, opts)
-             end) do
-          {:ok, response} ->
-            case verifier_object(response) do
-              {:ok, %{"status" => "verified"} = verification} ->
-                Logger.info(
-                  "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
-                )
+      case Langfuse.fetch_prompt("verify-extraction", %{
+             extracted_json: Jason.encode!(json_payload),
+             ocr_markdown: markdown
+           }) do
+        {:ok, prompt} ->
+          case Langfuse.trace_llm_generation("verify-extraction", model.id, prompt, fn ->
+                 ReqLLM.generate_object(model, prompt.content, schema, opts)
+               end) do
+            {:ok, response} ->
+              case verifier_object(response) do
+                {:ok, %{"status" => "verified"} = verification} ->
+                  Logger.info(
+                    "[LLM] Extraction verification completed with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
+                  )
 
-                {:ok, verification}
+                  {:ok, verification}
 
-              {:ok, %{"status" => status} = verification}
-              when status in ["needs_review", "rejected"] ->
-                Logger.warning(
-                  "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
-                )
+                {:ok, %{"status" => status} = verification}
+                when status in ["needs_review", "rejected"] ->
+                  Logger.warning(
+                    "[LLM] Extraction verification returned #{status} with #{backend_summary(:verifier, config)}: #{inspect(verification)}"
+                  )
 
-                {:ok, verification}
+                  {:ok, verification}
 
-              {:error, reason} ->
-                raw_response = verifier_response_payload(response, nil)
+                {:error, reason} ->
+                  raw_response = verifier_response_payload(response, nil)
 
-                Logger.error(
-                  "[LLM] Extraction verification returned no valid verifier output with #{backend_summary(:verifier, config)}: #{inspect(reason)} #{inspect(raw_response)}"
-                )
+                  Logger.error(
+                    "[LLM] Extraction verification returned no valid verifier output with #{backend_summary(:verifier, config)}: #{inspect(reason)} #{inspect(raw_response)}"
+                  )
 
-                {:ok, verification_failure_result(raw_response, reason)}
-            end
+                  {:ok, verification_failure_result(raw_response, reason)}
+              end
 
-          {:error, reason} ->
-            failure = request_failure(reason)
+            {:error, reason} ->
+              failure = request_failure(reason)
 
-            Logger.error(
-              "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(failure)}"
-            )
+              Logger.error(
+                "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(failure)}"
+              )
 
-            {:ok, verification_failure_result(%{"error" => inspect(failure)}, failure)}
-        end
-      else
+              {:ok, verification_failure_result(%{"error" => inspect(failure)}, failure)}
+          end
+
         {:error, reason} ->
           Logger.error("[LLM] Extraction verification prompt fetch failed: #{inspect(reason)}")
           {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}

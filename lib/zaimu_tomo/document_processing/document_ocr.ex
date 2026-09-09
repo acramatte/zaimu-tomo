@@ -36,9 +36,7 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
 
   def extract_markdown(%{"pages" => pages} = body) when is_list(pages) do
     markdown =
-      pages
-      |> Enum.map(fn page -> Map.get(page, "markdown", "") end)
-      |> Enum.join("\n\n")
+      Enum.map_join(pages, "\n\n", fn page -> Map.get(page, "markdown", "") end)
 
     {:ok, markdown, body}
   end

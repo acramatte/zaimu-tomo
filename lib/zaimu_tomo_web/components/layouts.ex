@@ -103,7 +103,14 @@ defmodule ZaimuTomoWeb.Layouts do
     ~H"""
     <div class={"feed-item #{@item.status}"}>
       <div class="stat">
-        {if @item.filename, do: @item.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase() |> String.slice(0, 3), else: "DOC"}
+        {if @item.filename,
+          do:
+            @item.filename
+            |> Path.extname()
+            |> String.trim_leading(".")
+            |> String.upcase()
+            |> String.slice(0, 3),
+          else: "DOC"}
       </div>
       <div class="body">
         <div class="title">
@@ -123,17 +130,20 @@ defmodule ZaimuTomoWeb.Layouts do
 
   @doc false
   def rel_time(ts) when is_binary(ts) do
-    with {:ok, dt, _} <- DateTime.from_iso8601(ts) do
-      now = DateTime.utc_now()
-      diff = DateTime.diff(now, dt, :second)
-      cond do
-        diff < 60 -> "just now"
-        diff < 3600 -> "#{div(diff, 60)}m ago"
-        diff < 86400 -> "#{div(diff, 3600)}h ago"
-        true -> "#{div(diff, 86400)}d ago"
-      end
-    else
-      _ -> "—"
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _} ->
+        now = DateTime.utc_now()
+        diff = DateTime.diff(now, dt, :second)
+
+        cond do
+          diff < 60 -> "just now"
+          diff < 3600 -> "#{div(diff, 60)}m ago"
+          diff < 86_400 -> "#{div(diff, 3600)}h ago"
+          true -> "#{div(diff, 86_400)}d ago"
+        end
+
+      _ ->
+        "—"
     end
   end
 

@@ -22,30 +22,34 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     Langfuse.trace_document_processing(document, fn ->
       trace_id = Langfuse.current_trace_id()
 
-      with {:ok, temporary_path} <- TemporaryFile.create(object_key) do
-        try do
-          with {:ok, ^temporary_path} <- Storage.get_object(object_key, temporary_path),
-               {:ok, markdown, raw_llm_response} <- DocumentOCR.process(temporary_path),
-               {:ok, extracted_data} <-
-                 ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
-               {:ok, verification} <-
-                 ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
-            persist_and_emit_success(
-              document,
-              extracted_data,
-              raw_llm_response,
-              verification,
-              trace_id
-            )
-          else
-            {:error, reason} ->
-              Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
-              persist_and_emit_failure(document, reason)
+      case TemporaryFile.create(object_key) do
+        {:ok, temporary_path} ->
+          try do
+            with {:ok, ^temporary_path} <- Storage.get_object(object_key, temporary_path),
+                 {:ok, markdown, raw_llm_response} <- DocumentOCR.process(temporary_path),
+                 {:ok, extracted_data} <-
+                   ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
+                 {:ok, verification} <-
+                   ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+              persist_and_emit_success(
+                document,
+                extracted_data,
+                raw_llm_response,
+                verification,
+                trace_id
+              )
+            else
+              {:error, reason} ->
+                Logger.error(
+                  "[Saga] Document #{document.id} processing failed: #{inspect(reason)}"
+                )
+
+                persist_and_emit_failure(document, reason)
+            end
+          after
+            File.rm(temporary_path)
           end
-        after
-          File.rm(temporary_path)
-        end
-      else
+
         {:error, reason} ->
           Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
           persist_and_emit_failure(document, reason)
