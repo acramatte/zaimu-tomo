@@ -21,7 +21,12 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
              |> assign(:show_rejection_form, false)
              |> assign(:effective_data, ReviewDecision.effective_data(rd))
-             |> assign(:feedback, feedback_assigns(rd))}
+             |> assign(:feedback, feedback_assigns(rd))
+             |> assign(
+               :duplicate_candidates,
+               duplicate_candidates(rd, ReviewDecision.effective_data(rd))
+             )
+             |> assign(:duplicate_error, false)}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/reviews")}
@@ -123,6 +128,27 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
           <div class="name muted">Rejection reason</div>
           <div>{@review_decision.rejection_reason}</div>
         </div>
+        <div
+          :if={@duplicate_error or @duplicate_candidates.candidates != []}
+          style="margin-top:16px;border:1px solid var(--warn);border-radius:8px;padding:14px"
+        >
+          <div style="font-weight:600;margin-bottom:6px">
+            {if @duplicate_candidates.strong?,
+              do: "Invoice already recorded",
+              else: "Possible duplicate"}
+          </div>
+          <div class="muted" style="font-size:14px;margin-bottom:10px">
+            <%= if @duplicate_candidates.strong? do %>
+              This invoice number is already recorded for this issuer. Amend the data or reject the document.
+            <% else %>
+              An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
+            <% end %>
+          </div>
+          <.duplicate_candidate
+            :for={candidate <- @duplicate_candidates.candidates}
+            candidate={candidate}
+          />
+        </div>
         <%= if @review_decision.review_status == "pending" do %>
           <%= if @show_rejection_form do %>
             <.form
@@ -146,6 +172,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
           <% else %>
             <div style="margin-top:16px;display:flex;gap:8px">
               <button
+                :if={not @duplicate_candidates.strong?}
                 class="btn sm primary"
                 type="button"
                 phx-click="approve"
@@ -221,6 +248,22 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     case Review.approve_invoice(extracted_content_id, user_id) do
       {:ok, decision} ->
         {:noreply, redirect_to_journal_entry(socket, decision, "Invoice approved and posted")}
+
+      {:error, :duplicate_invoice} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "This invoice number has already been recorded for this issuer. Amend the data or reject the document."
+         )
+         |> assign(:duplicate_error, true)
+         |> assign(
+           :duplicate_candidates,
+           duplicate_candidates(
+             socket.assigns.review_decision,
+             ReviewDecision.effective_data(socket.assigns.review_decision)
+           )
+         )}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -300,12 +343,19 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     end
   end
 
+  defp duplicate_candidates(%ReviewDecision{review_status: "pending"} = rd, data) do
+    candidates = Accounting.duplicate_candidates(rd.user_id, data)
+    %{candidates: candidates, strong?: Accounting.strong_candidate?(candidates)}
+  end
+
+  defp duplicate_candidates(_review_decision, _data), do: %{candidates: [], strong?: false}
+
   defp redirect_to_journal_entry(socket, decision, flash_msg) do
-    case Accounting.create_from_decision(decision) do
+    case Accounting.get_journal_entry_for_decision(decision.id) do
       {:ok, entry} ->
         socket |> put_flash(:info, flash_msg) |> redirect(to: ~p"/journal_entries/#{entry}")
 
-      {:error, _changeset} ->
+      :error ->
         socket
         |> put_flash(
           :error,
