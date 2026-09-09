@@ -89,6 +89,7 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
     Enum.map(history, fn month ->
       %{
         label: Calendar.strftime(month.month_start, "%b"),
+        full_label: Calendar.strftime(month.month_start, "%B %Y"),
         value: month.total_cents,
         href: ~p"/spending?month=#{month_param(month.month_start)}",
         active: month.month_start == selected_month_start
@@ -188,7 +189,7 @@ defmodule ZaimuTomoWeb.SpendingLive.Index do
         <div class="muted">Posted journal entries will build this trend over time.</div>
       </div>
       <div :if={!Enum.all?(@history, &(&1.total_cents == 0))} id="history-chart">
-        <.bar_chart months={@history_bars} />
+        <.bar_chart months={@history_bars} currency={@spending.currency} />
       </div>
     </div>
     """

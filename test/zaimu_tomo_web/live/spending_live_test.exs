@@ -21,7 +21,7 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     create_entry(scope, user, today, 12_345, "EUR", "Software")
     create_entry(scope, user, today, 5_000, "EUR", "Transport")
 
-    {:ok, _live, html} = live(conn, ~p"/spending")
+    {:ok, live, html} = live(conn, ~p"/spending")
 
     assert html =~ "Spending history"
     assert html =~ "#{current_month} spending"
@@ -31,6 +31,37 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
     assert html =~ "Transport"
     assert html =~ "Last 6 months"
     assert html =~ "spending-bar-chart"
+    assert has_element?(live, "#spending-bar-chart .bar-value", "CHF 173")
+
+    assert has_element?(
+             live,
+             "#spending-bar-chart .bar-col[aria-label='#{current_month}: CHF 173.45']"
+           )
+
+    assert has_element?(
+             live,
+             "#spending-bar-chart .bar-tooltip",
+             "#{current_month} · CHF 173.45"
+           )
+  end
+
+  test "uses compact visible chart values while keeping the exact amount accessible", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    today = Date.utc_today()
+    current_month = Calendar.strftime(today, "%B %Y")
+    create_entry(scope, user, today, 123_456, "CHF", "Software")
+
+    {:ok, live, _html} = live(conn, ~p"/spending")
+
+    assert has_element?(live, "#spending-bar-chart .bar-value", "CHF 1.2k")
+
+    assert has_element?(
+             live,
+             "#spending-bar-chart .bar-col[aria-label='#{current_month}: CHF 1,234.56']"
+           )
   end
 
   test "shows the requested month via the month query param", %{
