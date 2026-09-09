@@ -1,4 +1,7 @@
 defmodule ZaimuTomo.Accounts.UserNotifier do
+  @moduledoc """
+  Delivers account-related emails (confirmation, reset, update notices).
+  """
   import Swoosh.Email
 
   alias ZaimuTomo.Mailer

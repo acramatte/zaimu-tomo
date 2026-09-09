@@ -1,4 +1,9 @@
 defmodule Mix.Tasks.ZaimuTomo.MigrateToS3 do
+  @moduledoc """
+  Migrates locally stored documents to the S3-compatible object store.
+
+      mix zaimu_tomo.migrate_to_s3
+  """
   @shortdoc "Copies legacy document files into the configured object store"
 
   use Mix.Task

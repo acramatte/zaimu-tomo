@@ -1,4 +1,5 @@
 defmodule ZaimuTomo.FinancialAccountsFixtures do
+  @moduledoc false
   def financial_account_fixture(scope, attrs \\ %{}) do
     account_attrs =
       attrs

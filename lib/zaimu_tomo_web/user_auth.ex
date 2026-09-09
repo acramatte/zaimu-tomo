@@ -1,4 +1,7 @@
 defmodule ZaimuTomoWeb.UserAuth do
+  @moduledoc """
+  Authentication plugs and LiveView `on_mount` hooks for user sessions.
+  """
   use ZaimuTomoWeb, :verified_routes
 
   import Plug.Conn

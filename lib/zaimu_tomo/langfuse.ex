@@ -6,6 +6,9 @@ defmodule ZaimuTomo.Langfuse do
   @tracer_name :zaimu_tomo
 
   defmodule Prompt do
+    @moduledoc """
+    A fetched Langfuse prompt template.
+    """
     @enforce_keys [:id, :name, :version, :label, :content]
     defstruct [:id, :name, :version, :label, :content]
 

@@ -1,4 +1,7 @@
 defmodule ZaimuTomoWeb.ZaimuComponents do
+  @moduledoc """
+  Shared presentational components for the ZaimuTomo UI.
+  """
   use Phoenix.Component
   use ZaimuTomoWeb, :verified_routes
 
