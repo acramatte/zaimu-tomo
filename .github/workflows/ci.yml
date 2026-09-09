@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # No branch filter: PRs must run CI against any base branch so that
+  # stacked PRs (base = parent feature branch) get required checks too.
   pull_request:
-    branches: [main]
 
 env:
   MIX_ENV: test
