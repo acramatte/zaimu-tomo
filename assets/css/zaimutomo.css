@@ -276,6 +276,8 @@ body {
   border-radius: var(--radius);
   padding: var(--pad-card-y) var(--pad-card);
 }
+.spending-ytd-card { margin-top: var(--gap-grid); }
+
 .card-head {
   display: flex; align-items: baseline; justify-content: space-between;
   margin-bottom: 16px;
@@ -512,6 +514,161 @@ body {
 .cat-list-row .left { display: flex; align-items: center; gap: 8px; }
 .cat-list-row .pct { color: var(--muted); font-family: 'Geist Mono', monospace; font-size: 11.5px; }
 .cat-list-row .amt { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+
+/* ============================
+   Month navigation
+   ============================ */
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.month-nav-label {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  min-width: 140px;
+  text-align: center;
+}
+.btn.disabled,
+.btn.disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ============================
+   Line chart
+   ============================ */
+.line-chart {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: 210px 20px;
+  column-gap: 10px;
+  padding-top: 8px;
+}
+.line-axis {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+}
+.line-axis-label {
+  position: absolute;
+  right: 0;
+  translate: 0 -50%;
+  color: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.line-plot {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.line-plot-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.line-grid {
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+.line-area {
+  fill: var(--accent-tint);
+  opacity: 0.55;
+}
+.line-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line-point {
+  position: absolute;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  translate: -50% -50%;
+  outline: none;
+}
+.line-dot {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  transition: scale 140ms ease, box-shadow 140ms ease;
+}
+.line-point:hover .line-dot,
+.line-point:focus-visible .line-dot {
+  scale: 1.35;
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 5px var(--accent-tint);
+}
+.line-tooltip {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 16px;
+  translate: -50% 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-2);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease, translate 120ms ease, visibility 120ms;
+}
+.line-point.tooltip-below .line-tooltip {
+  top: 16px;
+  bottom: auto;
+}
+.line-tooltip strong { color: var(--ink); font-weight: 600; }
+.line-point:hover .line-tooltip,
+.line-point:focus-visible .line-tooltip {
+  opacity: 1;
+  visibility: visible;
+  translate: -50% 0;
+}
+.line-labels {
+  display: grid;
+  grid-column: 2;
+  grid-row: 2;
+}
+.line-label {
+  align-self: end;
+  color: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+@media (max-width: 640px) {
+  .line-chart {
+    grid-template-columns: 42px minmax(0, 1fr);
+    column-gap: 4px;
+  }
+  .line-axis-currency { display: none; }
+  .line-label:nth-child(even):not(:last-child) { visibility: hidden; }
+}
 
 /* ============================
    Drop zone
