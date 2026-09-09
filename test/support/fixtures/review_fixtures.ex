@@ -1,4 +1,5 @@
 defmodule ZaimuTomo.ReviewFixtures do
+  @moduledoc false
   alias ZaimuTomo.Repo
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.Review
