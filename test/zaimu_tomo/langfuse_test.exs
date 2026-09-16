@@ -141,6 +141,25 @@ defmodule ZaimuTomo.LangfuseTest do
     assert Langfuse.enabled?()
   end
 
+  test "leaves custom spans unchanged when Langfuse is not configured" do
+    assert Langfuse.trace_span("typesafe-shadow-verification", %{"model" => "jev-latest"}, fn ->
+             :disabled
+           end) == :disabled
+  end
+
+  test "records a custom span without changing the wrapped result" do
+    Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
+
+    assert :ok = Langfuse.setup()
+
+    result =
+      Langfuse.trace_span("typesafe-shadow-verification", %{"model" => "jev-latest"}, fn ->
+        {:ok, %{"status" => "verified", "model" => "jev-latest"}}
+      end)
+
+    assert result == {:ok, %{"status" => "verified", "model" => "jev-latest"}}
+  end
+
   describe "current_trace_id/0" do
     test "returns nil when no span is active" do
       Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")

@@ -102,6 +102,78 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert html =~ "Verifier did not return valid structured output."
   end
 
+  test "shows a successful Jev shadow check on the review page", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        analysis: %{
+          "verification" => %{
+            "status" => "verified",
+            "reason" => "All fields match.",
+            "typesafe_shadow" => %{
+              "status" => "verified",
+              "model" => "jev-1.13.0",
+              "max_error_probability" => 0.07,
+              "review_threshold" => 0.7,
+              "field_probabilities" => %{
+                "amount_to_pay_cents" => 0.07,
+                "issuer" => 0.03
+              }
+            }
+          }
+        }
+      })
+
+    review = pending_review_fixture(extracted_content)
+    {:ok, _show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+    refute html =~ "Verifier flagged this extraction"
+    assert html =~ "Quality checks"
+    assert html =~ "Independent check: Verified"
+    assert html =~ "<details class=\"quality-check-details\""
+    assert html =~ "<summary>View independent check</summary>"
+    assert html =~ "class=\"pill verified\">Verified</span>"
+    refute html =~ "class=\"pill posted\">Posted</span>"
+    assert html =~ "jev-1.13.0"
+    assert html =~ "0.07"
+    assert html =~ "amount_to_pay_cents 0.07"
+  end
+
+  test "shows a failed Jev shadow check without changing the verifier card", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        analysis: %{
+          "verification" => %{
+            "status" => "verified",
+            "reason" => "All fields match.",
+            "typesafe_shadow" => %{
+              "status" => "verification_failed",
+              "error" => "invalid_response"
+            }
+          }
+        }
+      })
+
+    review = pending_review_fixture(extracted_content)
+    {:ok, _show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+    refute html =~ "Verifier flagged this extraction"
+    assert html =~ "Quality checks"
+    assert html =~ "Could not verify"
+    assert html =~ "invalid_response"
+  end
+
   test "asks for a rejection reason before rejecting", %{conn: conn, scope: scope, user: user} do
     document = document_fixture(scope)
     extracted_content = extracted_content_fixture(document, user)
