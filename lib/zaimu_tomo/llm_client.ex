@@ -7,6 +7,7 @@ defmodule ZaimuTomo.LLMClient do
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.VerificationResult
   alias ZaimuTomo.Langfuse
+  alias ZaimuTomo.TypeSafeClient
 
   @backends [:ollama, :flm, :mistral, :nousresearch]
 
@@ -160,6 +161,94 @@ defmodule ZaimuTomo.LLMClient do
           {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}
       end
     end
+  end
+
+  @doc """
+  Verifies extraction with the configured generative verifier, then records an
+  independent TypeSafe verdict when shadow verification is enabled.
+
+  The generative result remains authoritative: TypeSafe failures are attached
+  as shadow analysis and never fail document processing.
+  """
+  @spec verify_extraction(String.t(), extraction_payload() | term(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def verify_extraction(markdown, json_data, currency_hint) do
+    case verify_extraction(markdown, json_data) do
+      {:ok, verification} ->
+        attach_typesafe_shadow(verification, markdown, json_data, currency_hint)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp attach_typesafe_shadow(verification, markdown, json_data, currency_hint) do
+    if TypeSafeClient.enabled?() do
+      Logger.info("[TypeSafe] Shadow verification started")
+    else
+      Logger.debug("[TypeSafe] Shadow verification skipped")
+    end
+
+    case Langfuse.trace_span(
+           "typesafe-shadow-verification",
+           typesafe_span_attributes(),
+           fn -> run_typesafe_shadow(markdown, json_data, currency_hint) end
+         ) do
+      {:ok, shadow} ->
+        Logger.info("[TypeSafe] Shadow verification succeeded #{shadow_log_metadata(shadow)}")
+        {:ok, Map.put(verification, "typesafe_shadow", shadow)}
+
+      :disabled ->
+        {:ok, verification}
+
+      {:error, reason} ->
+        error_class = shadow_error_class(reason)
+        Logger.warning("[TypeSafe] Shadow verification failed class=#{error_class}")
+
+        shadow_failure = %{
+          "status" => "verification_failed",
+          "error" => error_class
+        }
+
+        {:ok, Map.put(verification, "typesafe_shadow", shadow_failure)}
+    end
+  end
+
+  defp run_typesafe_shadow(markdown, json_data, currency_hint) do
+    TypeSafeClient.verify_extraction(markdown, json_data, currency_hint)
+  rescue
+    exception -> {:error, {:exception, exception.__struct__}}
+  catch
+    kind, _reason when kind in [:exit, :throw] -> {:error, kind}
+  end
+
+  defp shadow_log_metadata(shadow) when is_map(shadow) do
+    [
+      "status=#{shadow["status"]}",
+      "model=#{shadow["model"]}",
+      "max_error_probability=#{shadow["max_error_probability"]}",
+      "review_threshold=#{shadow["review_threshold"]}"
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp shadow_error_class({:exception, module}) when is_atom(module),
+    do: "exception:#{inspect(module)}"
+
+  defp shadow_error_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp shadow_error_class({kind, reason}) when is_atom(kind) and is_atom(reason),
+    do: "#{kind}:#{reason}"
+
+  defp shadow_error_class(_reason), do: "unknown"
+
+  defp typesafe_span_attributes do
+    config = Application.get_env(:zaimu_tomo, :typesafe, [])
+
+    %{
+      "langfuse.observation.model.name" => Keyword.get(config, :model, "jev-latest"),
+      "gen_ai.request.model" => Keyword.get(config, :model, "jev-latest")
+    }
   end
 
   defp generate_and_verify(model, prompt, schema, opts, config) do

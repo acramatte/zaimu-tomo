@@ -162,6 +162,27 @@ defmodule ZaimuTomo.Langfuse do
 
   defp trace_llm_generation(false, _name, _model, _prompt, fun), do: fun.()
 
+  @spec trace_span(String.t(), map(), (-> result)) :: result when result: term()
+  def trace_span(name, attributes, fun)
+      when is_binary(name) and is_map(attributes) and is_function(fun, 0) do
+    trace_span(enabled?(), name, attributes, fun)
+  end
+
+  defp trace_span(true, name, attributes, fun) do
+    :otel_tracer.with_span(
+      tracer(),
+      name,
+      %{kind: :client, attributes: span_attributes(name, attributes)},
+      fn span ->
+        result = fun.()
+        record_span_result(span, result)
+        result
+      end
+    )
+  end
+
+  defp trace_span(false, _name, _attributes, fun), do: fun.()
+
   defp prompt_fetcher do
     config() |> Keyword.get(:prompt_fetcher, &fetch_prompt_from_api/2)
   end
@@ -420,6 +441,71 @@ defmodule ZaimuTomo.Langfuse do
     })
 
     :otel_span.set_status(span, :error, "document processing failed")
+  end
+
+  defp span_attributes(name, attributes) do
+    %{
+      "langfuse.observation.type" => "span",
+      "langfuse.environment" => environment(),
+      "langfuse.observation.input" => encode_json(%{"name" => name})
+    }
+    |> Map.merge(stringify_attribute_keys(attributes))
+    |> compact_attributes()
+  end
+
+  defp stringify_attribute_keys(attributes) do
+    Map.new(attributes, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp sanitize_span_output(output) do
+    Map.take(output, [
+      "status",
+      "model",
+      "max_error_probability",
+      "review_threshold",
+      "error",
+      "usage"
+    ])
+  end
+
+  defp record_span_result(span, {:ok, output}) when is_map(output) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" => encode_json(sanitize_span_output(output))
+    })
+  end
+
+  defp record_span_result(span, :disabled) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" => encode_json(%{"status" => "skipped"})
+    })
+  end
+
+  defp record_span_result(span, {:error, reason}) when is_atom(reason) do
+    record_failed_span(span, Atom.to_string(reason))
+  end
+
+  defp record_span_result(span, {:error, {kind, reason}})
+       when is_atom(kind) and is_atom(reason) do
+    record_failed_span(span, "#{kind}:#{reason}")
+  end
+
+  defp record_span_result(span, {:error, _reason}) do
+    record_failed_span(span, "unknown")
+  end
+
+  defp record_span_result(span, _result) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" => encode_json(%{"status" => "completed"})
+    })
+  end
+
+  defp record_failed_span(span, error_class) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" =>
+        encode_json(%{"status" => "failed", "error" => error_class})
+    })
+
+    :otel_span.set_status(span, :error, "span failed")
   end
 
   defp encode_json(value) do
