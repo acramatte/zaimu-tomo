@@ -35,6 +35,14 @@ config :zaimu_tomo, :ai_workflow,
   extractor: [backend: :flm, model: "gemma4-it:e4b"],
   verifier: [backend: :flm, model: "phi4-mini-it:4b", max_tokens: 4096]
 
+config :zaimu_tomo, :typesafe,
+  enabled: false,
+  api_key: nil,
+  base_url: "https://api.typesafe.ai",
+  model: "jev-latest",
+  review_threshold: 0.7,
+  receive_timeout: 30_000
+
 config :zaimu_tomo, :ollama,
   # Native ReqLLM Ollama provider: no Authorization header is sent, so no
   # API key is needed.

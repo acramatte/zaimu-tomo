@@ -36,6 +36,25 @@ if config_env() != :test do
     secret_access_key: System.get_env("S3_SECRET_ACCESS_KEY", "rustfsadmin"),
     bucket: System.get_env("S3_BUCKET", "zaimu-tomo-dev"),
     path_style: System.get_env("S3_PATH_STYLE", "true") == "true"
+
+  typesafe_api_key = System.get_env("TYPESAFE_API_KEY")
+
+  typesafe_review_threshold =
+    case Float.parse(System.get_env("TYPESAFE_REVIEW_THRESHOLD", "0.7")) do
+      {threshold, ""} when threshold >= 0 and threshold <= 1 ->
+        threshold
+
+      _invalid ->
+        raise ArgumentError,
+              "TYPESAFE_REVIEW_THRESHOLD must be a number between 0 and 1"
+    end
+
+  config :zaimu_tomo, :typesafe,
+    enabled: is_binary(typesafe_api_key) and typesafe_api_key != "",
+    api_key: typesafe_api_key,
+    base_url: System.get_env("TYPESAFE_URL", "https://api.typesafe.ai"),
+    model: System.get_env("TYPESAFE_MODEL", "jev-latest"),
+    review_threshold: typesafe_review_threshold
 end
 
 default_extractor =
