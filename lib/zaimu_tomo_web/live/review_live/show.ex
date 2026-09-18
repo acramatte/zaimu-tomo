@@ -18,6 +18,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:current_path, "/reviews")
              |> assign(:review_decision, rd)
              |> assign(:verification, verifier_feedback(rd))
+             |> assign(:typesafe_shadow, typesafe_shadow(rd))
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
              |> assign(:show_rejection_form, false)
              |> assign(:effective_data, ReviewDecision.effective_data(rd))
@@ -58,6 +59,52 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
         <div class="name muted">Reason</div>
         <div>{@verification["reason"]}</div>
       </div>
+    </section>
+
+    <section :if={@typesafe_shadow} class="card" style="margin:16px 0">
+      <div class="card-head" style="margin-bottom:10px">
+        <div class="card-title">Quality checks</div>
+        <.status_pill status={typesafe_pill_status(@typesafe_shadow["status"])} />
+      </div>
+      <p class="muted" style="margin:0;font-size:12px">
+        Independent check: {typesafe_status_label(@typesafe_shadow["status"])}. It does not change posting.
+      </p>
+      <details class="quality-check-details" style="margin-top:10px">
+        <summary>View independent check</summary>
+        <div class="detail-row" style="margin-top:10px">
+          <div class="name muted">Jev result</div>
+          <div>{typesafe_status_label(@typesafe_shadow["status"])}</div>
+        </div>
+        <div :if={@typesafe_shadow["model"]} class="detail-row">
+          <div class="name muted">Model</div>
+          <div class="mono dim">{@typesafe_shadow["model"]}</div>
+        </div>
+        <div :if={@typesafe_shadow["max_error_probability"]} class="detail-row">
+          <div class="name muted">Highest error probability</div>
+          <div class="mono dim">{format_probability(@typesafe_shadow["max_error_probability"])}</div>
+        </div>
+        <div :if={@typesafe_shadow["review_threshold"]} class="detail-row">
+          <div class="name muted">Review threshold</div>
+          <div class="mono dim">{format_probability(@typesafe_shadow["review_threshold"])}</div>
+        </div>
+        <div :if={@typesafe_shadow["field_issues"]} class="detail-row">
+          <div class="name muted">Flagged fields</div>
+          <div class="mono dim">{@typesafe_shadow["field_issues"]}</div>
+        </div>
+        <div :if={@typesafe_shadow["error"]} class="detail-row">
+          <div class="name muted">Error</div>
+          <div class="mono dim">{@typesafe_shadow["error"]}</div>
+        </div>
+        <div :if={typesafe_field_probabilities(@typesafe_shadow) != []} class="detail-row">
+          <div class="name muted">Field probabilities</div>
+          <div class="mono dim">
+            {typesafe_field_probabilities(@typesafe_shadow)
+            |> Enum.map_join(" · ", fn {field, probability} ->
+              "#{field} #{format_probability(probability)}"
+            end)}
+          </div>
+        </div>
+      </details>
     </section>
 
     <div class="grid grid-12">
@@ -338,6 +385,37 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
        do: verification
 
   defp verifier_feedback(_review_decision), do: nil
+
+  defp typesafe_shadow(%ReviewDecision{
+         extracted_content: %{analysis: %{"verification" => %{"typesafe_shadow" => shadow}}}
+       })
+       when is_map(shadow),
+       do: shadow
+
+  defp typesafe_shadow(_review_decision), do: nil
+
+  defp typesafe_status_label("verified"), do: "Verified"
+  defp typesafe_status_label("needs_review"), do: "Needs review"
+  defp typesafe_status_label("verification_failed"), do: "Could not verify"
+  defp typesafe_status_label(other) when is_binary(other), do: other
+  defp typesafe_status_label(_other), do: "Unknown"
+
+  defp typesafe_pill_status("verified"), do: "verified"
+  defp typesafe_pill_status("needs_review"), do: "review"
+  defp typesafe_pill_status(_status), do: "failed"
+
+  defp typesafe_field_probabilities(%{"field_probabilities" => probabilities})
+       when is_map(probabilities) do
+    Enum.sort_by(probabilities, fn {field, _probability} -> field end)
+  end
+
+  defp typesafe_field_probabilities(_shadow), do: []
+
+  defp format_probability(probability) when is_number(probability) do
+    :erlang.float_to_binary(probability / 1, decimals: 2)
+  end
+
+  defp format_probability(_probability), do: "—"
 
   defp verification_status_label("rejected"), do: "Rejected"
   defp verification_status_label("needs_review"), do: "Needs review"

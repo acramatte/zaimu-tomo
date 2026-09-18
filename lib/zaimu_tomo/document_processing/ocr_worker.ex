@@ -30,7 +30,11 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
                  {:ok, extracted_data} <-
                    ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
                  {:ok, verification} <-
-                   ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+                   ZaimuTomo.LLMClient.verify_extraction(
+                     markdown,
+                     extracted_data,
+                     currency_hint
+                   ) do
               persist_and_emit_success(
                 document,
                 extracted_data,

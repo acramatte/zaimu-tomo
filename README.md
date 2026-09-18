@@ -25,7 +25,7 @@ Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 
 1. **OCR** converts the uploaded document to markdown.
 2. **Extraction** uses an LLM to read the markdown and pull out the structured invoice or receipt fields.
-3. **Verification** runs a second LLM pass that checks the extracted fields are actually grounded in the document and flags anything it can't support.
+3. **Verification** runs a second LLM pass that checks the extracted fields are actually grounded in the document and flags anything it can't support. When `TYPESAFE_API_KEY` is set, Jev also evaluates independent per-field error probabilities in shadow mode; the generative verifier remains authoritative while those results are collected for comparison.
 
 You review the results and approve what looks right — only then does it become an accounting journal entry. Nothing is recorded without your sign-off.
 
@@ -34,6 +34,20 @@ _The name “Zaimu Tomo” (財務の友) comes from the Japanese words for “f
 ## Langfuse (optional)
 
 ZaimuTomo integrates with Langfuse for prompt management (the extract and verify prompts live there), OpenTelemetry traces of the document-processing workflow, and user feedback on extraction quality. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable it.
+
+## TypeSafe verification (optional)
+
+Set `TYPESAFE_API_KEY` to run Jev beside the configured verifier. Jev's per-field
+probabilities are stored under `analysis.verification.typesafe_shadow` and shown
+on the review page as **Jev shadow check**; they do
+not change the authoritative verification status or block document processing.
+Server logs record `skipped` (debug), `started`/`succeeded` (info), or `failed`
+(warning) without OCR text or API credentials. When Langfuse is enabled, Jev is
+a sibling `typesafe-shadow-verification` span under `process-invoice`, next to
+`verify-extraction`, so their durations can be compared.
+The default model is `jev-latest` and the shadow review threshold is `0.7`.
+Override them with `TYPESAFE_MODEL` and `TYPESAFE_REVIEW_THRESHOLD`; use
+`TYPESAFE_URL` only for a compatible API endpoint override.
 
 ## Run Locally
 
