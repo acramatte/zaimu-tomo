@@ -4,7 +4,7 @@ ZaimuTomo's document pipeline has three AI steps:
 
 1. **OCR**: Mistral Document OCR converts the uploaded document to markdown. This step always uses Mistral and needs `MISTRAL_API_KEY`.
 2. **Extractor**: an LLM extracts structured invoice fields from the OCR markdown.
-3. **Verifier**: an LLM checks that the extracted fields are grounded in the OCR markdown. When `TYPESAFE_API_KEY` is set, Jev also runs independent per-field checks in shadow mode without changing the verifier's authoritative result. Look for `[TypeSafe] Shadow verification started|succeeded|failed|skipped` in the server log, for **Jev shadow check** on the review page, and for a `typesafe-shadow-verification` span beside `verify-extraction` in Langfuse.
+3. **Verifier**: an LLM checks that the extracted fields are grounded in the OCR markdown. When `TYPESAFE_API_KEY` is set, Jev also runs independent per-field checks asynchronously in shadow mode without changing the verifier's authoritative result or delaying extraction persistence. Look for `[TypeSafe] Shadow verification started|succeeded|failed|skipped` in the server log, for **Quality checks** and **View independent check** on the review page, and for a `typesafe-shadow-verification` span beside `verify-extraction` in Langfuse.
 
 The extractor and verifier each explicitly select a backend and model. Backend configuration owns only transport and credentials; the workflow owns the model choice:
 

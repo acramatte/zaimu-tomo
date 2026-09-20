@@ -30,17 +30,18 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
                  {:ok, extracted_data} <-
                    ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
                  {:ok, verification} <-
-                   ZaimuTomo.LLMClient.verify_extraction(
-                     markdown,
-                     extracted_data,
-                     currency_hint
-                   ) do
+                   ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
               persist_and_emit_success(
                 document,
                 extracted_data,
                 raw_llm_response,
                 verification,
-                trace_id
+                trace_id,
+                %{
+                  markdown: markdown,
+                  currency_hint: currency_hint,
+                  trace_context: OpenTelemetry.Ctx.get_current()
+                }
               )
             else
               {:error, reason} ->
@@ -66,7 +67,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         extracted_data,
         raw_llm_response,
         verification \\ %{"status" => "not_run"},
-        trace_id \\ nil
+        trace_id \\ nil,
+        typesafe_input \\ nil
       ) do
     analysis = %{
       "processed_at" => DateTime.utc_now(),
@@ -85,6 +87,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     case ExtractedContentContext.create_extracted_content(extraction_params) do
       {:ok, content} ->
+        enqueue_typesafe_shadow(content, extracted_data, typesafe_input)
         {:ok, _review_decision} = Review.create_initial_decision(content)
 
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:success", %{
@@ -153,6 +156,46 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         {:error, {:persistence_failed, changeset.errors}}
     end
   end
+
+  defp enqueue_typesafe_shadow(
+         content,
+         extracted_data,
+         %{markdown: markdown, currency_hint: currency_hint} = input
+       ) do
+    if ZaimuTomo.TypeSafeClient.enabled?() do
+      command = %{
+        extracted_content_id: content.id,
+        markdown: markdown,
+        extracted_data: extracted_data,
+        currency_hint: currency_hint,
+        trace_context: Map.get(input, :trace_context, OpenTelemetry.Ctx.get_current())
+      }
+
+      case ZaimuTomo.TypeSafeVerification.enqueue(command) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          error = Atom.to_string(reason)
+
+          Logger.warning("[TypeSafe] Shadow verification enqueue failed class=#{error}",
+            typesafe_error_class: error
+          )
+
+          _result =
+            ExtractedContentContext.put_typesafe_shadow(content.id, %{
+              "status" => "verification_failed",
+              "error" => error
+            })
+
+          :ok
+      end
+    else
+      Logger.debug("[TypeSafe] Shadow verification skipped")
+    end
+  end
+
+  defp enqueue_typesafe_shadow(_content, _extracted_data, _typesafe_input), do: :ok
 
   # Error handling helper functions
   defp error_type(error) when is_tuple(error),

@@ -13,6 +13,12 @@ defmodule ZaimuTomo.Application do
       [
         ZaimuTomoWeb.Telemetry,
         ZaimuTomo.Repo,
+        {Task.Supervisor, name: ZaimuTomo.TypeSafeTaskSupervisor},
+        {ZaimuTomo.TypeSafeVerification,
+         task_supervisor: ZaimuTomo.TypeSafeTaskSupervisor,
+         worker: ZaimuTomo.TypeSafeVerification.Worker,
+         max_concurrency: typesafe_config(:max_concurrency, 2),
+         max_queue: typesafe_config(:max_queue, 100)},
         {DNSCluster, query: Application.get_env(:zaimu_tomo, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ZaimuTomo.PubSub},
         # Start a worker by calling: ZaimuTomo.Worker.start_link(arg)
@@ -35,6 +41,12 @@ defmodule ZaimuTomo.Application do
   def config_change(changed, _new, removed) do
     ZaimuTomoWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp typesafe_config(key, default) do
+    :zaimu_tomo
+    |> Application.get_env(:typesafe, [])
+    |> Keyword.get(key, default)
   end
 
   defp storage_children do

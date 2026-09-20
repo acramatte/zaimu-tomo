@@ -132,11 +132,81 @@ defmodule ZaimuTomo.TypeSafeClientTest do
              TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
   end
 
+  test "classifies HTTP failures without retaining provider payloads" do
+    put_evaluator(fn _model, _state, _questions, _options ->
+      {:error,
+       struct(ReqLLM.Error.API.Request,
+         cause: struct(ReqLLM.Error.API.Response, status: 429),
+         status: 429,
+         reason: "response included sensitive details",
+         response_body: %{"secret" => "provider payload"}
+       )}
+    end)
+
+    assert {:error, {:http, 429}} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+
+    put_evaluator(fn _model, _state, _questions, _options ->
+      {:error,
+       struct(ReqLLM.Error.API.Request,
+         cause: struct(ReqLLM.Error.API.Response, status: 401),
+         reason: "response included sensitive details",
+         response_body: %{"secret" => "provider payload"}
+       )}
+    end)
+
+    assert {:error, {:http, 401}} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+  end
+
+  test "classifies request timeouts separately from other transport failures" do
+    put_evaluator(fn _model, _state, _questions, _options ->
+      {:error, struct(ReqLLM.Error.API.Timeout, kind: :total, timeout: 250)}
+    end)
+
+    assert {:error, :timeout} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+
+    put_evaluator(fn _model, _state, _questions, _options ->
+      {:error,
+       struct(ReqLLM.Error.API.Request,
+         cause: %Req.TransportError{reason: :timeout},
+         reason: "request timed out"
+       )}
+    end)
+
+    assert {:error, :timeout} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+
+    put_evaluator(fn _model, _state, _questions, _options ->
+      {:error,
+       struct(ReqLLM.Error.API.Request,
+         cause: %Req.TransportError{reason: :econnrefused},
+         reason: "connection refused"
+       )}
+    end)
+
+    assert {:error, :transport} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+  end
+
+  test "classifies malformed evaluator returns as invalid responses" do
+    put_evaluator(fn _model, _state, _questions, _options -> :malformed end)
+
+    assert {:error, :invalid_response} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+  end
+
   test "does not call the API when shadow verification is disabled" do
     Application.put_env(:zaimu_tomo, :typesafe, enabled: false)
 
     assert :disabled =
              TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
+  end
+
+  defp put_evaluator(evaluator) do
+    config = Application.fetch_env!(:zaimu_tomo, :typesafe)
+    Application.put_env(:zaimu_tomo, :typesafe, Keyword.put(config, :evaluator, evaluator))
   end
 
   defp extracted_data do

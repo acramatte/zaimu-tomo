@@ -7,12 +7,6 @@ defmodule ZaimuTomo.LLMClientTest do
   alias ReqLLM.ToolCall
   alias ZaimuTomo.LLMClient
 
-  import ExUnit.CaptureLog
-
-  @typesafe_req_stub __MODULE__
-
-  setup {Req.Test, :verify_on_exit!}
-
   defmodule OllamaStub do
     def init(test_pid), do: test_pid
 
@@ -357,17 +351,13 @@ defmodule ZaimuTomo.LLMClientTest do
       end
     end
 
-    test "keeps Ollama authoritative while recording TypeSafe shadow verdicts" do
+    test "extracts and verifies through Ollama without credentials" do
       original_config = Application.fetch_env!(:zaimu_tomo, :ollama)
       original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
-      original_typesafe = Application.fetch_env!(:zaimu_tomo, :typesafe)
-      original_logger_level = Logger.level()
 
       on_exit(fn ->
-        Logger.configure(level: original_logger_level)
         Application.put_env(:zaimu_tomo, :ollama, original_config)
         Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
-        Application.put_env(:zaimu_tomo, :typesafe, original_typesafe)
       end)
 
       server =
@@ -386,96 +376,13 @@ defmodule ZaimuTomo.LLMClientTest do
         verifier: [backend: :ollama, model: "verifier"]
       )
 
-      Application.put_env(:zaimu_tomo, :typesafe,
-        enabled: true,
-        api_key: "test-api-key",
-        base_url: "https://api.typesafe.test",
-        model: "jev-latest",
-        review_threshold: 0.7,
-        req_http_options: [plug: {Req.Test, @typesafe_req_stub}]
-      )
-
-      Req.Test.expect(@typesafe_req_stub, fn conn ->
-        answers =
-          ~w(amount_wrong currency_wrong invoice_date_wrong issuer_wrong reason_for_payment_wrong)
-          |> Map.new(fn id -> {id, %{"type" => "noul", "noul" => 0.1}} end)
-
-        Req.Test.json(conn, %{
-          "model" => "jev-latest",
-          "answers" => answers,
-          "usage" => %{"input_tokens" => 100, "output_tokens" => 5}
-        })
-      end)
-
-      Req.Test.expect(@typesafe_req_stub, fn conn ->
-        Req.Test.json(conn, %{"model" => "jev-latest", "answers" => %{}})
-      end)
-
       assert {:ok, extracted} = LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
       assert extracted.amount_to_pay_cents == 1200
 
-      Logger.configure(level: :debug)
+      assert {:ok, %{"status" => "verified"}} =
+               LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted)
 
-      success_log =
-        capture_log(fn ->
-          assert {:ok,
-                  %{
-                    "status" => "verified",
-                    "typesafe_shadow" => %{"status" => "verified"}
-                  }} =
-                   LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted, "CHF")
-        end)
-
-      assert success_log =~ "[TypeSafe] Shadow verification started"
-      assert success_log =~ "[TypeSafe] Shadow verification succeeded"
-      assert success_log =~ "status=verified"
-      assert success_log =~ "model=jev-latest"
-      refute success_log =~ "test-api-key"
-
-      failure_log =
-        capture_log(fn ->
-          assert {:ok,
-                  %{
-                    "status" => "verified",
-                    "typesafe_shadow" => %{
-                      "status" => "verification_failed",
-                      "error" => "invalid_response"
-                    }
-                  }} =
-                   LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted, "CHF")
-        end)
-
-      assert failure_log =~ "[TypeSafe] Shadow verification started"
-      assert failure_log =~ "[TypeSafe] Shadow verification failed class=invalid_response"
-
-      typesafe_config = Application.fetch_env!(:zaimu_tomo, :typesafe)
-      Application.put_env(:zaimu_tomo, :typesafe, Keyword.put(typesafe_config, :base_url, 123))
-
-      exception_log =
-        capture_log(fn ->
-          assert {:ok,
-                  %{
-                    "status" => "verified",
-                    "typesafe_shadow" => %{"status" => "verification_failed"}
-                  }} =
-                   LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted, "CHF")
-        end)
-
-      assert exception_log =~ "[TypeSafe] Shadow verification failed class=request_failed"
-
-      Application.put_env(:zaimu_tomo, :typesafe, Keyword.put(typesafe_config, :enabled, false))
-
-      skipped_log =
-        capture_log(fn ->
-          assert {:ok, %{"status" => "verified"} = verification} =
-                   LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted, "CHF")
-
-          refute Map.has_key?(verification, "typesafe_shadow")
-        end)
-
-      assert skipped_log =~ "[TypeSafe] Shadow verification skipped"
-
-      for model <- ["extractor", "verifier", "verifier", "verifier"] do
+      for model <- ["extractor", "verifier"] do
         assert_receive {:ollama_request, "/v1/chat/completions", headers, body}
         refute List.keymember?(headers, "authorization", 0)
         assert body["model"] == model

@@ -41,7 +41,11 @@ config :zaimu_tomo, :typesafe,
   base_url: "https://api.typesafe.ai",
   model: "jev-latest",
   review_threshold: 0.7,
-  receive_timeout: 30_000
+  receive_timeout: 30_000,
+  total_timeout: 10_000,
+  max_retries: 0,
+  max_concurrency: 2,
+  max_queue: 100
 
 config :zaimu_tomo, :ollama,
   # Native ReqLLM Ollama provider: no Authorization header is sent, so no

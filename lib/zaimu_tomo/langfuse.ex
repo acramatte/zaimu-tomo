@@ -480,17 +480,8 @@ defmodule ZaimuTomo.Langfuse do
     })
   end
 
-  defp record_span_result(span, {:error, reason}) when is_atom(reason) do
-    record_failed_span(span, Atom.to_string(reason))
-  end
-
-  defp record_span_result(span, {:error, {kind, reason}})
-       when is_atom(kind) and is_atom(reason) do
-    record_failed_span(span, "#{kind}:#{reason}")
-  end
-
-  defp record_span_result(span, {:error, _reason}) do
-    record_failed_span(span, "unknown")
+  defp record_span_result(span, {:error, reason}) do
+    record_failed_span(span, span_error_class(reason))
   end
 
   defp record_span_result(span, _result) do
@@ -501,12 +492,23 @@ defmodule ZaimuTomo.Langfuse do
 
   defp record_failed_span(span, error_class) do
     :otel_span.set_attributes(span, %{
+      "error.type" => error_class,
+      "langfuse.observation.metadata.typesafe_error_class" => error_class,
       "langfuse.observation.output" =>
         encode_json(%{"status" => "failed", "error" => error_class})
     })
 
     :otel_span.set_status(span, :error, "span failed")
   end
+
+  defp span_error_class({:http, status}) when is_integer(status), do: "http_#{status}"
+
+  defp span_error_class({kind, reason}) when is_atom(kind) and is_atom(reason),
+    do: "#{kind}:#{reason}"
+
+  defp span_error_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp span_error_class(reason) when is_binary(reason), do: reason
+  defp span_error_class(_reason), do: "unknown"
 
   defp encode_json(value) do
     case Jason.encode(value) do

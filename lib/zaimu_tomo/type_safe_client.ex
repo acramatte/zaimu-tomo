@@ -130,21 +130,54 @@ defmodule ZaimuTomo.TypeSafeClient do
       api_key: api_key,
       base_url: Keyword.get(config, :base_url, "https://api.typesafe.ai"),
       receive_timeout: Keyword.get(config, :receive_timeout, 30_000),
-      max_retries: 3,
+      total_timeout: Keyword.get(config, :total_timeout, 10_000),
+      max_retries: Keyword.get(config, :max_retries, 0),
       req_http_options: Keyword.get(config, :req_http_options, [])
     ]
 
-    case ReqLLM.evaluate(model_spec(config), state, questions, options) do
+    evaluator = Keyword.get(config, :evaluator, &ReqLLM.evaluate/4)
+
+    case evaluator.(model_spec(config), state, questions, options) do
       {:ok, response} ->
         {:ok, response}
 
-      {:error, %ReqLLM.Error.API.Request{cause: %ReqLLM.Error.API.Response{}}} ->
-        {:error, :invalid_response}
+      {:error, reason} ->
+        {:error, classify_request_error(reason)}
 
-      {:error, _reason} ->
-        {:error, :request_failed}
+      _invalid_response ->
+        {:error, :invalid_response}
     end
   end
+
+  defp classify_request_error(%ReqLLM.Error.API.Timeout{}), do: :timeout
+
+  defp classify_request_error(%ReqLLM.Error.API.Request{status: status})
+       when is_integer(status) and status not in 200..299,
+       do: {:http, status}
+
+  defp classify_request_error(%ReqLLM.Error.API.Request{
+         cause: %ReqLLM.Error.API.Response{status: status}
+       })
+       when is_integer(status) and status not in 200..299,
+       do: {:http, status}
+
+  defp classify_request_error(%ReqLLM.Error.API.Request{
+         cause: %ReqLLM.Error.API.Response{status: status}
+       })
+       when status in 200..299,
+       do: :invalid_response
+
+  defp classify_request_error(%ReqLLM.Error.API.Request{cause: %{reason: :timeout}}),
+    do: :timeout
+
+  defp classify_request_error(%ReqLLM.Error.API.Request{
+         cause: %{__struct__: module, reason: _reason}
+       })
+       when module in [Req.TransportError, Finch.TransportError, Mint.TransportError],
+       do: :transport
+
+  defp classify_request_error(%ReqLLM.Error.API.Response{}), do: :invalid_response
+  defp classify_request_error(_reason), do: :request_failed
 
   defp parse_probabilities(%ReqLLM.Response{object: answers}, questions) when is_map(answers) do
     questions
