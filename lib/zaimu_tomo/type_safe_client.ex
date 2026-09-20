@@ -228,7 +228,12 @@ defmodule ZaimuTomo.TypeSafeClient do
   end
 
   defp normalize_extracted_data(extracted_data) when is_map(extracted_data) do
-    {:ok, normalize_extracted_map(extracted_data)}
+    changeset = ExtractedData.embedded_changeset(%ExtractedData{}, extracted_data)
+
+    case Ecto.Changeset.apply_action(changeset, :validate) do
+      {:ok, validated_data} -> normalize_extracted_data(validated_data)
+      {:error, _changeset} -> {:error, :invalid_extraction_payload}
+    end
   end
 
   defp normalize_extracted_data(_extracted_data), do: {:error, :invalid_extraction_payload}

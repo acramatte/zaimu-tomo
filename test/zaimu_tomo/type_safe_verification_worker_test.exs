@@ -141,7 +141,13 @@ defmodule ZaimuTomo.TypeSafeVerificationWorkerTest do
                  Worker.perform(%{
                    extracted_content_id: -1,
                    markdown: "private OCR",
-                   extracted_data: %{},
+                   extracted_data: %{
+                     amount_to_pay_cents: 1200,
+                     invoice_date: "2026-01-01",
+                     currency: "CHF",
+                     reason_for_payment: "Consulting services",
+                     issuer: "Example Ltd"
+                   },
                    currency_hint: "CHF"
                  })
       end)
