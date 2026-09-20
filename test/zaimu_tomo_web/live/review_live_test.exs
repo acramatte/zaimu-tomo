@@ -144,6 +144,45 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     assert html =~ "amount_to_pay_cents 0.07"
   end
 
+  test "shows a Jev shadow warning without changing the authoritative review controls", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    document = document_fixture(scope)
+
+    extracted_content =
+      extracted_content_fixture(document, user, %{
+        analysis: %{
+          "verification" => %{
+            "status" => "verified",
+            "reason" => "All fields match.",
+            "typesafe_shadow" => %{
+              "status" => "needs_review",
+              "model" => "jev-latest",
+              "max_error_probability" => 0.91,
+              "review_threshold" => 0.7,
+              "field_issues" => "amount_to_pay_cents,issuer",
+              "field_probabilities" => %{
+                "amount_to_pay_cents" => 0.91,
+                "issuer" => 0.75
+              }
+            }
+          }
+        }
+      })
+
+    review = pending_review_fixture(extracted_content)
+    {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+    refute html =~ "Verifier flagged this extraction"
+    assert html =~ "Independent check: Needs review"
+    assert html =~ "class=\"pill review\""
+    assert html =~ "amount_to_pay_cents,issuer"
+    assert has_element?(show_live, "button", "Approve & post")
+    assert has_element?(show_live, "button", "Reject")
+  end
+
   test "shows a failed Jev shadow check without changing the verifier card", %{
     conn: conn,
     scope: scope,

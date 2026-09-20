@@ -1,6 +1,7 @@
 defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   use ZaimuTomo.DataCase, async: false
 
+  alias ReqLLM.Response
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
@@ -29,6 +30,9 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
 
     @impl true
     def delete_object(_key, _config), do: :ok
+
+    @impl true
+    def read_object(_key, _config), do: {:error, :not_found}
 
     @impl true
     def head_object(_key, _config), do: :ok
@@ -149,6 +153,82 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.status == "success"
       assert content.analysis["verification"] == verification
     end
+
+    test "persists first and forwards the currency hint to asynchronous TypeSafe verification" do
+      original_typesafe = Application.fetch_env!(:zaimu_tomo, :typesafe)
+      test_pid = self()
+
+      Application.put_env(:zaimu_tomo, :typesafe,
+        enabled: true,
+        api_key: "test-api-key",
+        model: "jev-latest",
+        review_threshold: 0.7,
+        total_timeout: 250,
+        max_retries: 0,
+        evaluator: fn _model, state, questions, _options ->
+          send(test_pid, {:typesafe_started, state, self()})
+
+          receive do
+            :release ->
+              answers =
+                Map.new(questions, fn {id, _question} ->
+                  {id, %{"type" => "boolean", "probability" => 0.1}}
+                end)
+
+              {:ok,
+               %Response{
+                 id: "eval-test",
+                 model: "jev-latest",
+                 context: ReqLLM.Context.new(),
+                 object: answers,
+                 usage: %{}
+               }}
+          end
+        end
+      )
+
+      on_exit(fn -> Application.put_env(:zaimu_tomo, :typesafe, original_typesafe) end)
+
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+
+      extracted_data = %ExtractedData{
+        amount_to_pay_cents: 4200,
+        invoice_date: "2026-05-08",
+        invoice_number: "INV-42",
+        currency: "CHF",
+        reason_for_payment: "Consulting services",
+        issuer: "Example Ltd"
+      }
+
+      assert {:ok, content} =
+               Worker.persist_and_emit_success(
+                 document,
+                 extracted_data,
+                 %{"pages" => []},
+                 %{"status" => "verified", "reason" => "All fields match."},
+                 nil,
+                 %{
+                   markdown: "Invoice INV-42 total: CHF 42.00",
+                   currency_hint: "CHF",
+                   trace_context: OpenTelemetry.Ctx.get_current()
+                 }
+               )
+
+      refute Map.has_key?(content.analysis["verification"], "typesafe_shadow")
+      assert_receive {:typesafe_started, state, worker_pid}
+      assert state["currency_hint"] == "CHF"
+
+      send(worker_pid, :release)
+
+      assert eventually(fn ->
+               updated =
+                 ZaimuTomo.DocumentProcessing.ExtractedContentContext.get_by_id(content.id)
+
+               updated.analysis["verification"]["typesafe_shadow"]["status"] == "verified"
+             end)
+    end
   end
 
   describe "persist_and_emit_failure/2" do
@@ -189,6 +269,19 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                "Automatically marked as failed: llm_request_failed"
     end
   end
+
+  defp eventually(fun, attempts \\ 20)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 
   defp document_fixture(scope, attrs) do
     attrs =

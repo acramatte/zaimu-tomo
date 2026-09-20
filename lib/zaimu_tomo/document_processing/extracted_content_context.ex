@@ -60,6 +60,29 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
   end
 
   @doc """
+  Persists a TypeSafe shadow result without replacing authoritative verification.
+  """
+  @spec put_typesafe_shadow(pos_integer(), map()) ::
+          {:ok, ExtractedContent.t()} | {:error, term()}
+  def put_typesafe_shadow(extraction_id, shadow) when is_map(shadow) do
+    case get_by_id(extraction_id) do
+      %ExtractedContent{} = content ->
+        analysis = content.analysis || %{}
+        verification = Map.get(analysis, "verification", %{})
+
+        updated_analysis =
+          Map.put(analysis, "verification", Map.put(verification, "typesafe_shadow", shadow))
+
+        content
+        |> Ecto.Changeset.change(analysis: updated_analysis)
+        |> Repo.update()
+
+      nil ->
+        {:error, :extracted_content_not_found}
+    end
+  end
+
+  @doc """
   Gets the latest extraction for a document.
 
   ## Parameters

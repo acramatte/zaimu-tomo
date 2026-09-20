@@ -37,17 +37,21 @@ ZaimuTomo integrates with Langfuse for prompt management (the extract and verify
 
 ## TypeSafe verification (optional)
 
-Set `TYPESAFE_API_KEY` to run Jev beside the configured verifier. Jev's per-field
-probabilities are stored under `analysis.verification.typesafe_shadow` and shown
-on the review page as **Jev shadow check**; they do
-not change the authoritative verification status or block document processing.
-Server logs record `skipped` (debug), `started`/`succeeded` (info), or `failed`
-(warning) without OCR text or API credentials. When Langfuse is enabled, Jev is
-a sibling `typesafe-shadow-verification` span under `process-invoice`, next to
-`verify-extraction`, so their durations can be compared.
+Set `TYPESAFE_API_KEY` to enqueue Jev beside the configured verifier. Jev's per-field
+probabilities are written asynchronously under `analysis.verification.typesafe_shadow`
+and shown in the review page's **Quality checks** section behind **View independent
+check**; they do not change the authoritative verification status or delay persistence
+of the extraction. Server logs record `skipped` (debug), `started`/`succeeded` (info),
+or a sanitized failure class (warning) without OCR text or API credentials. When
+Langfuse is enabled, Jev is a sibling `typesafe-shadow-verification` span under
+`process-invoice`, next to `verify-extraction`, so their durations can be compared.
 The default model is `jev-latest` and the shadow review threshold is `0.7`.
 Override them with `TYPESAFE_MODEL` and `TYPESAFE_REVIEW_THRESHOLD`; use
-`TYPESAFE_URL` only for a compatible API endpoint override.
+`TYPESAFE_URL` only for a compatible API endpoint override. Shadow work defaults to
+two concurrent jobs, a 100-job pending queue, a 10-second whole-call deadline,
+a 30-second inactivity timeout, and no retries; tune these with
+`TYPESAFE_MAX_CONCURRENCY`, `TYPESAFE_MAX_QUEUE`, `TYPESAFE_TOTAL_TIMEOUT`,
+`TYPESAFE_RECEIVE_TIMEOUT`, and `TYPESAFE_MAX_RETRIES`.
 
 ## Run Locally
 

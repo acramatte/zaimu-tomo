@@ -39,6 +39,16 @@ if config_env() != :test do
 
   typesafe_api_key = System.get_env("TYPESAFE_API_KEY")
 
+  parse_typesafe_integer = fn name, default, minimum ->
+    case Integer.parse(System.get_env(name, Integer.to_string(default))) do
+      {value, ""} when value >= minimum ->
+        value
+
+      _invalid ->
+        raise ArgumentError, "#{name} must be an integer greater than or equal to #{minimum}"
+    end
+  end
+
   typesafe_review_threshold =
     case Float.parse(System.get_env("TYPESAFE_REVIEW_THRESHOLD", "0.7")) do
       {threshold, ""} when threshold >= 0 and threshold <= 1 ->
@@ -54,7 +64,12 @@ if config_env() != :test do
     api_key: typesafe_api_key,
     base_url: System.get_env("TYPESAFE_URL", "https://api.typesafe.ai"),
     model: System.get_env("TYPESAFE_MODEL", "jev-latest"),
-    review_threshold: typesafe_review_threshold
+    review_threshold: typesafe_review_threshold,
+    receive_timeout: parse_typesafe_integer.("TYPESAFE_RECEIVE_TIMEOUT", 30_000, 1),
+    total_timeout: parse_typesafe_integer.("TYPESAFE_TOTAL_TIMEOUT", 10_000, 1),
+    max_retries: parse_typesafe_integer.("TYPESAFE_MAX_RETRIES", 0, 0),
+    max_concurrency: parse_typesafe_integer.("TYPESAFE_MAX_CONCURRENCY", 2, 1),
+    max_queue: parse_typesafe_integer.("TYPESAFE_MAX_QUEUE", 100, 1)
 end
 
 default_extractor =
