@@ -197,6 +197,78 @@ defmodule ZaimuTomo.TypeSafeClientTest do
              TypeSafeClient.verify_extraction("OCR markdown", extracted_data(), "CHF")
   end
 
+  test "rejects invalid map payloads before calling TypeSafe" do
+    test_pid = self()
+
+    put_evaluator(fn _model, _state, _questions, _options ->
+      send(test_pid, :typesafe_called)
+      :malformed
+    end)
+
+    for payload <- [
+          %{},
+          %{
+            amount_to_pay_cents: "not-an-integer",
+            invoice_date: "2026-01-01",
+            currency: "CHF",
+            reason_for_payment: "Consulting services",
+            issuer: "Example Ltd"
+          },
+          %{
+            amount_to_pay_cents: 1200,
+            invoice_date: nil,
+            currency: "CHF",
+            reason_for_payment: "Consulting services",
+            issuer: "Example Ltd"
+          }
+        ] do
+      assert {:error, :invalid_extraction_payload} =
+               TypeSafeClient.verify_extraction("OCR markdown", payload, "CHF")
+    end
+
+    refute_received :typesafe_called
+  end
+
+  test "casts and normalizes valid map payloads before evaluation" do
+    test_pid = self()
+
+    put_evaluator(fn _model, state, questions, _options ->
+      send(test_pid, {:evaluated_state, state})
+
+      answers =
+        Map.new(questions, fn {id, _question} ->
+          {id, %{"type" => "boolean", "probability" => 0.1}}
+        end)
+
+      {:ok,
+       %ReqLLM.Response{
+         id: "eval-test",
+         model: "jev-latest",
+         context: ReqLLM.Context.new(),
+         object: answers,
+         usage: %{}
+       }}
+    end)
+
+    payload = %{
+      "amount_to_pay_cents" => "1200",
+      "invoice_date" => "2026-01-01",
+      "invoice_number" => "INV-42",
+      "currency" => "chf",
+      "reason_for_payment" => "Consulting services",
+      "issuer" => "Example Ltd",
+      "ignored" => "not forwarded"
+    }
+
+    assert {:ok, %{"status" => "verified"}} =
+             TypeSafeClient.verify_extraction("OCR markdown", payload, "CHF")
+
+    assert_received {:evaluated_state, %{"extracted" => extracted}}
+    assert extracted["amount_to_pay_cents"] == 1200
+    assert extracted["currency"] == "CHF"
+    refute Map.has_key?(extracted, "ignored")
+  end
+
   test "does not call the API when shadow verification is disabled" do
     Application.put_env(:zaimu_tomo, :typesafe, enabled: false)
 
