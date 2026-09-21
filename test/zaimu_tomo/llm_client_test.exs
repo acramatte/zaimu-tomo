@@ -312,6 +312,75 @@ defmodule ZaimuTomo.LLMClientTest do
 
       assert {:error, :no_structured_output} = LLMClient.verifier_object(response)
     end
+
+    test "recovers the verdict from labeled prose without JSON" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [
+            ContentPart.text("""
+            Status: verified
+            Reason: All extracted values are directly supported by the source OCR markdown.
+            Field Issues: None.
+            """)
+          ],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:ok, verification} = LLMClient.verifier_object(response)
+      assert verification["status"] == "verified"
+
+      assert verification["reason"] ==
+               "All extracted values are directly supported by the source OCR markdown."
+
+      assert verification["field_issues"] == "None."
+    end
+
+    test "rejects prose whose status is not a verifier status" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [ContentPart.text("Status: looks_good\nReason: Fine.")],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :invalid_verifier_output} = LLMClient.verifier_object(response)
+    end
+
+    test "returns :no_structured_output for prose without a status label" do
+      response = %Response{
+        id: "resp-1",
+        model: "phi4-mini-it:4b",
+        context: nil,
+        message: %Message{
+          role: :assistant,
+          content: [ContentPart.text("Reason: Everything matches the OCR markdown.")],
+          tool_calls: []
+        },
+        object: nil,
+        finish_reason: :stop,
+        provider_meta: %{},
+        usage: %{}
+      }
+
+      assert {:error, :no_structured_output} = LLMClient.verifier_object(response)
+    end
   end
 
   describe "verify_extraction/2" do
