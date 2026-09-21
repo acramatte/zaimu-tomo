@@ -71,6 +71,10 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint(:review_decision_id)
+    |> unique_constraint(:invoice_number,
+      name: :journal_entries_user_issuer_number_unique_index,
+      message: "has already been recorded for this issuer"
+    )
   end
 
   @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t(t())
