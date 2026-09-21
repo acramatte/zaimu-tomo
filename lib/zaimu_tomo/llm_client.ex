@@ -236,10 +236,42 @@ defmodule ZaimuTomo.LLMClient do
     with {:error, :no_object} <- object_from_response(response),
          {:error, :no_unwrapped_object} <- unwrapped_object_from_response(response),
          {:error, :no_structured_output} <- structured_output_from_tool_calls(response) do
-      {:error, :no_structured_output}
+      prose_object_from_response(response)
     else
       {:ok, %{} = object} -> {:ok, object}
       %{} = object -> {:ok, object}
+    end
+  end
+
+  # Some local backends (e.g. FastFlowLM's phi4-mini) answer the verifier prompt
+  # conversationally instead of emitting JSON, even though the answer carries the
+  # same labeled fields ("Status: verified\nReason: ...\nField Issues: None.").
+  # Recover those labels so a correctly-reasoning model is not treated as a
+  # structured-output failure; VerificationResult still validates every value,
+  # so unrecognized prose never becomes a verdict.
+  defp prose_object_from_response(response) do
+    text = ReqLLM.Response.text(response)
+
+    case prose_fields(text) do
+      %{"status" => _status} = object -> {:ok, object}
+      _ -> {:error, :no_structured_output}
+    end
+  end
+
+  defp prose_fields(text) when is_binary(text) do
+    %{}
+    |> put_prose_field(text, ~r/\bstatus:\s*([^\n]+)/i, "status")
+    |> put_prose_field(text, ~r/\breason:\s*(.*?)(?:^\s*field issues:|\z)/ims, "reason")
+    |> put_prose_field(text, ~r/^\s*field issues:\s*(.*?)(?:^\s*\S|\z)/ims, "field_issues")
+    |> Map.new(fn {key, value} -> {key, String.trim(value)} end)
+  end
+
+  defp prose_fields(_text), do: %{}
+
+  defp put_prose_field(fields, text, regex, key) do
+    case Regex.run(regex, text, capture: :all_but_first) do
+      [value | _] -> Map.put(fields, key, value)
+      _ -> fields
     end
   end
 
