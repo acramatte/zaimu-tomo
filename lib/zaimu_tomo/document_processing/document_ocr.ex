@@ -7,6 +7,8 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
 
   require Logger
 
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
+
   @model "mistral-ocr-latest"
 
   @doc """
@@ -29,7 +31,11 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
         {:ok, markdown, raw_map}
 
       {:error, reason} ->
-        Logger.error("❌ OCR Analysis Failed for #{filepath}: #{inspect(reason)}")
+        # Log only a bounded, body-free class — never the provider payload.
+        Logger.error(
+          "❌ OCR Analysis Failed for #{filepath}: #{ErrorClassification.summarize(reason)}"
+        )
+
         {:error, reason}
     end
   end

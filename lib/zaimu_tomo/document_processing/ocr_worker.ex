@@ -7,27 +7,40 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   `ZaimuTomo.DocumentProcessing.OCRJob` decides whether and when to record a
   failure based on `ZaimuTomo.DocumentProcessing.ErrorClassification` and the
   attempt number, so retries never multiply failed rows.
+
+  Every terminal write (success and failure rows) is serialized per document:
+  inside its transaction it locks the document row and re-checks the latest
+  extraction against the expected id from enqueue time, so overlapping
+  executions cannot append two terminal rows. A changed document rolls back
+  with `:already_processed`; a deleted one with `:document_deleted`.
   """
 
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.TemporaryFile
+  alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
   alias ZaimuTomo.Storage
+  import Ecto.Query, only: [from: 2]
   require Logger
 
   @doc """
   Runs one processing attempt for a self-contained command:
 
-      %{document: %Document{}, currency_hint: String.t()}
+      %{document: %Document{}, currency_hint: String.t(), supersedes_extraction_id: id | nil}
 
-  Returns `{:ok, %ExtractedContent{}}` when a success row was persisted, or
-  `{:error, reason}` without persisting anything so the caller can retry or
-  record a single failure.
+  Returns `{:ok, %ExtractedContent{}}` when a success row was persisted,
+  `{:error, :already_processed | :document_deleted}` when the terminal write
+  was superseded or the document is gone, or `{:error, reason}` without
+  persisting anything so the caller can retry or record a single failure.
   """
-  def run(%{document: %{object_key: object_key} = document, currency_hint: currency_hint}) do
+  def run(%{
+        document: %{object_key: object_key} = document,
+        currency_hint: currency_hint,
+        supersedes_extraction_id: expected_extraction_id
+      }) do
     Langfuse.trace_document_processing(document, fn ->
       trace_id = Langfuse.current_trace_id()
 
@@ -50,7 +63,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
                   markdown: markdown,
                   currency_hint: currency_hint,
                   trace_context: OpenTelemetry.Ctx.get_current()
-                }
+                },
+                expected_extraction_id
               )
             end
           after
@@ -69,7 +83,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         raw_llm_response,
         verification \\ %{"status" => "not_run"},
         trace_id \\ nil,
-        typesafe_input \\ nil
+        typesafe_input \\ nil,
+        expected_extraction_id \\ nil
       ) do
     analysis = %{
       "processed_at" => DateTime.utc_now(),
@@ -87,11 +102,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     }
 
     Repo.transaction(fn ->
+      lock_and_check_latest(document.id, expected_extraction_id)
+
       with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
            {:ok, _review_decision} <- Review.create_initial_decision(content) do
         content
       else
-        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, changeset} -> Repo.rollback({:persistence_failed, changeset.errors})
       end
     end)
     |> case do
@@ -109,16 +126,22 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
         {:ok, content}
 
-      {:error, changeset} ->
+      {:error, :already_processed} ->
+        {:error, :already_processed}
+
+      {:error, :document_deleted} ->
+        {:error, :document_deleted}
+
+      {:error, {:persistence_failed, errors}} ->
         Logger.error(
-          "[OCR] Failed to persist successful extraction for document #{document.id}: #{inspect(changeset.errors)}"
+          "[OCR] Failed to persist successful extraction for document #{document.id}: #{inspect(errors)}"
         )
 
-        {:error, {:persistence_failed, changeset.errors}}
+        {:error, {:persistence_failed, errors}}
     end
   end
 
-  def persist_and_emit_failure(document, error) do
+  def persist_and_emit_failure(document, error, expected_extraction_id \\ nil) do
     error_details = %{
       "type" => error_type(error),
       "message" => error_message(error),
@@ -142,11 +165,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     }
 
     Repo.transaction(fn ->
+      lock_and_check_latest(document.id, expected_extraction_id)
+
       with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
            {:ok, _review_decision} <- Review.create_failed_decision(content, error) do
         content
       else
-        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, changeset} -> Repo.rollback({:persistence_failed, changeset.errors})
       end
     end)
     |> case do
@@ -162,12 +187,36 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
         {:ok, content}
 
-      {:error, changeset} ->
+      {:error, :already_processed} ->
+        {:error, :already_processed}
+
+      {:error, :document_deleted} ->
+        {:error, :document_deleted}
+
+      {:error, {:persistence_failed, errors}} ->
         Logger.error(
-          "[OCR] Failed to persist failed extraction for document #{document.id}: #{inspect(changeset.errors)}"
+          "[OCR] Failed to persist failed extraction for document #{document.id}: #{inspect(errors)}"
         )
 
-        {:error, {:persistence_failed, changeset.errors}}
+        {:error, {:persistence_failed, errors}}
+    end
+  end
+
+  # Serialize one document's terminal write: lock the document row, then
+  # re-check the latest extraction against the expected id from enqueue time.
+  # An overlapping run that already appended a row rolls the transaction back
+  # with :already_processed; a deleted document with :document_deleted.
+  defp lock_and_check_latest(document_id, expected_extraction_id) do
+    case Repo.one(from(d in Document, where: d.id == ^document_id, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback(:document_deleted)
+
+      %Document{} ->
+        case ExtractedContentContext.get_latest_by_document(document_id) do
+          nil when is_nil(expected_extraction_id) -> :ok
+          %{id: ^expected_extraction_id} -> :ok
+          _newer -> Repo.rollback(:already_processed)
+        end
     end
   end
 
