@@ -1,24 +1,33 @@
 defmodule ZaimuTomo.DocumentProcessing.Worker do
   @moduledoc """
-  Individual OCR processing task for a single document.
-  Uses the existing DocumentOCR module for processing.
-  """
+  The OCR -> extraction -> verification pipeline for a single document.
 
-  use Task
+  `run/1` executes one attempt and returns `{:ok, content} | {:error, reason}`.
+  It persists a SUCCESS row itself but never persists a failure: the durable
+  `ZaimuTomo.DocumentProcessing.OCRJob` decides whether and when to record a
+  failure based on `ZaimuTomo.DocumentProcessing.ErrorClassification` and the
+  attempt number, so retries never multiply failed rows.
+  """
 
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.TemporaryFile
   alias ZaimuTomo.Langfuse
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
   alias ZaimuTomo.Storage
   require Logger
 
-  def start_link(command) do
-    Task.start_link(__MODULE__, :process, [command])
-  end
+  @doc """
+  Runs one processing attempt for a self-contained command:
 
-  def process(%{document: %{object_key: object_key} = document, currency_hint: currency_hint}) do
+      %{document: %Document{}, currency_hint: String.t()}
+
+  Returns `{:ok, %ExtractedContent{}}` when a success row was persisted, or
+  `{:error, reason}` without persisting anything so the caller can retry or
+  record a single failure.
+  """
+  def run(%{document: %{object_key: object_key} = document, currency_hint: currency_hint}) do
     Langfuse.trace_document_processing(document, fn ->
       trace_id = Langfuse.current_trace_id()
 
@@ -43,21 +52,13 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
                   trace_context: OpenTelemetry.Ctx.get_current()
                 }
               )
-            else
-              {:error, reason} ->
-                Logger.error(
-                  "[Saga] Document #{document.id} processing failed: #{inspect(reason)}"
-                )
-
-                persist_and_emit_failure(document, reason)
             end
           after
             File.rm(temporary_path)
           end
 
-        {:error, reason} ->
-          Logger.error("[Saga] Document #{document.id} processing failed: #{inspect(reason)}")
-          persist_and_emit_failure(document, reason)
+        {:error, posix} ->
+          {:error, {:scratch_unavailable, posix}}
       end
     end)
   end
@@ -85,10 +86,17 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       trace_id: trace_id
     }
 
-    case ExtractedContentContext.create_extracted_content(extraction_params) do
+    Repo.transaction(fn ->
+      with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
+           {:ok, _review_decision} <- Review.create_initial_decision(content) do
+        content
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+    |> case do
       {:ok, content} ->
         enqueue_typesafe_shadow(content, extracted_data, typesafe_input)
-        {:ok, _review_decision} = Review.create_initial_decision(content)
 
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:success", %{
           document_id: document.id,
@@ -103,7 +111,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
       {:error, changeset} ->
         Logger.error(
-          "[Saga] Failed to persist successful extraction for document #{document.id}: #{inspect(changeset.errors)}"
+          "[OCR] Failed to persist successful extraction for document #{document.id}: #{inspect(changeset.errors)}"
         )
 
         {:error, {:persistence_failed, changeset.errors}}
@@ -133,10 +141,16 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       error_details: error_details
     }
 
-    case ExtractedContentContext.create_extracted_content(extraction_params) do
+    Repo.transaction(fn ->
+      with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
+           {:ok, _review_decision} <- Review.create_failed_decision(content, error) do
+        content
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+    |> case do
       {:ok, content} ->
-        {:ok, _review_decision} = Review.create_failed_decision(content, error)
-
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:failed", %{
           document_id: document.id,
           extraction_id: content.id,
@@ -150,7 +164,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
       {:error, changeset} ->
         Logger.error(
-          "[Saga] Failed to persist failed extraction for document #{document.id}: #{inspect(changeset.errors)}"
+          "[OCR] Failed to persist failed extraction for document #{document.id}: #{inspect(changeset.errors)}"
         )
 
         {:error, {:persistence_failed, changeset.errors}}
@@ -206,6 +220,8 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
   defp error_type(_error),
     do: "unknown"
+
+  defp error_message({_tag, %{reason: reason}}) when is_binary(reason), do: reason
 
   defp error_message(error) when is_tuple(error) do
     val = elem(error, 1)

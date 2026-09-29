@@ -47,6 +47,22 @@ config :zaimu_tomo, :typesafe,
   max_concurrency: 2,
   max_queue: 100
 
+# Durable background jobs for document processing (Oban OSS). The documents
+# queue is deliberately small: OCR + LLM runs are expensive and, in local dev
+# with a single-NPU FLM backend, must be serialized (see OBAN_DOCUMENTS_
+# CONCURRENCY in config/runtime.exs). testing: :manual in config/test.exs.
+config :zaimu_tomo, Oban,
+  engine: Oban.Engines.Basic,
+  repo: ZaimuTomo.Repo,
+  queues: [documents: 2],
+  plugins: [
+    # Keep finished jobs a week for debugging/audit of retries.
+    {Oban.Pruner, max_age: 7 * 24 * 60 * 60},
+    # OSS Oban leaves jobs in `executing` when a node dies mid-run (deploy/OOM);
+    # Lifeline moves them back. Must be > OCRJob.timeout/1.
+    {Oban.Lifeline, rescue_after: :timer.minutes(30)}
+  ]
+
 config :zaimu_tomo, :ollama,
   # Native ReqLLM Ollama provider: no Authorization header is sent, so no
   # API key is needed.

@@ -8,6 +8,7 @@ defmodule ZaimuTomo.Documents do
 
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.Storage
 
@@ -34,7 +35,6 @@ defmodule ZaimuTomo.Documents do
 
   defp broadcast_document(%Scope{} = scope, message) do
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, documents_topic(scope), message)
-    Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "documents_uploaded", message)
   end
 
   defp documents_topic(%Scope{} = scope), do: "user:#{scope.user.id}:documents"
@@ -140,12 +140,25 @@ defmodule ZaimuTomo.Documents do
 
   """
   def create_document(%Scope{} = scope, attrs) do
-    with {:ok, document = %Document{}} <-
-           %Document{}
-           |> Document.changeset(attrs, scope)
-           |> Repo.insert() do
-      broadcast_document(scope, {:created, document})
-      {:ok, document}
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(:document, Document.changeset(%Document{}, attrs, scope))
+    |> Oban.insert(:ocr_job, fn %{document: document} ->
+      DocumentProcessing.ocr_job(document, scope.user.base_currency, nil)
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{document: document}} ->
+        broadcast_document(scope, {:created, document})
+        {:ok, document}
+
+      {:error, :document, changeset, _changes} ->
+        {:error, changeset}
+
+      # Should not happen: the job insert runs in the same transaction and its
+      # failure rolls back the document. Mapped to a changeset so upload callers
+      # still clean up the stored object on any insert failure.
+      {:error, :ocr_job, changeset, _changes} ->
+        {:error, changeset}
     end
   end
 

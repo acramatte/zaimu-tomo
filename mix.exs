@@ -69,6 +69,9 @@ defmodule ZaimuTomo.MixProject do
       {:req, "~> 0.5"},
       {:aws_signature, "~> 0.4"},
       {:req_llm, "~> 1.24"},
+      # Durable job queue for document processing (OSS edition). Enqueue is
+      # atomic with the triggering row so an upload can never lose its job.
+      {:oban, "~> 2.24"},
       # Testcontainers 2.4 pins 0.6.2 for Elixir 1.15, while this application
       # already resolves UniQ 0.6.3 through ReqLLM on Elixir 1.19.
       {:uniq, "== 0.6.3", override: true},
