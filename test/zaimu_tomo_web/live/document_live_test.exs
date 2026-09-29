@@ -1,10 +1,13 @@
 defmodule ZaimuTomoWeb.DocumentLiveTest do
   use ZaimuTomoWeb.ConnCase
+  use Oban.Testing, repo: ZaimuTomo.Repo
 
   import Phoenix.LiveViewTest
+  import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
 
+  alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Storage
@@ -285,5 +288,101 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       # The form now uses live file uploads which require a different testing approach
       # TODO: Enhance this test with proper file upload simulation
     end
+  end
+
+  describe "Show retry processing" do
+    test "a failed extraction shows the retry button and a click enqueues a job", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+      failed = extracted_content_fixture(doc, user, %{status: "failed"})
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+
+      assert has_element?(show_live, "button[phx-click=retry_processing]")
+
+      show_live |> element("button[phx-click=retry_processing]") |> render_click()
+
+      assert_enqueued(
+        worker: OCRJob,
+        args: %{document_id: doc.id, currency_hint: "CHF", supersedes_extraction_id: failed.id}
+      )
+
+      assert Phoenix.Flash.get(live_flash(show_live), :info) == "Processing restarted"
+
+      # The retry moves the document to :processing, so the button disappears.
+      refute has_element?(show_live, "button[phx-click=retry_processing]")
+    end
+
+    test "a stuck document shows the stalled copy and the retry button", %{
+      conn: conn,
+      scope: scope
+    } do
+      doc = document_fixture(scope)
+
+      {:ok, show_live, html} = live(conn, ~p"/documents/#{doc}")
+
+      assert html =~ "Processing stalled"
+      assert has_element?(show_live, "button[phx-click=retry_processing]")
+
+      html = show_live |> element("button[phx-click=retry_processing]") |> render_click()
+
+      assert html =~ "OCR in progress"
+      assert_enqueued(worker: OCRJob, args: %{document_id: doc.id, supersedes_extraction_id: nil})
+      refute has_element?(show_live, "button[phx-click=retry_processing]")
+    end
+
+    test "a document with a live job shows no retry button", %{conn: conn, scope: scope} do
+      {:ok, doc} =
+        Documents.create_document(scope, %{filename: "a.pdf", object_key: "documents/a.pdf"})
+
+      {:ok, show_live, html} = live(conn, ~p"/documents/#{doc}")
+
+      assert html =~ "OCR in progress"
+      refute has_element?(show_live, "button[phx-click=retry_processing]")
+    end
+
+    test "an extracted document shows no retry button", %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+      extracted_content_fixture(doc, user)
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+
+      refute has_element?(show_live, "button[phx-click=retry_processing]")
+    end
+
+    test "retrying a document that is not failed or stuck enqueues nothing", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+      extracted_content_fixture(doc, user)
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+
+      html = render_click(show_live, "retry_processing")
+
+      assert Phoenix.Flash.get(live_flash(show_live), :info) ==
+               "Nothing to retry: processing is already running or completed."
+
+      assert html =~ "Needs review"
+      refute_enqueued(worker: OCRJob)
+    end
+
+    test "a foreign document id is not found", %{conn: conn} do
+      foreign = document_fixture(user_scope_fixture())
+
+      assert_error_sent 404, fn -> live(conn, ~p"/documents/#{foreign}") end
+    end
+  end
+
+  # The flash group lives in the root layout, which `render/1` does not include,
+  # so assert flashes through the LiveView's socket assigns.
+  defp live_flash(view) do
+    %{socket: %{assigns: %{flash: flash}}} = :sys.get_state(view.pid)
+    flash
   end
 end
