@@ -2,6 +2,7 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
   use ZaimuTomo.DataCase, async: false
   use Oban.Testing, repo: ZaimuTomo.Repo
 
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.Worker, as: PipelineWorker
@@ -181,6 +182,46 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
                  "CHF"
                )
 
+      assert all_enqueued(worker: Worker) == []
+    end
+  end
+
+  describe "required-currency persistence contract" do
+    test "only persist_and_emit_success/6 and /7 are exported" do
+      arities =
+        PipelineWorker.__info__(:functions)
+        |> Enum.filter(&match?({:persist_and_emit_success, _}, &1))
+        |> Enum.map(&elem(&1, 1))
+        |> Enum.sort()
+
+      # Default arguments would export smaller arities that let callers omit
+      # verification, trace_id or the required currency hint; pin the export
+      # surface so that omission cannot come back silently.
+      assert arities == [6, 7]
+    end
+
+    test "an explicitly supplied nil currency raises and rolls back extraction, review and job writes" do
+      # The currency hint is a required argument, never a silent skip: a nil
+      # hint must fail the caller loudly before any shadow enqueue is reached,
+      # and the transaction must roll back the content/review inserts that
+      # already happened before the failure.
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+
+      assert_raise FunctionClauseError, fn ->
+        PipelineWorker.persist_and_emit_success(
+          document,
+          extracted_data(),
+          %{"pages" => []},
+          %{"status" => "verified", "reason" => "All fields match."},
+          nil,
+          nil
+        )
+      end
+
+      assert Repo.aggregate(ExtractedContent, :count) == 0
+      assert Repo.aggregate(ReviewDecision, :count) == 0
       assert all_enqueued(worker: Worker) == []
     end
   end
