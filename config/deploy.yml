@@ -58,7 +58,7 @@ env:
     PORT: "4000"
     POOL_SIZE: "10"
     AI_EXTRACTOR_BACKEND: "nousresearch"
-    AI_EXTRACTOR_MODEL: "ibm-granite/granite-4.1-8b"
+    AI_EXTRACTOR_MODEL: "ibm-granite/granite-4.2-8b"
     AI_VERIFIER_BACKEND: "nousresearch"
     AI_VERIFIER_MODEL: "qwen/qwen3.6-35b-a3b"
     MISTRAL_URL: "https://api.mistral.ai/v1"

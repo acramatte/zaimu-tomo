@@ -408,7 +408,7 @@ defmodule ZaimuTomo.LLMClientTest do
       original_backend_config = Application.fetch_env!(:zaimu_tomo, :nousresearch)
 
       Application.put_env(:zaimu_tomo, :ai_workflow,
-        extractor: [backend: :nousresearch, model: "ibm-granite/granite-4.1-8b"],
+        extractor: [backend: :nousresearch, model: "ibm-granite/granite-4.2-8b"],
         verifier: [backend: :flm, model: "phi4-mini-it:4b"]
       )
 
@@ -475,11 +475,11 @@ defmodule ZaimuTomo.LLMClientTest do
 
     test "resolves independently configured nousresearch models" do
       Application.put_env(:zaimu_tomo, :ai_workflow,
-        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.1-8b"],
+        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.2-8b"],
         verifier: [backend: "nousresearch", model: "qwen/qwen3.6-35b-a3b"]
       )
 
-      assert LLMClient.model_for(:extractor) == "ibm-granite/granite-4.1-8b"
+      assert LLMClient.model_for(:extractor) == "ibm-granite/granite-4.2-8b"
       assert LLMClient.model_for(:verifier) == "qwen/qwen3.6-35b-a3b"
     end
 
@@ -555,7 +555,7 @@ defmodule ZaimuTomo.LLMClientTest do
 
     test "accepts nousresearch as extractor and verifier backend" do
       Application.put_env(:zaimu_tomo, :ai_workflow,
-        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.1-8b"],
+        extractor: [backend: "nousresearch", model: "ibm-granite/granite-4.2-8b"],
         verifier: [backend: :nousresearch, model: "qwen/qwen3.6-35b-a3b"]
       )
 

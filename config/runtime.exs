@@ -74,7 +74,7 @@ end
 
 default_extractor =
   if config_env() == :prod,
-    do: [backend: :nousresearch, model: "ibm-granite/granite-4.1-8b"],
+    do: [backend: :nousresearch, model: "ibm-granite/granite-4.2-8b"],
     else: [backend: :flm, model: "gemma4-it:e4b"]
 
 default_verifier =

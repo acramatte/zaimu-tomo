@@ -15,7 +15,7 @@ export AI_VERIFIER_BACKEND=flm                  # flm | ollama | mistral | nousr
 export AI_VERIFIER_MODEL="phi4-mini-it:4b"
 ```
 
-In development the default roles use local FastFlowLM: Gemma (`gemma4-it:e4b`) extracts and Phi (`phi4-mini-it:4b`) verifies. In production both use `nousresearch`, with Granite (`ibm-granite/granite-4.1-8b`) extracting and Qwen (`qwen/qwen3.6-35b-a3b`) verifying. Every role needs both a backend and a model; there is no backend-level model fallback.
+In development the default roles use local FastFlowLM: Gemma (`gemma4-it:e4b`) extracts and Phi (`phi4-mini-it:4b`) verifies. In production both use `nousresearch`, with Granite (`ibm-granite/granite-4.2-8b`) extracting and Qwen (`qwen/qwen3.6-35b-a3b`) verifying. Every role needs both a backend and a model; there is no backend-level model fallback.
 
 The currency the extractor should prefer when several appear on a document comes from the user's base currency setting (see the account settings page), which defaults to CHF on the users table.
 
@@ -97,7 +97,7 @@ invoice pipeline:
 
 ```bash
 # Extractor: strong JSON/schema adherence
-export AI_EXTRACTOR_MODEL="ibm-granite/granite-4.1-8b"      # or "meta/muse-glimmer-30b"
+export AI_EXTRACTOR_MODEL="ibm-granite/granite-4.2-8b"      # or "meta/muse-glimmer-30b"
 # Verifier: grounded reasoning over OCR text
 export AI_VERIFIER_MODEL="qwen/qwen3.6-35b-a3b"      # or "qwen/qwen3.7-max"
 ```
@@ -114,7 +114,7 @@ Mix freely — e.g. Mistral OCR + Nous extraction + local verification:
 export MISTRAL_API_KEY="..."
 export NOUSRESEARCH_API_KEY="..."
 export AI_EXTRACTOR_BACKEND=nousresearch
-export AI_EXTRACTOR_MODEL="ibm-granite/granite-4.1-8b"
+export AI_EXTRACTOR_MODEL="ibm-granite/granite-4.2-8b"
 export AI_VERIFIER_BACKEND=flm
 export AI_VERIFIER_MODEL="phi4-mini-it:4b"
 ```
