@@ -4,6 +4,7 @@ defmodule ZaimuTomo.TypeSafeVerificationWorkerTest do
 
   alias ReqLLM.Response
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.TypeSafeVerification
   alias ZaimuTomo.TypeSafeVerification.Worker
 
   defmodule SensitiveEvaluator do
@@ -190,6 +191,78 @@ defmodule ZaimuTomo.TypeSafeVerificationWorkerTest do
              "status" => "verification_failed",
              "error" => "exception:Elixir.FunctionClauseError"
            }
+  end
+
+  test "links the job traceparent to the enqueue-time span and attaches it in perform" do
+    original_extractor = :opentelemetry.get_text_map_extractor()
+    original_injector = :opentelemetry.get_text_map_injector()
+    :opentelemetry.set_text_map_propagator(:otel_propagator_trace_context)
+
+    on_exit(fn ->
+      :opentelemetry.set_text_map_extractor(original_extractor)
+      :opentelemetry.set_text_map_injector(original_injector)
+    end)
+
+    test_pid = self()
+    config = Application.fetch_env!(:zaimu_tomo, :typesafe)
+
+    Application.put_env(
+      :zaimu_tomo,
+      :typesafe,
+      Keyword.put(config, :evaluator, fn model, state, questions, options ->
+        inside_trace_id =
+          case :otel_tracer.current_span_ctx() do
+            :undefined -> nil
+            span_ctx -> :otel_span.hex_trace_id(span_ctx)
+          end
+
+        send(test_pid, {:evaluation, model, state, options})
+        send(test_pid, {:inside_trace_id, inside_trace_id})
+
+        answers =
+          Map.new(questions, fn {id, _question} ->
+            {id, %{"type" => "boolean", "probability" => 0.1}}
+          end)
+
+        {:ok,
+         %Response{
+           id: "eval-test",
+           model: "jev-latest",
+           context: ReqLLM.Context.new(),
+           object: answers,
+           usage: %{}
+         }}
+      end)
+    )
+
+    extracted_content = extracted_content_fixture_with_markdown()
+    tracer = :otel_tracer_provider.get_tracer(:zaimu_tomo, "0.0.0", "")
+
+    job =
+      :otel_tracer.with_span(tracer, "test-enqueue", %{}, fn _span ->
+        active_trace_id = :otel_span.hex_trace_id(:otel_tracer.current_span_ctx())
+
+        assert {:ok, job} =
+                 TypeSafeVerification.enqueue(%{
+                   extracted_content_id: extracted_content.id,
+                   currency_hint: "CHF"
+                 })
+
+        # Reload the job like production perform sees it: the freshly inserted
+        # struct keeps atom-keyed args, the persisted row has string keys.
+        persisted_job = Repo.get!(Oban.Job, job.id)
+        traceparent = persisted_job.args["traceparent"]
+        assert is_binary(traceparent)
+        assert ["00", ^active_trace_id, _span_id, _flags] = String.split(traceparent, "-")
+        persisted_job
+      end)
+
+    # The job runs later with no enqueue-time span active: the extracted
+    # traceparent must reproduce the same trace id inside perform.
+    assert :ok = perform_job(Worker, job.args)
+
+    ["00", enqueued_trace_id, _span_id, _flags] = String.split(job.args["traceparent"], "-")
+    assert_received {:inside_trace_id, ^enqueued_trace_id}
   end
 
   defp extracted_content_fixture_with_markdown(markdown \\ "Invoice total: CHF 42.00") do
