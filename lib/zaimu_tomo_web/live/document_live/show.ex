@@ -1,12 +1,15 @@
 defmodule ZaimuTomoWeb.DocumentLive.Show do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     if connected?(socket) do
       Documents.subscribe_documents(socket.assigns.current_scope)
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
     end
 
     document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
@@ -15,7 +18,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
      socket
      |> assign(:page_title, document.filename)
      |> assign(:current_path, "/documents")
-     |> assign(:document, document)}
+     |> assign(:document, document)
+     |> assign(:processing_state, DocumentProcessing.processing_state(document))}
   end
 
   @impl true
@@ -27,7 +31,15 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <a class="btn sm" href={~p"/documents"}>← Documents</a>
-      <.status_pill status={status} />
+      <.status_pill status={pill_status(@processing_state, status)} />
+      <button
+        :if={@processing_state in [:failed, :stuck]}
+        type="button"
+        phx-click="retry_processing"
+        class="btn sm"
+      >
+        <.icon name="hero-arrow-path" class="w-4 h-4" /> Retry processing
+      </button>
     </div>
     <h1 class="view-title" style="margin-top:8px">
       {(data && data.issuer) || @document.filename}
@@ -56,10 +68,13 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
           <div class="detail-row"><div class="name muted">Reason</div><div>{data.reason_for_payment || "—"}</div></div>
         <% else %>
           <div class="muted" style="padding:24px 0;text-align:center">
-            <%= if status == "processing" do %>
-              OCR in progress · check back shortly
-            <% else %>
-              No extracted data available
+            <%= case @processing_state do %>
+              <% :processing -> %>
+                OCR in progress · check back shortly
+              <% :stuck -> %>
+                Processing stalled
+              <% _ -> %>
+                No extracted data available
             <% end %>
           </div>
         <% end %>
@@ -80,13 +95,33 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   end
 
   @impl true
+  def handle_event("retry_processing", _params, socket) do
+    %{current_scope: scope, document: document} = socket.assigns
+
+    case DocumentProcessing.retry_document(scope, document) do
+      {:ok, _job} ->
+        {:noreply,
+         socket
+         |> assign(:processing_state, :processing)
+         |> put_flash(:info, "Processing restarted")}
+
+      {:error, {:not_retryable, state}} ->
+        {:noreply,
+         socket
+         |> assign(:processing_state, state)
+         |> put_flash(:info, "Nothing to retry: processing is already running or completed.")}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Document not found.")}
+    end
+  end
+
+  @impl true
   def handle_info(
         {:updated, %ZaimuTomo.Documents.Document{id: id}},
         %{assigns: %{document: %{id: id}}} = socket
       ) do
-    document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
-
-    {:noreply, assign(socket, :document, document)}
+    {:noreply, reload_document(socket, id)}
   end
 
   def handle_info(
@@ -103,6 +138,27 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
       when type in [:created, :updated, :deleted] do
     {:noreply, socket}
   end
+
+  def handle_info(%{document_id: id}, %{assigns: %{document: %{id: id}}} = socket) do
+    {:noreply, reload_document(socket, id)}
+  end
+
+  def handle_info(%{document_id: _id}, socket) do
+    {:noreply, socket}
+  end
+
+  defp reload_document(socket, id) do
+    document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
+
+    socket
+    |> assign(:document, document)
+    |> assign(:processing_state, DocumentProcessing.processing_state(document))
+  end
+
+  # A stuck document has no live run to report on; the pill must not keep
+  # pulsing "Processing" forever.
+  defp pill_status(:stuck, _status), do: "Processing stalled"
+  defp pill_status(_processing_state, status), do: status
 
   defp derive_status(nil), do: "processing"
   defp derive_status(%{status: "failed"}), do: "failed"
