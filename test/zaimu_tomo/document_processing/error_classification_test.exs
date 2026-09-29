@@ -21,6 +21,11 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
       assert ErrorClassification.classify(:enospc) == :transient
     end
 
+    test "explicitly listed POSIX/fs atoms" do
+      assert ErrorClassification.classify(:eio) == :transient
+      assert ErrorClassification.classify(:emfile) == :transient
+    end
+
     test "Mistral OCR rate limit / outage / transport" do
       assert ErrorClassification.classify({:ocr_request_failed, {:http_status, 429, "slow down"}}) ==
                :transient
@@ -141,6 +146,46 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
     test "fails closed on unrecognized non-atom shapes" do
       assert ErrorClassification.classify(%{unexpected: "map"}) == :permanent
       assert ErrorClassification.classify({"not_an_atom_tag", "value"}) == :permanent
+    end
+
+    test "an unknown bare atom is permanent" do
+      assert ErrorClassification.classify(:some_new_business_error) == :permanent
+    end
+  end
+
+  describe "summarize/1 (bounded, body-free)" do
+    test "HTTP failures summarize to stage and status, never the body" do
+      assert ErrorClassification.summarize(
+               {:ocr_request_failed, {:http_status, 429, "SECRET-INVOICE-TEXT"}}
+             ) == "ocr_request_failed:http_429"
+
+      assert ErrorClassification.summarize({:prompt_fetch_failed, 500}) ==
+               "prompt_fetch_failed:http_500"
+    end
+
+    test "transport and LLM failures summarize to a bounded class" do
+      assert ErrorClassification.summarize(
+               {:ocr_upload_failed, %Req.TransportError{reason: :timeout}}
+             ) == "ocr_upload_failed:transport_timeout"
+
+      assert ErrorClassification.summarize({:llm_request_failed, %{status: 503, reason: "busy"}}) ==
+               "llm_request_failed:http_503"
+
+      assert ErrorClassification.summarize(
+               {:llm_request_failed, %{status: nil, reason: "SECRET-INVOICE-TEXT"}}
+             ) == "llm_request_failed:transport"
+    end
+
+    test "storage atoms, posix pairs and unknown shapes" do
+      assert ErrorClassification.summarize(:enospc) == "storage:enospc"
+
+      assert ErrorClassification.summarize({:ocr_upload_failed, :enoent}) ==
+               "ocr_upload_failed:enoent"
+
+      assert ErrorClassification.summarize(%{unexpected: "SECRET-INVOICE-TEXT"}) == "unclassified"
+
+      assert ErrorClassification.summarize({:ocr_request_failed, "SECRET-INVOICE-TEXT"}) ==
+               "unclassified"
     end
   end
 end
