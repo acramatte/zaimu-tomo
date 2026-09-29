@@ -26,17 +26,23 @@ defmodule ZaimuTomo.DocumentProcessing.Recovery do
   """
   @spec list_stuck() :: [group()]
   def list_stuck do
-    live_document_ids =
-      DocumentProcessing.live_jobs()
-      |> select([j], fragment("(?->>'document_id')::bigint", j.args))
-
+    # Correlated NOT EXISTS with a safe text comparison: a malformed live job
+    # (missing or non-numeric document_id) neither hides every document (as a
+    # NULL-poisoned NOT IN would) nor raises (as a ::bigint cast would).
     from(d in Document,
+      as: :doc,
       join: u in User,
       on: u.id == d.user_id,
       left_join: ec in ExtractedContent,
       on: ec.document_id == d.id,
       where: is_nil(ec.id),
-      where: d.id not in subquery(live_document_ids),
+      where:
+        not exists(
+          from(j in DocumentProcessing.live_jobs(),
+            where: fragment("?->>'document_id' = ?::text", j.args, parent_as(:doc).id),
+            select: 1
+          )
+        ),
       order_by: [asc: u.id, asc: d.id],
       select: %{user_id: u.id, currency: u.base_currency, document_id: d.id}
     )

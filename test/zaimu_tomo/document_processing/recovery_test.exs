@@ -4,6 +4,7 @@ defmodule ZaimuTomo.DocumentProcessing.RecoveryTest do
 
   import ExUnit.CaptureIO
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.DocumentProcessing.Recovery
   alias ZaimuTomo.Documents
@@ -27,6 +28,15 @@ defmodule ZaimuTomo.DocumentProcessing.RecoveryTest do
     user = user_fixture()
     {:ok, user} = user |> Ecto.Changeset.change(base_currency: currency) |> Repo.update()
     user
+  end
+
+  # A live OCR job whose args are malformed (missing or non-numeric
+  # document_id) — worker argument shape is not a DB constraint. Inserted
+  # straight through the job changeset so job uniqueness cannot reject it.
+  defp insert_live_job!(args) do
+    args
+    |> Oban.Job.new(worker: OCRJob)
+    |> Repo.insert!()
   end
 
   describe "list_stuck/0" do
@@ -59,6 +69,24 @@ defmodule ZaimuTomo.DocumentProcessing.RecoveryTest do
 
       assert [%{document_ids: [stuck_id]}] = Recovery.list_stuck()
       assert stuck_id == stuck_doc.id
+    end
+
+    test "a malformed live job neither hides stuck documents nor raises" do
+      scope = user_scope_fixture(user_fixture())
+      stuck_doc = document_fixture(scope, %{object_key: "documents/stuck.pdf"})
+
+      {:ok, live_doc} =
+        Documents.create_document(scope, %{filename: "live.pdf", object_key: "documents/live.pdf"})
+
+      insert_live_job!(%{"currency_hint" => "CHF"})
+      insert_live_job!(%{"document_id" => "not-a-number"})
+
+      assert [%{document_ids: [stuck_id]}] = Recovery.list_stuck()
+      assert stuck_id == stuck_doc.id
+
+      assert DocumentProcessing.live_job?(live_doc.id)
+      refute DocumentProcessing.live_job?(stuck_doc.id)
+      refute DocumentProcessing.live_job?(0)
     end
   end
 
