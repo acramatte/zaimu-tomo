@@ -59,11 +59,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
                 raw_llm_response,
                 verification,
                 trace_id,
-                %{
-                  markdown: markdown,
-                  currency_hint: currency_hint,
-                  trace_context: OpenTelemetry.Ctx.get_current()
-                },
+                currency_hint,
                 expected_extraction_id
               )
             end
@@ -83,7 +79,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         raw_llm_response,
         verification \\ %{"status" => "not_run"},
         trace_id \\ nil,
-        typesafe_input \\ nil,
+        currency_hint \\ nil,
         expected_extraction_id \\ nil
       ) do
     analysis = %{
@@ -106,6 +102,9 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
       with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
            {:ok, _review_decision} <- Review.create_initial_decision(content) do
+        # The TypeSafe shadow job is inserted in this transaction so a shadow
+        # run cannot be lost between commit and enqueue.
+        enqueue_typesafe_shadow(content, currency_hint)
         content
       else
         {:error, changeset} -> Repo.rollback({:persistence_failed, changeset.errors})
@@ -113,8 +112,6 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end)
     |> case do
       {:ok, content} ->
-        enqueue_typesafe_shadow(content, extracted_data, typesafe_input)
-
         Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:success", %{
           document_id: document.id,
           extraction_id: content.id,
@@ -220,35 +217,28 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end
   end
 
-  defp enqueue_typesafe_shadow(
-         content,
-         extracted_data,
-         %{markdown: markdown, currency_hint: currency_hint} = input
-       ) do
-    if ZaimuTomo.TypeSafeClient.enabled?() do
-      command = %{
-        extracted_content_id: content.id,
-        markdown: markdown,
-        extracted_data: extracted_data,
-        currency_hint: currency_hint,
-        trace_context: Map.get(input, :trace_context, OpenTelemetry.Ctx.get_current())
-      }
+  # TypeSafe shadow runs are best-effort: a failed enqueue is recorded on the
+  # row but never rolls back the invoice extraction.
+  defp enqueue_typesafe_shadow(_content, nil), do: :ok
 
-      case ZaimuTomo.TypeSafeVerification.enqueue(command) do
-        :ok ->
+  defp enqueue_typesafe_shadow(content, currency_hint) when is_binary(currency_hint) do
+    if ZaimuTomo.TypeSafeClient.enabled?() do
+      case ZaimuTomo.TypeSafeVerification.enqueue(%{
+             extracted_content_id: content.id,
+             currency_hint: currency_hint
+           }) do
+        {:ok, _job} ->
           :ok
 
-        {:error, reason} ->
-          error = Atom.to_string(reason)
-
-          Logger.warning("[TypeSafe] Shadow verification enqueue failed class=#{error}",
-            typesafe_error_class: error
+        {:error, _changeset} ->
+          Logger.warning("[TypeSafe] Shadow verification enqueue failed class=enqueue_failed",
+            typesafe_error_class: "enqueue_failed"
           )
 
           _result =
             ExtractedContentContext.put_typesafe_shadow(content.id, %{
               "status" => "verification_failed",
-              "error" => error
+              "error" => "enqueue_failed"
             })
 
           :ok
@@ -257,8 +247,6 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
       Logger.debug("[TypeSafe] Shadow verification skipped")
     end
   end
-
-  defp enqueue_typesafe_shadow(_content, _extracted_data, _typesafe_input), do: :ok
 
   # Error handling helper functions
   defp error_type(error) when is_tuple(error),
