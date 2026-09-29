@@ -56,9 +56,12 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
         file: {contents, filename: Path.basename(filepath)}
       ]
 
-      Req.post(base_url <> files_completion_path,
-        form_multipart: multipart_fields,
-        headers: [{"Authorization", "Bearer #{api_key}"}]
+      Req.post(
+        base_url <> files_completion_path,
+        Keyword.merge(req_options(),
+          form_multipart: multipart_fields,
+          headers: [{"Authorization", "Bearer #{api_key}"}]
+        )
       )
       |> handle_response(:ocr_upload_failed)
     end
@@ -69,8 +72,9 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     files_completion_path = "/files"
 
     with {:ok, base_url, api_key} <- mistral_config(:ocr_url_failed) do
-      Req.get(base_url <> files_completion_path <> "/" <> id <> "/url?expiry=24",
-        headers: [{"Authorization", "Bearer #{api_key}"}]
+      Req.get(
+        base_url <> files_completion_path <> "/" <> id <> "/url?expiry=24",
+        Keyword.merge(req_options(), headers: [{"Authorization", "Bearer #{api_key}"}])
       )
       |> handle_response(:ocr_url_failed)
     end
@@ -80,9 +84,10 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     {:ok, json_body}
   end
 
-  defp handle_response({:ok, %Req.Response{} = response}, stage) do
-    # handle non 200 status codes
-    {:error, {stage, response.body}}
+  defp handle_response({:ok, %Req.Response{status: status, body: body}}, stage) do
+    # Preserve the HTTP status so the error classifier can tell a transient
+    # 429/5xx (rate limit / outage) from a permanent 4xx (bad request / auth).
+    {:error, {stage, {:http_status, status, body}}}
   end
 
   defp handle_response({:error, reason}, stage) do
@@ -102,9 +107,12 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     }
 
     with {:ok, base_url, api_key} <- mistral_config(:ocr_request_failed) do
-      Req.post(base_url <> ocr_path,
-        json: payload,
-        headers: [{"Authorization", "Bearer #{api_key}"}]
+      Req.post(
+        base_url <> ocr_path,
+        Keyword.merge(req_options(),
+          json: payload,
+          headers: [{"Authorization", "Bearer #{api_key}"}]
+        )
       )
       |> handle_response(:ocr_request_failed)
     end
@@ -120,6 +128,12 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
     else
       {:error, {stage, "Missing Mistral API key"}}
     end
+  end
+
+  # Extra Req options merged into every Mistral call (e.g. a Req.Test plug in
+  # tests, mirroring the Storage S3 seam). Defaults to no extra options.
+  defp req_options do
+    Application.fetch_env!(:zaimu_tomo, :mistral) |> Keyword.get(:req_options, [])
   end
 
   defp read_file(filepath, stage) do

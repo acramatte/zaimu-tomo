@@ -367,17 +367,21 @@ defmodule ZaimuTomo.LLMClient do
   end
 
   @doc false
-  @spec request_failure(term()) :: {:llm_request_failed, String.t()}
-  def request_failure(%ReqLLM.Error.API.Request{reason: reason}) when is_binary(reason),
-    do: {:llm_request_failed, reason}
+  @spec request_failure(term()) ::
+          {:llm_request_failed, %{status: integer() | nil, reason: String.t()}}
+  def request_failure(%ReqLLM.Error.API.Request{reason: reason, status: status})
+      when is_binary(reason),
+      do: {:llm_request_failed, %{status: status, reason: reason}}
 
-  def request_failure(%ReqLLM.Error.API.Request{reason: reason}) when is_atom(reason),
-    do: {:llm_request_failed, Atom.to_string(reason)}
+  def request_failure(%ReqLLM.Error.API.Request{reason: reason, status: status})
+      when is_atom(reason),
+      do: {:llm_request_failed, %{status: status, reason: Atom.to_string(reason)}}
 
-  def request_failure(%ReqLLM.Error.API.Request{}),
-    do: {:llm_request_failed, "unknown request error"}
+  def request_failure(%ReqLLM.Error.API.Request{status: status}),
+    do: {:llm_request_failed, %{status: status, reason: "unknown request error"}}
 
-  def request_failure(_error), do: {:llm_request_failed, "unknown request error"}
+  def request_failure(_error),
+    do: {:llm_request_failed, %{status: nil, reason: "unknown request error"}}
 
   @doc false
   @spec verifier_max_tokens() :: pos_integer()
