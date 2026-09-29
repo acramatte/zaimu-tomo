@@ -21,12 +21,13 @@ defmodule ZaimuTomo.Application do
          max_queue: typesafe_config(:max_queue, 100)},
         {DNSCluster, query: Application.get_env(:zaimu_tomo, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ZaimuTomo.PubSub},
+        # Durable job queue. Placed after PubSub so job broadcasts can reach
+        # connected LiveViews, and before the Endpoint that enqueues on upload.
+        {Oban, Application.fetch_env!(:zaimu_tomo, Oban)},
         # Start a worker by calling: ZaimuTomo.Worker.start_link(arg)
         # {ZaimuTomo.Worker, arg},
         # Start to serve requests, typically the last entry
-        ZaimuTomoWeb.Endpoint,
-        ZaimuTomo.DocumentProcessing.Saga,
-        {ZaimuTomo.DocumentProcessing.OCRSupervisor, name: ZaimuTomo.OCRSupervisor}
+        ZaimuTomoWeb.Endpoint
       ] ++ storage_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html

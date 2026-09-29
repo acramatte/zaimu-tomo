@@ -38,7 +38,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
     def head_object(_key, _config), do: :ok
   end
 
-  describe "process/1" do
+  describe "run/1" do
     test "downloads the object to a private temporary file and removes it after OCR" do
       storage_config = Application.fetch_env!(:zaimu_tomo, :storage)
       mistral_config = Application.fetch_env!(:zaimu_tomo, :mistral)
@@ -67,8 +67,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       scope = user_scope_fixture(user)
       document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
 
-      assert {:ok, %{status: "failed"}} =
-               Worker.process(%{document: document, currency_hint: "CHF"})
+      assert {:error, {:ocr_upload_failed, "Missing Mistral API key"}} =
+               Worker.run(%{document: document, currency_hint: "CHF"})
 
       assert_receive {:document_downloaded, temporary_path, file_stat, directory_stat}
       assert band(file_stat.mode, 0o777) == 0o600
@@ -260,7 +260,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert {:ok, content} =
                Worker.persist_and_emit_failure(
                  document,
-                 {:llm_request_failed, String.duplicate("connection refused ", 100)}
+                 {:llm_request_failed,
+                  %{status: nil, reason: String.duplicate("connection refused ", 100)}}
                )
 
       review_decision = Repo.get_by!(ReviewDecision, extracted_content_id: content.id)

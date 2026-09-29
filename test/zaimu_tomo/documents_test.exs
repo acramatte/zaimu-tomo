@@ -1,8 +1,9 @@
 defmodule ZaimuTomo.DocumentsTest do
   use ZaimuTomo.DataCase
+  use Oban.Testing, repo: ZaimuTomo.Repo
 
+  alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents
-  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory
 
@@ -41,7 +42,7 @@ defmodule ZaimuTomo.DocumentsTest do
       end
     end
 
-    test "create_document/2 with valid data creates a document" do
+    test "create_document/2 with valid data creates a document and enqueues one job" do
       valid_attrs = %{filename: "some filename", object_key: "documents/some-file.pdf"}
       scope = user_scope_fixture()
 
@@ -50,9 +51,8 @@ defmodule ZaimuTomo.DocumentsTest do
       assert document.object_key == "documents/some-file.pdf"
       assert document.user_id == scope.user.id
 
-      assert_eventually(fn ->
-        ExtractedContentContext.get_latest_by_document(document.id) != nil
-      end)
+      assert_enqueued(worker: OCRJob, args: %{document_id: document.id, currency_hint: "CHF"})
+      assert [_] = all_enqueued(worker: OCRJob)
     end
 
     test "object_key_for/1 preserves the uploaded file extension" do
@@ -133,17 +133,4 @@ defmodule ZaimuTomo.DocumentsTest do
       assert %Ecto.Changeset{} = Documents.change_document(scope, document)
     end
   end
-
-  defp assert_eventually(fun, attempts \\ 20)
-
-  defp assert_eventually(fun, attempts) when attempts > 0 do
-    if fun.() do
-      assert true
-    else
-      Process.sleep(25)
-      assert_eventually(fun, attempts - 1)
-    end
-  end
-
-  defp assert_eventually(_fun, 0), do: flunk("expected condition to become true")
 end

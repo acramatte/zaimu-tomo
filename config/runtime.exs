@@ -1,5 +1,18 @@
 import Config
 
+# Generic env-var integer parser shared by the TypeSafe and Oban queue config
+# below. Raises on a non-integer or sub-minimum value so a typo'd env var fails
+# loudly at boot instead of silently disabling a queue.
+parse_integer_env = fn name, default, minimum ->
+  case Integer.parse(System.get_env(name, Integer.to_string(default))) do
+    {value, ""} when value >= minimum ->
+      value
+
+    _invalid ->
+      raise ArgumentError, "#{name} must be an integer greater than or equal to #{minimum}"
+  end
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -39,16 +52,6 @@ if config_env() != :test do
 
   typesafe_api_key = System.get_env("TYPESAFE_API_KEY")
 
-  parse_typesafe_integer = fn name, default, minimum ->
-    case Integer.parse(System.get_env(name, Integer.to_string(default))) do
-      {value, ""} when value >= minimum ->
-        value
-
-      _invalid ->
-        raise ArgumentError, "#{name} must be an integer greater than or equal to #{minimum}"
-    end
-  end
-
   typesafe_review_threshold =
     case Float.parse(System.get_env("TYPESAFE_REVIEW_THRESHOLD", "0.7")) do
       {threshold, ""} when threshold >= 0 and threshold <= 1 ->
@@ -65,11 +68,16 @@ if config_env() != :test do
     base_url: System.get_env("TYPESAFE_URL", "https://api.typesafe.ai"),
     model: System.get_env("TYPESAFE_MODEL", "jev-latest"),
     review_threshold: typesafe_review_threshold,
-    receive_timeout: parse_typesafe_integer.("TYPESAFE_RECEIVE_TIMEOUT", 30_000, 1),
-    total_timeout: parse_typesafe_integer.("TYPESAFE_TOTAL_TIMEOUT", 10_000, 1),
-    max_retries: parse_typesafe_integer.("TYPESAFE_MAX_RETRIES", 0, 0),
-    max_concurrency: parse_typesafe_integer.("TYPESAFE_MAX_CONCURRENCY", 2, 1),
-    max_queue: parse_typesafe_integer.("TYPESAFE_MAX_QUEUE", 100, 1)
+    receive_timeout: parse_integer_env.("TYPESAFE_RECEIVE_TIMEOUT", 30_000, 1),
+    total_timeout: parse_integer_env.("TYPESAFE_TOTAL_TIMEOUT", 10_000, 1),
+    max_retries: parse_integer_env.("TYPESAFE_MAX_RETRIES", 0, 0),
+    max_concurrency: parse_integer_env.("TYPESAFE_MAX_CONCURRENCY", 2, 1),
+    max_queue: parse_integer_env.("TYPESAFE_MAX_QUEUE", 100, 1)
+
+  # The documents queue is bounded so OCR + LLM runs don't fan out. Local dev
+  # with a single-NPU FLM backend should set OBAN_DOCUMENTS_CONCURRENCY=1.
+  config :zaimu_tomo, Oban,
+    queues: [documents: parse_integer_env.("OBAN_DOCUMENTS_CONCURRENCY", 2, 1)]
 end
 
 default_extractor =
