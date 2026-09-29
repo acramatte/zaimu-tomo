@@ -15,8 +15,12 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   Classification is pattern-matched on the exact shapes the pipeline emits (see
   `ZaimuTomo.DocumentProcessing.Worker.run/1`). It fails closed to `:permanent`
   for unrecognized non-atom shapes so a new bug never silently multiplies
-  retries. Bare atoms reaching this module are storage filesystem errors
-  (transient) unless listed below as permanent.
+  retries. Bare atoms are fail-closed too: only the explicitly listed
+  POSIX/filesystem atoms below are `:transient`; every other atom is
+  `:permanent`.
+
+  `summarize/1` renders a bounded, body-free error class for Oban error
+  history and logs, so raw provider response bodies never reach `oban_jobs`.
   """
 
   @type class :: :transient | :permanent
@@ -26,6 +30,22 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   # The extractor LLM additionally treats 409/425 as transient (provider busy).
   @transient_llm_statuses [408, 409, 425, 429]
   @transient_status_max 500
+
+  # Filesystem/transport atoms worth retrying (disk full, I/O blips, fs
+  # pressure, network resets). Every other bare atom is permanent.
+  @transient_posix [
+    :enospc,
+    :eio,
+    :eagain,
+    :ebusy,
+    :etimedout,
+    :econnrefused,
+    :econnreset,
+    :ehostunreach,
+    :enetunreach,
+    :emfile,
+    :enfile
+  ]
 
   @doc """
   Classify a processing failure `reason` as `:transient` or `:permanent`.
@@ -106,12 +126,57 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def classify(:prompt_fetcher_failed), do: :permanent
 
   # -- Storage transport (bare posix / transport) ----------------------
-  # Bare atoms reaching here are storage filesystem errors (enospc, eacces, ...):
-  # transient network/fs blips. Non-transport bare atoms are matched above.
+  # Only the explicitly listed filesystem/transport atoms are retried; every
+  # other bare atom (a new business/pseudo-error) is fail-closed to permanent.
   def classify(%Req.TransportError{}), do: :transient
-  def classify(reason) when is_atom(reason), do: :transient
+
+  def classify(reason) when reason in @transient_posix, do: :transient
+  def classify(reason) when is_atom(reason), do: :permanent
 
   # Fail closed: any unrecognized non-atom shape is permanent so a new bug never
   # silently multiplies retries.
   def classify(_other), do: :permanent
+
+  @doc """
+  Renders a bounded, body-free summary of a processing failure `reason`.
+
+  Provider response bodies and other free-form payloads are never included, so
+  the result is safe to persist in `oban_jobs.errors` and to log. Unknown
+  shapes summarize to `"unclassified"`.
+  """
+  @spec summarize(term()) :: String.t()
+
+  def summarize({stage, {:http_status, status, _body}})
+      when is_atom(stage) and is_integer(status),
+      do: "#{stage}:http_#{status}"
+
+  def summarize({stage, %Req.TransportError{reason: reason}})
+      when is_atom(stage) and is_atom(reason),
+      do: "#{stage}:transport_#{reason}"
+
+  def summarize({stage, %Req.TransportError{}}) when is_atom(stage), do: "#{stage}:transport"
+
+  def summarize({stage, "Missing Mistral API key"}) when is_atom(stage),
+    do: "#{stage}:missing_api_key"
+
+  def summarize({stage, posix}) when is_atom(stage) and is_atom(posix), do: "#{stage}:#{posix}"
+
+  def summarize({:llm_request_failed, %{status: status}}) when is_integer(status),
+    do: "llm_request_failed:http_#{status}"
+
+  def summarize({:llm_request_failed, %{status: nil}}), do: "llm_request_failed:transport"
+
+  def summarize({:prompt_fetch_failed, status}) when is_integer(status),
+    do: "prompt_fetch_failed:http_#{status}"
+
+  def summarize({:persistence_failed, _errors}), do: "persistence_failed"
+  def summarize({:validation_failed, _errors}), do: "validation_failed"
+  def summarize({:local_prompt_not_found, _name}), do: "local_prompt_not_found"
+
+  def summarize(%Req.TransportError{reason: reason}) when is_atom(reason),
+    do: "storage:transport_#{reason}"
+
+  def summarize(%Req.TransportError{}), do: "storage:transport"
+  def summarize(reason) when is_atom(reason), do: "storage:#{reason}"
+  def summarize(_other), do: "unclassified"
 end
