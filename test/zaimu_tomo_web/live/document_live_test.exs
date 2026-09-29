@@ -312,6 +312,14 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert Phoenix.Flash.get(live_flash(show_live), :info) == "Processing restarted"
 
+      # The pill reports the current :processing state, not the failed
+      # historical row the retry keeps as history (review finding 82.2).
+      assert has_element?(show_live, "span.pill.processing")
+      refute has_element?(show_live, "span.pill.failed")
+      pill = show_live |> element("span.pill.processing") |> render()
+      assert pill =~ "Processing"
+      refute pill =~ "Failed"
+
       # The retry moves the document to :processing, so the button disappears.
       refute has_element?(show_live, "button[phx-click=retry_processing]")
     end

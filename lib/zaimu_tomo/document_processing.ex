@@ -64,6 +64,9 @@ defmodule ZaimuTomo.DocumentProcessing do
   @doc """
   Retries processing for a document whose latest run failed or stalled.
 
+  The document must be a persisted struct obtained through a scoped getter
+  (e.g. `ZaimuTomo.Documents.get_document!/2`), matching the trust model of
+  `ZaimuTomo.Documents.update_document/3`.
   Scope-checked: a document owned by another user returns `{:error, :not_found}`.
   Only `:failed` and `:stuck` are retryable; any other state returns
   `{:error, {:not_retryable, state}}`. The enqueue carries the latest extraction
@@ -94,8 +97,11 @@ defmodule ZaimuTomo.DocumentProcessing do
   """
   @spec live_job?(pos_integer()) :: boolean()
   def live_job?(document_id) do
+    # Same safe text comparison as Recovery.list_stuck/0: no ::bigint cast on
+    # job args, so a malformed job (missing or non-numeric document_id) is
+    # simply not a match and never raises.
     live_jobs()
-    |> where([j], fragment("(?->>'document_id')::bigint = ?", j.args, ^document_id))
+    |> where([j], fragment("?->>'document_id' = ?", j.args, ^to_string(document_id)))
     |> limit(1)
     |> Repo.one()
     |> case do
