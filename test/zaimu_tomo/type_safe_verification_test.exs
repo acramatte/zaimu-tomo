@@ -1,78 +1,114 @@
 defmodule ZaimuTomo.TypeSafeVerificationTest do
-  use ExUnit.Case, async: false
+  use ZaimuTomo.DataCase, async: false
+  use Oban.Testing, repo: ZaimuTomo.Repo
 
-  alias ZaimuTomo.TypeSafeVerification
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.DocumentProcessing.Worker, as: PipelineWorker
+  alias ZaimuTomo.TypeSafeVerification.Worker
 
-  defmodule TestWorker do
-    def perform(%{test_pid: test_pid, id: id}) do
-      send(test_pid, {:started, id, self()})
+  import ZaimuTomo.AccountsFixtures
+  import ZaimuTomo.DocumentsFixtures
 
-      receive do
-        :release -> send(test_pid, {:finished, id})
+  setup do
+    original_typesafe = Application.fetch_env!(:zaimu_tomo, :typesafe)
+    original_langfuse = Application.get_env(:zaimu_tomo, :langfuse)
+
+    Application.put_env(:zaimu_tomo, :langfuse, enabled: false, environment: "test")
+
+    Application.put_env(:zaimu_tomo, :typesafe,
+      enabled: true,
+      api_key: "test-api-key",
+      model: "jev-latest",
+      review_threshold: 0.7
+    )
+
+    on_exit(fn ->
+      Application.put_env(:zaimu_tomo, :typesafe, original_typesafe)
+
+      if original_langfuse do
+        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+      else
+        Application.delete_env(:zaimu_tomo, :langfuse)
       end
+    end)
+
+    :ok
+  end
+
+  describe "enqueue on success persistence" do
+    test "enqueues a self-contained job whose args carry no markdown" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+
+      assert {:ok, content} =
+               PipelineWorker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{"pages" => []},
+                 %{"status" => "verified", "reason" => "All fields match."},
+                 nil,
+                 "CHF"
+               )
+
+      assert_enqueued(worker: Worker)
+      assert [job] = all_enqueued(worker: Worker)
+      assert job.args["extracted_content_id"] == content.id
+      assert job.args["currency_hint"] == "CHF"
+
+      assert Enum.sort(Map.keys(job.args)) ==
+               ~w(currency_hint extracted_content_id traceparent)
+
+      # Persisted first; the shadow is written by the job, not at enqueue time.
+      refute Map.has_key?(content.analysis["verification"], "typesafe_shadow")
+    end
+
+    test "enqueues nothing when TypeSafe is disabled" do
+      config = Application.fetch_env!(:zaimu_tomo, :typesafe)
+      Application.put_env(:zaimu_tomo, :typesafe, Keyword.put(config, :enabled, false))
+
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+
+      assert {:ok, _content} =
+               PipelineWorker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{"pages" => []},
+                 %{"status" => "verified", "reason" => "All fields match."},
+                 nil,
+                 "CHF"
+               )
+
+      refute_enqueued(worker: Worker)
+    end
+
+    test "enqueues nothing when no currency hint is forwarded" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+
+      assert {:ok, _content} =
+               PipelineWorker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{"pages" => []},
+                 %{"status" => "verified", "reason" => "All fields match."}
+               )
+
+      refute_enqueued(worker: Worker)
     end
   end
 
-  test "queues work once the configured concurrency limit is reached" do
-    task_supervisor_name = unique_name(:tasks)
-    start_supervised!({Task.Supervisor, name: task_supervisor_name})
-    dispatcher_name = unique_name(:dispatcher)
-
-    start_supervised!(
-      {TypeSafeVerification,
-       name: dispatcher_name,
-       task_supervisor: task_supervisor_name,
-       worker: TestWorker,
-       max_concurrency: 1,
-       max_queue: 1}
-    )
-
-    assert :ok = TypeSafeVerification.enqueue(dispatcher_name, %{test_pid: self(), id: 1})
-    assert :ok = TypeSafeVerification.enqueue(dispatcher_name, %{test_pid: self(), id: 2})
-
-    assert {:error, :queue_full} =
-             TypeSafeVerification.enqueue(dispatcher_name, %{test_pid: self(), id: 3})
-
-    assert_receive {:started, 1, first_pid}
-    refute_receive {:started, 2, _pid}, 50
-
-    send(first_pid, :release)
-
-    assert_receive {:finished, 1}
-    assert_receive {:started, 2, second_pid}
-    send(second_pid, :release)
-    assert_receive {:finished, 2}
-    refute_receive {:started, 3, _pid}
+  defp extracted_data do
+    %ExtractedData{
+      amount_to_pay_cents: 4200,
+      invoice_date: "2026-05-08",
+      invoice_number: "INV-42",
+      currency: "CHF",
+      reason_for_payment: "Consulting services",
+      issuer: "Example Ltd"
+    }
   end
-
-  test "retains queued work while the task supervisor is temporarily unavailable" do
-    task_supervisor_name = unique_name(:delayed_tasks)
-    dispatcher_name = unique_name(:delayed_dispatcher)
-
-    start_supervised!(
-      {TypeSafeVerification,
-       name: dispatcher_name,
-       task_supervisor: task_supervisor_name,
-       worker: TestWorker,
-       max_concurrency: 1,
-       retry_interval: 10}
-    )
-
-    assert :ok = TypeSafeVerification.enqueue(dispatcher_name, %{test_pid: self(), id: 1})
-    refute_receive {:started, 1, _pid}, 20
-
-    start_supervised!({Task.Supervisor, name: task_supervisor_name})
-
-    assert_receive {:started, 1, worker_pid}, 200
-    send(worker_pid, :release)
-    assert_receive {:finished, 1}
-  end
-
-  test "reports an unavailable dispatcher instead of silently dropping work" do
-    assert {:error, :dispatcher_unavailable} =
-             TypeSafeVerification.enqueue(unique_name(:missing), %{id: 1})
-  end
-
-  defp unique_name(suffix),
-    do: Module.concat(__MODULE__, "#{suffix}_#{System.unique_integer([:positive])}")
 end
