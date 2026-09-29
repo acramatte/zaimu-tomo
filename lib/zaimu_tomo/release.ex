@@ -5,6 +5,7 @@ defmodule ZaimuTomo.Release do
 
   @app :zaimu_tomo
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Storage.{Migration, Verification}
 
   def migrate do
@@ -33,6 +34,31 @@ defmodule ZaimuTomo.Release do
   def verify_storage! do
     start_app()
     report_or_raise(Verification.verify(), Verification)
+  end
+
+  def recover_stuck_documents!(opts \\ []) do
+    start_app()
+    groups = DocumentProcessing.Recovery.list_stuck()
+    Enum.each(groups, &print_stuck_group/1)
+
+    dispatch_recovery(Keyword.get(opts, :confirm, false), groups)
+  end
+
+  defp dispatch_recovery(true, groups) do
+    jobs = DocumentProcessing.Recovery.enqueue_stuck(groups)
+    IO.puts("Enqueued #{length(jobs)} OCR jobs.")
+    groups
+  end
+
+  defp dispatch_recovery(false, groups) do
+    count = groups |> Enum.map(&length(&1.document_ids)) |> Enum.sum()
+    IO.puts("Dry run: #{count} stuck documents — nothing enqueued.")
+    IO.puts("Re-run with confirm: true (or CONFIRM=true) to enqueue.")
+    groups
+  end
+
+  defp print_stuck_group(%{user_id: user_id, currency: currency, document_ids: document_ids}) do
+    IO.puts("user #{user_id} (#{currency}): document ids #{Enum.join(document_ids, ", ")}")
   end
 
   defp repos do

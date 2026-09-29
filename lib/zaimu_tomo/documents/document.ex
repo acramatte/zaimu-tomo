@@ -14,6 +14,8 @@ defmodule ZaimuTomo.Documents.Document do
     timestamps(type: :utc_datetime)
   end
 
+  @type t :: %__MODULE__{}
+
   @doc false
   def changeset(document, attrs, user_scope) do
     document
