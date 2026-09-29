@@ -13,6 +13,12 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   extraction against the expected id from enqueue time, so overlapping
   executions cannot append two terminal rows. A changed document rolls back
   with `:already_processed`; a deleted one with `:document_deleted`.
+
+  The TypeSafe shadow enqueue is fail-open: a changeset-level enqueue failure
+  commits the extraction with an `enqueue_failed` shadow (the job insert is
+  savepoint-isolated inside the success transaction), while a raised DB
+  exception still rolls back the whole terminal write and surfaces to the
+  durable `OCRJob` for retry.
   """
 
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
@@ -77,9 +83,9 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         document,
         extracted_data,
         raw_llm_response,
-        verification \\ %{"status" => "not_run"},
-        trace_id \\ nil,
-        currency_hint \\ nil,
+        verification,
+        trace_id,
+        currency_hint,
         expected_extraction_id \\ nil
       ) do
     analysis = %{
@@ -218,19 +224,30 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   end
 
   # TypeSafe shadow runs are best-effort: a failed enqueue is recorded on the
-  # row but never rolls back the invoice extraction.
-  defp enqueue_typesafe_shadow(_content, nil), do: :ok
-
+  # row but never rolls back the invoice extraction. The currency hint is a
+  # required argument — a missing hint is a caller bug, never a silent skip.
+  #
+  # Only ever called from inside the success transaction (the SAVEPOINT below
+  # requires an open transaction; there is no fallback path). The job insert is
+  # isolated with raw-SQL savepoints because Oban drops :mode from insert
+  # options and Ecto nested transactions are not savepoints. Only a changeset
+  # error is contained here: a raised exception rolls back the whole terminal
+  # write and surfaces to the durable OCRJob for retry.
   defp enqueue_typesafe_shadow(content, currency_hint) when is_binary(currency_hint) do
     if ZaimuTomo.TypeSafeClient.enabled?() do
+      Repo.query!("SAVEPOINT typesafe_enqueue")
+
       case ZaimuTomo.TypeSafeVerification.enqueue(%{
              extracted_content_id: content.id,
              currency_hint: currency_hint
            }) do
         {:ok, _job} ->
+          Repo.query!("RELEASE SAVEPOINT typesafe_enqueue")
           :ok
 
-        {:error, _changeset} ->
+        {:error, %Ecto.Changeset{}} ->
+          Repo.query!("ROLLBACK TO SAVEPOINT typesafe_enqueue")
+
           Logger.warning("[TypeSafe] Shadow verification enqueue failed class=enqueue_failed",
             typesafe_error_class: "enqueue_failed"
           )

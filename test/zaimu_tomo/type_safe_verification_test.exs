@@ -2,10 +2,13 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
   use ZaimuTomo.DataCase, async: false
   use Oban.Testing, repo: ZaimuTomo.Repo
 
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.Worker, as: PipelineWorker
+  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.TypeSafeVerification.Worker
 
+  import ExUnit.CaptureLog
   import ZaimuTomo.AccountsFixtures
   import ZaimuTomo.DocumentsFixtures
 
@@ -84,21 +87,112 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
       refute_enqueued(worker: Worker)
     end
 
-    test "enqueues nothing when no currency hint is forwarded" do
+    test "a failed job insert commits the extraction with an enqueue_failed shadow" do
+      # Test-only seam: replace the Oban job table's positive_max_attempts
+      # check with an unsatisfiable one so the TypeSafe job insert
+      # (max_attempts: 3) fails with a changeset error — Oban declares that
+      # check constraint on its job changeset. No production seam is added;
+      # the DDL rolls back with the sandbox transaction (same technique and
+      # concurrency caveats as ocr_job_test's failure injection).
+      Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT positive_max_attempts")
+
+      Repo.query!(
+        "ALTER TABLE oban_jobs ADD CONSTRAINT positive_max_attempts CHECK (max_attempts > 100)"
+      )
+
       user = user_fixture()
       scope = user_scope_fixture(user)
       document = document_fixture(scope)
 
-      assert {:ok, _content} =
+      log =
+        capture_log(fn ->
+          assert {:ok, content} =
+                   PipelineWorker.persist_and_emit_success(
+                     document,
+                     extracted_data(),
+                     %{"pages" => []},
+                     %{"status" => "verified", "reason" => "All fields match."},
+                     nil,
+                     "CHF"
+                   )
+
+          # The extraction and its review decision are committed even though
+          # the shadow job could not be enqueued (fail-open end to end).
+          persisted = ExtractedContentContext.get_by_id(content.id)
+          assert persisted.status == "success"
+
+          assert %ReviewDecision{} =
+                   Repo.get_by!(ReviewDecision, extracted_content_id: content.id)
+
+          assert persisted.analysis["verification"]["typesafe_shadow"] == %{
+                   "status" => "verification_failed",
+                   "error" => "enqueue_failed"
+                 }
+        end)
+
+      assert log =~ "class=enqueue_failed"
+      assert all_enqueued(worker: Worker) == []
+
+      # Restore the real check definition in-test (the sandbox rollback also
+      # covers assertion failures above).
+      Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT positive_max_attempts")
+
+      Repo.query!(
+        "ALTER TABLE oban_jobs ADD CONSTRAINT positive_max_attempts CHECK (max_attempts > 0)"
+      )
+    end
+
+    test "a superseded success write enqueues no TypeSafe job" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+      {:ok, stale} = prior_extraction(document)
+      {:ok, _newer} = prior_extraction(document)
+
+      assert {:error, :already_processed} =
                PipelineWorker.persist_and_emit_success(
                  document,
                  extracted_data(),
                  %{"pages" => []},
-                 %{"status" => "verified", "reason" => "All fields match."}
+                 %{"status" => "verified", "reason" => "All fields match."},
+                 nil,
+                 "CHF",
+                 stale.id
                )
 
-      refute_enqueued(worker: Worker)
+      # TypeSafe is enabled here: the lock/recheck guard runs before the
+      # enqueue inside the transaction, so a superseded write must not reach it.
+      assert all_enqueued(worker: Worker) == []
     end
+
+    test "a success write for a deleted document enqueues no TypeSafe job" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope)
+      {:ok, _deleted} = Repo.delete(document)
+
+      assert {:error, :document_deleted} =
+               PipelineWorker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{"pages" => []},
+                 %{"status" => "verified", "reason" => "All fields match."},
+                 nil,
+                 "CHF"
+               )
+
+      assert all_enqueued(worker: Worker) == []
+    end
+  end
+
+  defp prior_extraction(document) do
+    ExtractedContentContext.create_extracted_content(%{
+      document_id: document.id,
+      user_id: document.user_id,
+      extracted_data: %{},
+      status: "failed",
+      error_details: %{"type" => "prior", "message" => "already recorded"}
+    })
   end
 
   defp extracted_data do

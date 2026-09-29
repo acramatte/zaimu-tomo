@@ -100,7 +100,15 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
 
       raw_llm_response = %{"amount_to_pay_cents" => 1000, "issuer" => "Test Issuer"}
 
-      {:ok, content} = Worker.persist_and_emit_success(document, extracted_data, raw_llm_response)
+      {:ok, content} =
+        Worker.persist_and_emit_success(
+          document,
+          extracted_data,
+          raw_llm_response,
+          %{"status" => "not_run"},
+          nil,
+          "CHF"
+        )
 
       assert content.user_id == user.id
       assert content.document_id == document.id
@@ -130,7 +138,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
           extracted_data,
           %{},
           %{"status" => "verified"},
-          "abc123def456abc123def456abc123def4"
+          "abc123def456abc123def456abc123def4",
+          "CHF"
         )
 
       assert content.trace_id == "abc123def456abc123def456abc123def4"
@@ -154,7 +163,14 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       verification = %{"status" => "needs_review", "raw_response" => "NEEDS_REVIEW"}
 
       {:ok, content} =
-        Worker.persist_and_emit_success(document, extracted_data, raw_llm_response, verification)
+        Worker.persist_and_emit_success(
+          document,
+          extracted_data,
+          raw_llm_response,
+          verification,
+          nil,
+          "CHF"
+        )
 
       assert content.status == "success"
       assert content.analysis["verification"] == verification
@@ -263,7 +279,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                  %{},
                  %{"status" => "not_run"},
                  nil,
-                 nil,
+                 "CHF",
                  stale.id
                )
 
