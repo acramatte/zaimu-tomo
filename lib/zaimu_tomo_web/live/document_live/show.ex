@@ -156,7 +156,10 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   end
 
   # A stuck document has no live run to report on; the pill must not keep
-  # pulsing "Processing" forever.
+  # pulsing "Processing" forever. While a run is live the pill reports the
+  # current state even when the latest historical extraction failed (a retry
+  # keeps the failed row as history).
+  defp pill_status(:processing, _status), do: "processing"
   defp pill_status(:stuck, _status), do: "Processing stalled"
   defp pill_status(_processing_state, status), do: status
 
