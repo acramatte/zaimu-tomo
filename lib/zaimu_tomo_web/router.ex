@@ -13,25 +13,9 @@ defmodule ZaimuTomoWeb.Router do
     plug :fetch_current_scope_for_user
   end
 
-  pipeline :api do
-    plug :accepts, ["json"]
-  end
-
   scope "/", ZaimuTomoWeb do
     get "/health", HealthController, :show
     get "/up", HealthController, :show
-  end
-
-  # API routes
-  scope "/api", ZaimuTomoWeb do
-    pipe_through :api
-
-    resources "/extracted_content", ExtractedContentController, only: [:index] do
-      get "/:document_id", ExtractedContentController, :index
-      get "/:document_id/latest", ExtractedContentController, :show
-      post "/:id/retry", ExtractedContentController, :retry
-      get "/", ExtractedContentController, :list
-    end
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
