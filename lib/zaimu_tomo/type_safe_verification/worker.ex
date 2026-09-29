@@ -1,37 +1,65 @@
 defmodule ZaimuTomo.TypeSafeVerification.Worker do
-  @moduledoc false
+  @moduledoc """
+  Durable TypeSafe shadow verification for one extracted-content row.
+
+  Args are a self-contained command: `extracted_content_id`, `currency_hint`
+  and an optional W3C `traceparent` string (nil when tracing is disabled). The
+  job never receives OCR markdown or extracted data: markdown is re-derived
+  from the row's `raw_llm_response` (`DocumentOCR.extract_markdown/1`) and
+  extracted data comes from the row itself.
+
+  Shadow verification is fail-open: provider and persistence failures are
+  recorded as a `verification_failed` shadow and the job completes. Oban
+  attempts only matter for crashes and Lifeline rescues.
+  """
+  use Oban.Worker, queue: :typesafe, max_attempts: 3
 
   require Logger
 
+  alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.TypeSafeClient
 
-  @spec perform(map()) :: :ok
-  def perform(%{trace_context: trace_context} = command) do
-    token = OpenTelemetry.Ctx.attach(trace_context)
+  @impl Oban.Worker
+  def perform(%Oban.Job{
+        args: %{"extracted_content_id" => extraction_id, "currency_hint" => currency_hint} = args
+      }) do
+    with_trace_parent(Map.get(args, "traceparent"), fn ->
+      case ExtractedContentContext.get_by_id(extraction_id) do
+        nil -> {:cancel, :extracted_content_deleted}
+        content -> verify_content(content, currency_hint)
+      end
+    end)
+  end
+
+  defp with_trace_parent(nil, fun), do: fun.()
+
+  defp with_trace_parent(traceparent, fun) when is_binary(traceparent) do
+    token = :otel_propagator_text_map.extract([{"traceparent", traceparent}])
 
     try do
-      command |> Map.delete(:trace_context) |> perform()
+      fun.()
     after
       OpenTelemetry.Ctx.detach(token)
     end
   end
 
-  def perform(%{
-        extracted_content_id: extraction_id,
-        markdown: markdown,
-        extracted_data: extracted_data,
-        currency_hint: currency_hint
-      }) do
-    Logger.info("[TypeSafe] Shadow verification started")
+  defp verify_content(content, currency_hint) do
+    case DocumentOCR.extract_markdown(content.raw_llm_response) do
+      {:ok, markdown, _raw} ->
+        Logger.info("[TypeSafe] Shadow verification started")
 
-    result =
-      Langfuse.trace_span("typesafe-shadow-verification", span_attributes(), fn ->
-        safely_verify(markdown, extracted_data, currency_hint)
-      end)
+        result =
+          Langfuse.trace_span("typesafe-shadow-verification", span_attributes(), fn ->
+            safely_verify(markdown, content.extracted_data, currency_hint)
+          end)
 
-    persist_result(extraction_id, result)
+        persist_result(content.id, result)
+
+      {:error, :unexpected_api_structure} ->
+        persist_result(content.id, {:error, :markdown_unavailable})
+    end
   end
 
   defp safely_verify(markdown, extracted_data, currency_hint) do

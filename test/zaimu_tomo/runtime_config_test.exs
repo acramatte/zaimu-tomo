@@ -11,7 +11,7 @@ defmodule ZaimuTomo.RuntimeConfigTest do
     TYPESAFE_TOTAL_TIMEOUT
     TYPESAFE_MAX_RETRIES
     TYPESAFE_MAX_CONCURRENCY
-    TYPESAFE_MAX_QUEUE
+    OBAN_DOCUMENTS_CONCURRENCY
     LANGFUSE_PUBLIC_KEY
     LANGFUSE_SECRET_KEY
   )
@@ -51,8 +51,7 @@ defmodule ZaimuTomo.RuntimeConfigTest do
       "TYPESAFE_RECEIVE_TIMEOUT" => "4000",
       "TYPESAFE_TOTAL_TIMEOUT" => "5000",
       "TYPESAFE_MAX_RETRIES" => "1",
-      "TYPESAFE_MAX_CONCURRENCY" => "3",
-      "TYPESAFE_MAX_QUEUE" => "50"
+      "TYPESAFE_MAX_CONCURRENCY" => "3"
     })
 
     config = read_typesafe_config()
@@ -64,8 +63,11 @@ defmodule ZaimuTomo.RuntimeConfigTest do
     assert config[:receive_timeout] == 4_000
     assert config[:total_timeout] == 5_000
     assert config[:max_retries] == 1
-    assert config[:max_concurrency] == 3
-    assert config[:max_queue] == 50
+
+    # TYPESAFE_MAX_CONCURRENCY now feeds the Oban :typesafe queue limit.
+    oban_queues = read_oban_queues()
+    assert oban_queues[:typesafe] == 3
+    assert oban_queues[:documents] == 2
   end
 
   test "rejects malformed review thresholds" do
@@ -80,8 +82,7 @@ defmodule ZaimuTomo.RuntimeConfigTest do
     for {name, value, minimum} <- [
           {"TYPESAFE_TOTAL_TIMEOUT", "0", 1},
           {"TYPESAFE_MAX_RETRIES", "-1", 0},
-          {"TYPESAFE_MAX_CONCURRENCY", "many", 1},
-          {"TYPESAFE_MAX_QUEUE", "0", 1}
+          {"TYPESAFE_MAX_CONCURRENCY", "many", 1}
         ] do
       System.put_env(name, value)
 
@@ -94,8 +95,17 @@ defmodule ZaimuTomo.RuntimeConfigTest do
   end
 
   defp read_typesafe_config do
-    @runtime_path
-    |> Config.Reader.read!(env: :dev)
+    read_runtime_config()
     |> get_in([:zaimu_tomo, :typesafe])
+  end
+
+  defp read_oban_queues do
+    read_runtime_config()
+    |> get_in([:zaimu_tomo, Oban])
+    |> Keyword.fetch!(:queues)
+  end
+
+  defp read_runtime_config do
+    Config.Reader.read!(@runtime_path, env: :dev)
   end
 end
