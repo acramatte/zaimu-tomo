@@ -47,11 +47,11 @@ Langfuse is enabled, Jev is a sibling `typesafe-shadow-verification` span under
 `process-invoice`, next to `verify-extraction`, so their durations can be compared.
 The default model is `jev-latest` and the shadow review threshold is `0.7`.
 Override them with `TYPESAFE_MODEL` and `TYPESAFE_REVIEW_THRESHOLD`; use
-`TYPESAFE_URL` only for a compatible API endpoint override. Shadow work defaults to
-two concurrent jobs, a 100-job pending queue, a 10-second whole-call deadline,
-a 30-second inactivity timeout, and no retries; tune these with
-`TYPESAFE_MAX_CONCURRENCY`, `TYPESAFE_MAX_QUEUE`, `TYPESAFE_TOTAL_TIMEOUT`,
-`TYPESAFE_RECEIVE_TIMEOUT`, and `TYPESAFE_MAX_RETRIES`.
+`TYPESAFE_URL` only for a compatible API endpoint override. Shadow runs live on
+a dedicated durable Oban queue with two concurrent jobs by default — tune the
+queue limit with `TYPESAFE_MAX_CONCURRENCY` — and use a 10-second whole-call
+deadline, a 30-second inactivity timeout, and no retries; tune these with
+`TYPESAFE_TOTAL_TIMEOUT`, `TYPESAFE_RECEIVE_TIMEOUT`, and `TYPESAFE_MAX_RETRIES`.
 
 ## Run Locally
 
