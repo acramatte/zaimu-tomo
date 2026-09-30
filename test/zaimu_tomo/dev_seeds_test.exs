@@ -48,7 +48,55 @@ defmodule ZaimuTomo.DevSeedsTest do
     assert 5 == length(FinancialAccounts.list_financial_accounts(scope))
 
     assert Enum.all?(second_seed.accounts, fn %{account: account} ->
-             length(FinancialAccounts.list_balance_snapshots(scope, account)) == 1
+             length(FinancialAccounts.list_balance_snapshots(scope, account)) == 5
+           end)
+  end
+
+  test "adds missing balance history to existing demo accounts" do
+    %{user: user, accounts: accounts} = DevSeeds.seed!()
+    scope = ZaimuTomo.Accounts.Scope.for_user(user)
+    today = Date.utc_today()
+
+    current_snapshot_ids =
+      Map.new(accounts, fn %{account: account, balance_snapshot: snapshot} ->
+        {account.id, snapshot.id}
+      end)
+
+    Enum.each(accounts, fn %{account: account} ->
+      scope
+      |> FinancialAccounts.list_balance_snapshots(account)
+      |> Enum.reject(&(&1.recorded_on == today))
+      |> Enum.each(&Repo.delete!/1)
+    end)
+
+    %{accounts: reseeded_accounts} = DevSeeds.seed!()
+
+    assert Enum.all?(reseeded_accounts, fn %{account: account, balance_snapshot: snapshot} ->
+             snapshot.id == Map.fetch!(current_snapshot_ids, account.id) and
+               length(FinancialAccounts.list_balance_snapshots(scope, account)) == 5
+           end)
+  end
+
+  test "creates monthly and bi-monthly balance history for every demo account" do
+    %{user: user, accounts: accounts} = DevSeeds.seed!()
+    scope = ZaimuTomo.Accounts.Scope.for_user(user)
+    today = Date.utc_today()
+
+    expected_dates = [
+      today,
+      Date.shift(today, month: -1),
+      Date.shift(today, month: -3),
+      Date.shift(today, month: -4),
+      Date.shift(today, month: -6)
+    ]
+
+    assert Enum.all?(accounts, fn %{account: account, balance_snapshot: latest_snapshot} ->
+             snapshots = FinancialAccounts.list_balance_snapshots(scope, account)
+
+             latest_snapshot.id == hd(snapshots).id and
+               Enum.map(snapshots, & &1.recorded_on) == expected_dates and
+               length(snapshots) == length(expected_dates) and
+               length(Enum.uniq_by(snapshots, & &1.amount_cents)) > 1
            end)
   end
 end
