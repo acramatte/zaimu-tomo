@@ -112,6 +112,16 @@ defmodule ZaimuTomoWeb.SpendingTest do
     end
   end
 
+  describe "month_starts/2" do
+    test "returns the requested month starts oldest-first across year boundaries" do
+      months = Spending.month_starts(~D[2026-09-30], 12)
+
+      assert length(months) == 12
+      assert List.first(months) == ~D[2025-10-01]
+      assert List.last(months) == ~D[2026-09-01]
+    end
+  end
+
   describe "shift_month/2" do
     test "shifts across year boundaries" do
       assert Spending.shift_month(~D[2026-01-01], -1) == ~D[2025-12-01]

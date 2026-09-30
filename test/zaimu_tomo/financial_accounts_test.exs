@@ -121,6 +121,61 @@ defmodule ZaimuTomo.FinancialAccountsTest do
            ] = FinancialAccounts.list_net_worth_by_currency(scope)
   end
 
+  test "lists dated balance history only for the current user" do
+    scope = user_scope_fixture()
+    other_scope = user_scope_fixture()
+
+    account =
+      financial_account_fixture(scope, %{
+        name: "Main",
+        amount_cents: 1_000,
+        recorded_on: ~D[2025-09-30]
+      })
+
+    inside_range =
+      balance_snapshot_fixture(scope, account, %{amount_cents: 2_000, recorded_on: ~D[2025-10-01]})
+
+    end_of_range =
+      balance_snapshot_fixture(scope, account, %{amount_cents: 3_000, recorded_on: ~D[2026-09-30]})
+
+    balance_snapshot_fixture(scope, account, %{amount_cents: 4_000, recorded_on: ~D[2026-10-01]})
+    financial_account_fixture(other_scope, %{name: "Private", recorded_on: ~D[2026-05-01]})
+
+    assert FinancialAccounts.list_balance_history(scope, ~D[2025-10-01], ~D[2026-09-30]) ==
+             [inside_range, end_of_range]
+  end
+
+  test "history baseline selects only each owned account's latest pre-window snapshot" do
+    scope = user_scope_fixture()
+    other_scope = user_scope_fixture()
+    account = financial_account_fixture(scope, %{recorded_on: ~D[2025-08-01]})
+
+    first =
+      balance_snapshot_fixture(scope, account, %{recorded_on: ~D[2025-09-30], amount_cents: 1_000})
+
+    latest =
+      balance_snapshot_fixture(scope, account, %{recorded_on: ~D[2025-09-30], amount_cents: 2_000})
+
+    balance_snapshot_fixture(scope, account, %{recorded_on: ~D[2025-10-01], amount_cents: 3_000})
+    balance_snapshot_fixture(scope, account, %{recorded_on: ~D[2026-10-01], amount_cents: 4_000})
+    financial_account_fixture(other_scope, %{recorded_on: ~D[2025-09-30]})
+    financial_account_fixture(scope, %{recorded_on: ~D[2025-10-01]})
+
+    # Sequence IDs must not override a later insertion timestamp on the same balance date.
+    first
+    |> Ecto.Changeset.change(inserted_at: ~U[2026-01-01 00:00:00Z])
+    |> ZaimuTomo.Repo.update!()
+
+    latest
+    |> Ecto.Changeset.change(inserted_at: ~U[2025-12-31 23:59:59Z])
+    |> ZaimuTomo.Repo.update!()
+
+    assert [baseline] = FinancialAccounts.list_balance_history_baseline(scope, ~D[2025-10-01])
+    assert baseline.id == first.id
+    assert baseline.amount_cents == 1_000
+    assert FinancialAccounts.list_balance_history_baseline(other_scope, ~D[2025-01-01]) == []
+  end
+
   test "records balance snapshots only for the account owner" do
     scope = user_scope_fixture()
     other_scope = user_scope_fixture()

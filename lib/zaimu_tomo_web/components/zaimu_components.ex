@@ -214,6 +214,172 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
+  # ── Multi-account balance trend chart ──────────────────────────────────────
+
+  attr :series, :list, required: true
+  attr :chart_id, :string, required: true
+  attr :currency, :string, required: true
+
+  def balance_trend_chart(assigns) do
+    values =
+      for account_series <- assigns.series,
+          point <- account_series.points,
+          is_integer(point.value),
+          do: point.value
+
+    min_value = values |> Enum.min(fn -> 0 end) |> min(0)
+    max_value = values |> Enum.max(fn -> 0 end) |> max(0)
+    value_range = max(max_value - min_value, 1)
+    axis_range = max_value - min_value
+    months = List.first(assigns.series).points
+    point_count = length(months)
+
+    axis_ticks =
+      for step <- 0..3 do
+        value = round(max_value - axis_range * step / 3)
+
+        %{
+          y: Float.round(8.0 + step * 28, 2),
+          compact_value: compact_cents(value)
+        }
+      end
+
+    chart_config = %{
+      currency: assigns.currency,
+      min_value: min_value,
+      point_count: point_count,
+      value_range: value_range
+    }
+
+    chart_series =
+      Enum.map(assigns.series, fn account_series ->
+        series_config = Map.put(chart_config, :kind, Map.get(account_series, :kind, :account))
+
+        chart_points =
+          account_series.points
+          |> Enum.with_index()
+          |> Enum.map(fn {month, index} ->
+            chart_point(month, index, account_series.name, series_config)
+          end)
+          |> Enum.reject(&is_nil/1)
+
+        segments = if length(chart_points) > 1, do: [chart_points], else: []
+
+        %{
+          account_id: account_series.account_id,
+          name: account_series.name,
+          color: account_series.color,
+          total?: series_config.kind == :total,
+          points: chart_points,
+          segments: segments
+        }
+      end)
+
+    assigns =
+      assign(assigns,
+        axis_ticks: axis_ticks,
+        chart_series: chart_series,
+        month_labels: Enum.map(months, & &1.label),
+        point_count: point_count
+      )
+
+    ~H"""
+    <div
+      class="line-chart balance-trend-chart"
+      id={@chart_id}
+      phx-hook="BalanceTrendTooltip"
+      role="group"
+      aria-label={"Monthly account balances in #{@currency} for the last year"}
+    >
+      <div class="line-axis" aria-hidden="true">
+        <%= for tick <- @axis_ticks do %>
+          <span class="line-axis-label" style={"top:#{tick.y}%"}>
+            <span class="line-axis-currency">{@currency}</span> {tick.compact_value}
+          </span>
+        <% end %>
+      </div>
+      <div class="line-plot">
+        <svg
+          class="line-plot-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <%= for tick <- @axis_ticks do %>
+            <line
+              class="line-grid"
+              x1="0"
+              y1={tick.y}
+              x2="100"
+              y2={tick.y}
+              vector-effect="non-scaling-stroke"
+            />
+          <% end %>
+          <%= for account_series <- @chart_series, segment <- account_series.segments do %>
+            <polyline
+              class={["balance-trend-line", account_series.total? && "balance-trend-total"]}
+              points={Enum.map_join(segment, " ", &"#{&1.x},#{&1.y}")}
+              stroke={account_series.color}
+              data-account-series={account_series.account_id}
+              vector-effect="non-scaling-stroke"
+            />
+          <% end %>
+        </svg>
+        <%= for account_series <- @chart_series, point <- account_series.points do %>
+          <span
+            class={[
+              "line-point",
+              "balance-trend-point",
+              point.tooltip_below && "tooltip-below",
+              point.tooltip_edge_class
+            ]}
+            style={"left:#{point.x}%;top:#{point.y}%;--series-color:#{account_series.color}"}
+            role="img"
+            tabindex="0"
+            aria-label={point.accessible_label}
+            data-account-series={account_series.account_id}
+          >
+            <span class="line-dot" aria-hidden="true"></span>
+            <span class="line-tooltip" role="tooltip">
+              {account_series.name} · {point.full_label} · <strong>{point.exact_value}</strong>
+              <span class="muted"> ·    {point.date_prefix} {point.recorded_on}</span>
+            </span>
+          </span>
+        <% end %>
+      </div>
+      <div
+        class="line-labels"
+        style={"grid-template-columns:repeat(#{@point_count},minmax(0,1fr))"}
+        aria-hidden="true"
+      >
+        <span :for={label <- @month_labels} class="line-label">{label}</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp chart_point(%{value: value} = month, index, account_name, config) when is_integer(value) do
+    x = (index + 0.5) / config.point_count * 100
+    y = 92 - (value - config.min_value) / config.value_range * 84
+    exact_value = fmt_cents(value, config.currency)
+    date_prefix = if config.kind == :total, do: "as of", else: "recorded"
+
+    %{
+      x: Float.round(x, 2),
+      y: Float.round(y, 2),
+      full_label: month.full_label,
+      tooltip_below: y < 28,
+      exact_value: exact_value,
+      recorded_on: month.recorded_on,
+      date_prefix: date_prefix,
+      tooltip_edge_class: if(x < 50, do: "tooltip-edge-start", else: "tooltip-edge-end"),
+      accessible_label:
+        "#{account_name}, #{month.full_label}: #{exact_value}, #{date_prefix} #{month.recorded_on}"
+    }
+  end
+
+  defp chart_point(_month, _index, _account_name, _config), do: nil
+
   defp compact_cents(cents) do
     absolute_cents = abs(cents)
     sign = if cents < 0, do: "−", else: ""
