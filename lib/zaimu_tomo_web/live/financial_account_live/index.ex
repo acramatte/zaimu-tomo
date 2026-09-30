@@ -5,6 +5,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
 
   alias ZaimuTomo.Currency
   alias ZaimuTomo.FinancialAccounts
+  alias ZaimuTomoWeb.FinancialAccountHistory
 
   @account_types [{"Savings", "savings"}, {"Cash", "cash"}, {"Investment", "investment"}]
 
@@ -106,6 +107,81 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
           </div>
         </.form>
       </div>
+
+      <div
+        :if={@account_series != []}
+        class="card span-12 account-history-card"
+        id="account-balance-history"
+      >
+        <div class="card-head">
+          <div class="card-title">Balance history</div>
+          <div class="card-meta">
+            {@balance_period_label} · observed balances connected across gaps · grouped by currency
+          </div>
+        </div>
+
+        <div
+          class="account-history-controls"
+          role="group"
+          aria-label="Show or hide accounts in the chart"
+        >
+          <button
+            :for={series <- @account_series}
+            id={"account-series-toggle-#{series.account_id}"}
+            type="button"
+            class="account-history-toggle"
+            phx-click="toggle_account"
+            phx-value-account_id={series.account_id}
+            aria-pressed={to_string(MapSet.member?(@visible_account_ids, series.account_id))}
+            aria-label={
+              if MapSet.member?(@visible_account_ids, series.account_id),
+                do: "Hide #{series.name} from chart",
+                else: "Show #{series.name} in chart"
+            }
+          >
+            <span
+              class="account-history-swatch"
+              style={"background:#{series.color}"}
+              aria-hidden="true"
+            >
+            </span>
+            <span>{series.name}</span>
+            <span class="account-history-visibility">
+              {if MapSet.member?(@visible_account_ids, series.account_id), do: "Shown", else: "Hidden"}
+            </span>
+          </button>
+        </div>
+
+        <div
+          :for={group <- @account_series_by_currency}
+          class="account-history-currency"
+          id={"balance-currency-#{String.downcase(group.currency)}"}
+        >
+          <h3 class="account-history-currency-title">{group.currency} balances</h3>
+          <p class="account-history-total-note">
+            <span class="account-history-total-swatch" aria-hidden="true"></span>
+            Total wealth · all {group.currency} accounts · latest known balances
+          </p>
+          <div :if={group.all_accounts_hidden} class="empty-state">
+            <div class="h">All {group.currency} accounts are hidden</div>
+            <div class="muted">
+              Show an account above to restore its line. The total still includes all accounts.
+            </div>
+          </div>
+          <div :if={not group.has_history} class="empty-state">
+            <div class="h">No balance snapshots in this period</div>
+            <div class="muted">
+              The total is shown only once every account in this currency has a recorded balance.
+            </div>
+          </div>
+          <.balance_trend_chart
+            :if={group.has_history}
+            chart_id={"balance-trend-#{String.downcase(group.currency)}"}
+            currency={group.currency}
+            series={group.series}
+          />
+        </div>
+      </div>
     </div>
     """
   end
@@ -121,11 +197,36 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
      |> assign(:page_title, "Financial accounts")
      |> assign(:current_path, "/accounts")
      |> assign(:account_types, @account_types)
-     |> assign(:accounts, FinancialAccounts.list_financial_accounts_with_latest_balance(scope))
-     |> assign(:form, account_form())}
+     |> assign(:form, account_form())
+     |> assign_account_history()}
   end
 
   @impl true
+  def handle_event("toggle_account", %{"account_id" => account_id}, socket) do
+    if Enum.any?(socket.assigns.account_series, &(Integer.to_string(&1.account_id) == account_id)) do
+      visible_ids =
+        if MapSet.member?(socket.assigns.visible_account_ids, String.to_integer(account_id)) do
+          MapSet.delete(socket.assigns.visible_account_ids, String.to_integer(account_id))
+        else
+          MapSet.put(socket.assigns.visible_account_ids, String.to_integer(account_id))
+        end
+
+      {:noreply,
+       socket
+       |> assign(:visible_account_ids, visible_ids)
+       |> assign(
+         :account_series_by_currency,
+         currency_groups(
+           socket.assigns.account_series,
+           visible_ids,
+           socket.assigns.account_totals
+         )
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("validate", %{"account" => params}, socket) do
     {:noreply, assign(socket, form: account_form(params, :validate))}
   end
@@ -144,12 +245,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
       {:noreply,
        socket
        |> put_flash(:info, "Financial account added.")
-       |> assign(
-         :accounts,
-         FinancialAccounts.list_financial_accounts_with_latest_balance(
-           socket.assigns.current_scope
-         )
-       )
+       |> assign_account_history()
        |> assign(:form, account_form())}
     else
       {:error, :invalid_amount} ->
@@ -167,12 +263,65 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
   @impl true
   def handle_info({event, _record}, socket)
       when event in [:created, :updated, :deleted, :balance_recorded] do
-    {:noreply,
-     assign(
-       socket,
-       :accounts,
-       FinancialAccounts.list_financial_accounts_with_latest_balance(socket.assigns.current_scope)
-     )}
+    {:noreply, assign_account_history(socket)}
+  end
+
+  defp assign_account_history(socket) do
+    scope = socket.assigns.current_scope
+    today = Date.utc_today()
+    start_date = FinancialAccountHistory.first_month(today)
+    accounts = FinancialAccounts.list_financial_accounts_with_latest_balance(scope)
+    snapshots = FinancialAccounts.list_balance_history(scope, start_date, today)
+
+    series =
+      accounts
+      |> Enum.map(& &1.account)
+      |> FinancialAccountHistory.series(snapshots, today)
+
+    baseline = FinancialAccounts.list_balance_history_baseline(scope, start_date)
+
+    totals =
+      accounts
+      |> Enum.map(& &1.account)
+      |> FinancialAccountHistory.total_series(baseline ++ snapshots, today)
+      |> Map.new(&{&1.currency, &1})
+
+    current_ids = series |> Enum.map(& &1.account_id) |> MapSet.new()
+    known_ids = Map.get(socket.assigns, :account_series_ids, MapSet.new())
+    previous_visible_ids = Map.get(socket.assigns, :visible_account_ids, known_ids)
+
+    visible_ids =
+      previous_visible_ids
+      |> MapSet.intersection(current_ids)
+      |> MapSet.union(MapSet.difference(current_ids, known_ids))
+
+    socket
+    |> assign(:accounts, accounts)
+    |> assign(:balance_period_label, FinancialAccountHistory.period_label(today))
+    |> assign(:account_series, series)
+    |> assign(:account_totals, totals)
+    |> assign(:account_series_ids, current_ids)
+    |> assign(:visible_account_ids, visible_ids)
+    |> assign(:account_series_by_currency, currency_groups(series, visible_ids, totals))
+  end
+
+  defp currency_groups(series, visible_ids, totals) do
+    series
+    |> Enum.group_by(& &1.currency)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {currency, currency_series} ->
+      visible_series = Enum.filter(currency_series, &MapSet.member?(visible_ids, &1.account_id))
+
+      chart_series = visible_series ++ [Map.fetch!(totals, currency)]
+
+      %{
+        currency: currency,
+        series: chart_series,
+        all_accounts_hidden: visible_series == [],
+        has_history:
+          Enum.any?(chart_series, fn item -> Enum.any?(item.points, &(not is_nil(&1.value))) end)
+      }
+    end)
   end
 
   defp account_form(params \\ %{}, action \\ nil) do

@@ -4,6 +4,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
   import Ecto.Changeset
 
   alias ZaimuTomo.FinancialAccounts
+  alias ZaimuTomoWeb.FinancialAccountHistory
 
   @impl true
   def render(assigns) do
@@ -20,10 +21,29 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       {if @account.account_number, do: " · #{@account.account_number}", else: ""}
     </p>
 
+    <div class="card account-history-card" id="account-balance-history">
+      <div class="card-head">
+        <div class="card-title">Balance history</div>
+        <div class="card-meta">
+          {@balance_period_label} · latest snapshot per month · observed points connected across gaps
+        </div>
+      </div>
+      <div :if={!@balance_history_has_values} class="empty-state">
+        <div class="h">No balance snapshots in this period</div>
+        <div class="muted">Record a balance to add a point to this account's trend.</div>
+      </div>
+      <.balance_trend_chart
+        :if={@balance_history_has_values}
+        chart_id={"balance-trend-account-#{@account.id}"}
+        currency={@account.currency}
+        series={[@balance_history_series]}
+      />
+    </div>
+
     <div class="grid grid-12" style="margin-top:20px">
       <div class="card span-7">
         <div class="card-head">
-          <div class="card-title">Balance history</div>
+          <div class="card-title">Recorded balances</div>
         </div>
         <div :if={@snapshots == []} class="empty-state">
           <div class="h">No balance snapshots yet</div>
@@ -76,8 +96,8 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
      |> assign(:page_title, account.name)
      |> assign(:current_path, "/accounts")
      |> assign(:account, account)
-     |> assign(:snapshots, FinancialAccounts.list_balance_snapshots(scope, account))
-     |> assign(:form, balance_form())}
+     |> assign(:form, balance_form())
+     |> assign_balance_history()}
   end
 
   @impl true
@@ -99,13 +119,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "Balance recorded.")
-       |> assign(
-         :snapshots,
-         FinancialAccounts.list_balance_snapshots(
-           socket.assigns.current_scope,
-           socket.assigns.account
-         )
-       )
+       |> assign_balance_history()
        |> assign(:form, balance_form())}
     else
       {:error, :invalid_amount} ->
@@ -118,6 +132,21 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       %{valid?: false} ->
         {:noreply, assign(socket, form: to_form(form.source, as: :balance))}
     end
+  end
+
+  defp assign_balance_history(socket) do
+    scope = socket.assigns.current_scope
+    account = socket.assigns.account
+    today = Date.utc_today()
+    snapshots = FinancialAccounts.list_balance_snapshots(scope, account)
+
+    [series] = FinancialAccountHistory.series([account], snapshots, today)
+
+    socket
+    |> assign(:snapshots, snapshots)
+    |> assign(:balance_history_series, series)
+    |> assign(:balance_history_has_values, Enum.any?(series.points, &(not is_nil(&1.value))))
+    |> assign(:balance_period_label, FinancialAccountHistory.period_label(today))
   end
 
   defp balance_form(params \\ %{}, action \\ nil) do

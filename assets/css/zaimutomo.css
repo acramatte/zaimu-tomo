@@ -661,13 +661,121 @@ body {
   text-align: center;
   text-transform: uppercase;
 }
+.account-history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.account-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 140ms ease, opacity 140ms ease, background 140ms ease;
+}
+.account-history-toggle:hover,
+.account-history-toggle:focus-visible {
+  border-color: var(--hairline-strong);
+  background: var(--panel-2);
+}
+.account-history-toggle[aria-pressed="false"] { opacity: 0.58; }
+.account-history-swatch {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+}
+.account-history-visibility {
+  padding-left: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.account-history-currency + .account-history-currency {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hairline);
+}
+.account-history-currency-title {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.balance-trend-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.balance-trend-total {
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+}
+.account-history-total-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-history-total-swatch {
+  width: 24px;
+  flex: none;
+  border-top: 3px dashed var(--ink);
+}
+.balance-trend-point .line-dot {
+  background: var(--series-color);
+  box-shadow: 0 0 0 1px var(--series-color);
+}
+.balance-trend-point:hover,
+.balance-trend-point:focus-visible { z-index: 3; }
+.balance-trend-point:hover .line-dot,
+.balance-trend-point:focus-visible .line-dot {
+  box-shadow: 0 0 0 1px var(--series-color), 0 0 0 5px var(--accent-tint);
+}
+.balance-trend-chart .line-point .line-tooltip {
+  display: none;
+  left: 50%;
+  right: auto;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  translate: 0 4px;
+}
+.balance-trend-chart .line-point:hover .line-tooltip,
+.balance-trend-chart .line-point:focus-visible .line-tooltip {
+  display: block;
+  translate: 0 0;
+}
 @media (max-width: 640px) {
   .line-chart {
     grid-template-columns: 42px minmax(0, 1fr);
     column-gap: 4px;
   }
   .line-axis-currency { display: none; }
-  .line-label:nth-child(even):not(:last-child) { visibility: hidden; }
+  .line-label:nth-child(even):not(:last-child),
+  .line-label:nth-child(11) { visibility: hidden; }
+  .account-history-card > .card-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .account-history-card > .card-head .card-meta { text-align: left; }
 }
 
 /* ============================

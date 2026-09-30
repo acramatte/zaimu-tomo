@@ -31,11 +31,18 @@ defmodule ZaimuTomoWeb.Spending do
   consistently with the dashboard.
   """
   def monthly_history(%Scope{} = scope, %Date{} = reference_date, month_count \\ 6) do
+    reference_date
+    |> month_starts(month_count)
+    |> Enum.map(&Accounting.monthly_spending(scope, &1))
+  end
+
+  @doc "Returns the first day of each of the last `month_count` months, oldest first."
+  def month_starts(%Date{} = reference_date, month_count)
+      when is_integer(month_count) and month_count > 0 do
     end_month_start = Date.beginning_of_month(reference_date)
 
     for offset <- (month_count - 1)..0//-1 do
-      month_start = shift_month(end_month_start, -offset)
-      Accounting.monthly_spending(scope, month_start)
+      shift_month(end_month_start, -offset)
     end
   end
 

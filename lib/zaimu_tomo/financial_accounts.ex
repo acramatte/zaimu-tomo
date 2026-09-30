@@ -129,7 +129,37 @@ defmodule ZaimuTomo.FinancialAccounts do
 
     BalanceSnapshot
     |> where(financial_account_id: ^account.id)
-    |> order_by([snapshot], desc: snapshot.recorded_on, desc: snapshot.inserted_at)
+    |> order_by([snapshot],
+      desc: snapshot.recorded_on,
+      desc: snapshot.inserted_at,
+      desc: snapshot.id
+    )
+    |> Repo.all()
+  end
+
+  @doc "Returns the current user's balance snapshots in the inclusive date range."
+  def list_balance_history(%Scope{} = scope, %Date{} = start_date, %Date{} = end_date) do
+    scope
+    |> scoped_balance_snapshots()
+    |> where(
+      [snapshot, _account],
+      snapshot.recorded_on >= ^start_date and snapshot.recorded_on <= ^end_date
+    )
+    |> order_by([snapshot, _account],
+      asc: snapshot.financial_account_id,
+      asc: snapshot.recorded_on,
+      asc: snapshot.inserted_at,
+      asc: snapshot.id
+    )
+    |> Repo.all()
+  end
+
+  @doc "Returns each user's account's latest snapshot before the history window."
+  def list_balance_history_baseline(%Scope{} = scope, %Date{} = before_date) do
+    scope
+    |> scoped_balance_snapshots()
+    |> where([snapshot, _account], snapshot.recorded_on < ^before_date)
+    |> latest_balance_query()
     |> Repo.all()
   end
 
@@ -157,18 +187,29 @@ defmodule ZaimuTomo.FinancialAccounts do
   end
 
   defp latest_balance_snapshots(%Scope{} = scope) do
+    scope
+    |> scoped_balance_snapshots()
+    |> latest_balance_query()
+    |> Repo.all()
+  end
+
+  defp latest_balance_query(query) do
+    query
+    |> distinct([snapshot, _account], snapshot.financial_account_id)
+    |> order_by([snapshot, _account],
+      asc: snapshot.financial_account_id,
+      desc: snapshot.recorded_on,
+      desc: snapshot.inserted_at,
+      desc: snapshot.id
+    )
+  end
+
+  defp scoped_balance_snapshots(%Scope{} = scope) do
     from(snapshot in BalanceSnapshot,
       join: account in FinancialAccount,
       on: account.id == snapshot.financial_account_id,
-      where: account.user_id == ^scope.user.id,
-      distinct: snapshot.financial_account_id,
-      order_by: [
-        asc: snapshot.financial_account_id,
-        desc: snapshot.recorded_on,
-        desc: snapshot.inserted_at
-      ]
+      where: account.user_id == ^scope.user.id
     )
-    |> Repo.all()
   end
 
   defp topic(scope), do: "user:#{scope.user.id}:financial_accounts"
