@@ -3,6 +3,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
 
   alias ReqLLM.Response
   alias ZaimuTomo.DocumentProcessing.Worker
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Review.ReviewDecision
@@ -38,7 +40,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
     def head_object(_key, _config), do: :ok
   end
 
-  describe "process/1" do
+  describe "run/1" do
     test "downloads the object to a private temporary file and removes it after OCR" do
       storage_config = Application.fetch_env!(:zaimu_tomo, :storage)
       mistral_config = Application.fetch_env!(:zaimu_tomo, :mistral)
@@ -67,8 +69,12 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       scope = user_scope_fixture(user)
       document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
 
-      assert {:ok, %{status: "failed"}} =
-               Worker.process(%{document: document, currency_hint: "CHF"})
+      assert {:error, {:ocr_upload_failed, "Missing Mistral API key"}} =
+               Worker.run(%{
+                 document: document,
+                 currency_hint: "CHF",
+                 supersedes_extraction_id: nil
+               })
 
       assert_receive {:document_downloaded, temporary_path, file_stat, directory_stat}
       assert band(file_stat.mode, 0o777) == 0o600
@@ -260,7 +266,8 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert {:ok, content} =
                Worker.persist_and_emit_failure(
                  document,
-                 {:llm_request_failed, String.duplicate("connection refused ", 100)}
+                 {:llm_request_failed,
+                  %{status: nil, reason: String.duplicate("connection refused ", 100)}}
                )
 
       review_decision = Repo.get_by!(ReviewDecision, extracted_content_id: content.id)
@@ -268,6 +275,98 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert review_decision.review_notes ==
                "Automatically marked as failed: llm_request_failed"
     end
+  end
+
+  describe "terminal-write serialization" do
+    test "a stale expected extraction id makes the success persist write no second row" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+      {:ok, stale} = insert_failed_extraction(document)
+      {:ok, _newer} = insert_failed_extraction(document)
+
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
+
+      assert {:error, :already_processed} =
+               Worker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{},
+                 %{"status" => "not_run"},
+                 nil,
+                 nil,
+                 stale.id
+               )
+
+      assert Repo.aggregate(ExtractedContent, :count) == 2
+      refute_received %{status: :completed}
+    end
+
+    test "a stale expected extraction id makes the failure persist write no second row" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+      {:ok, stale} = insert_failed_extraction(document)
+      {:ok, _newer} = insert_failed_extraction(document)
+
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+
+      assert {:error, :already_processed} =
+               Worker.persist_and_emit_failure(document, {:ocr_upload_failed, :enoent}, stale.id)
+
+      assert Repo.aggregate(ExtractedContent, :count) == 2
+      refute_received %{status: :failed}
+    end
+
+    test "the expected latest extraction id lets the terminal write proceed" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+      {:ok, expected} = insert_failed_extraction(document)
+
+      assert {:ok, content} =
+               Worker.persist_and_emit_failure(
+                 document,
+                 {:ocr_upload_failed, :enoent},
+                 expected.id
+               )
+
+      assert content.status == "failed"
+      assert Repo.aggregate(ExtractedContent, :count) == 2
+    end
+
+    test "a deleted document makes the terminal write a :document_deleted no-op" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      document = document_fixture(scope, %{})
+      {:ok, _} = Repo.delete(document)
+
+      assert {:error, :document_deleted} =
+               Worker.persist_and_emit_failure(document, {:ocr_upload_failed, :enoent}, nil)
+
+      assert Repo.aggregate(ExtractedContent, :count) == 0
+    end
+  end
+
+  defp insert_failed_extraction(document) do
+    ExtractedContentContext.create_extracted_content(%{
+      document_id: document.id,
+      user_id: document.user_id,
+      extracted_data: %{},
+      status: "failed",
+      error_details: %{"type" => "prior", "message" => "already recorded"}
+    })
+  end
+
+  defp extracted_data do
+    %ExtractedData{
+      amount_to_pay_cents: 1000,
+      invoice_date: "2024-01-15",
+      invoice_number: "INV-001",
+      currency: "USD",
+      reason_for_payment: "Test payment",
+      issuer: "Test Issuer"
+    }
   end
 
   defp eventually(fun, attempts \\ 20)

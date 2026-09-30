@@ -399,7 +399,7 @@ defmodule ZaimuTomo.LLMClientTest do
         )
 
       assert LLMClient.request_failure(error) ==
-               {:llm_request_failed, "connection refused"}
+               {:llm_request_failed, %{status: nil, reason: "connection refused"}}
     end
   end
 

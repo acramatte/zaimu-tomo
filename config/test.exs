@@ -29,6 +29,10 @@ config :zaimu_tomo, ZaimuTomo.Mailer, adapter: Swoosh.Adapters.Test
 
 config :zaimu_tomo, :storage, adapter: ZaimuTomo.Storage.Memory
 
+# Oban jobs are enqueued and asserted explicitly in tests (Oban.Testing); no
+# queue runs in the background during test.
+config :zaimu_tomo, Oban, testing: :manual
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
