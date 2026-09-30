@@ -77,9 +77,10 @@ mix run priv/repo/seeds.exs
 
 The seed data creates Maya Keller (`demo@zaimutomo.test`) with password
 `demo-password-123`, plus five financial accounts. They cover cash, savings, and
-investments; CHF, EUR, and USD balances; and manual and bank-synced sources. It
-only creates missing demo records, so re-running it does not duplicate the user,
-accounts, or balance snapshots.
+investments; CHF, EUR, and USD balances; and manual and bank-synced sources.
+Each account has five changing balance snapshots over the last six months, with
+monthly and bi-monthly intervals. It only creates missing demo records, so
+re-running it does not duplicate the user, accounts, or balance snapshots.
 
 RustFS exposes its S3-compatible API on [localhost:9000](http://localhost:9000)
 and its local console on [localhost:9001](http://localhost:9001). The bootstrap

@@ -18,7 +18,13 @@ defmodule ZaimuTomo.DevSeeds do
       bank_name: "Zürcher Kantonalbank",
       account_number: "CH93 0070 0116 2014 6868 3",
       source: :bank_sync,
-      amount_cents: 423_800
+      balance_history: [
+        {6, 356_200},
+        {4, 389_600},
+        {3, 405_100},
+        {1, 391_200},
+        {0, 423_800}
+      ]
     },
     %{
       name: "Emergency fund",
@@ -27,7 +33,13 @@ defmodule ZaimuTomo.DevSeeds do
       bank_name: "Zürcher Kantonalbank",
       account_number: "CH21 0070 0116 2014 6868 4",
       source: :bank_sync,
-      amount_cents: 1_580_000
+      balance_history: [
+        {6, 1_420_000},
+        {4, 1_460_000},
+        {3, 1_495_000},
+        {1, 1_535_000},
+        {0, 1_580_000}
+      ]
     },
     %{
       name: "Travel wallet",
@@ -36,7 +48,13 @@ defmodule ZaimuTomo.DevSeeds do
       bank_name: "Cash",
       account_number: "EUR travel cash",
       source: :manual,
-      amount_cents: 26_550
+      balance_history: [
+        {6, 18_900},
+        {4, 35_200},
+        {3, 41_800},
+        {1, 30_400},
+        {0, 26_550}
+      ]
     },
     %{
       name: "Global index fund",
@@ -45,7 +63,13 @@ defmodule ZaimuTomo.DevSeeds do
       bank_name: "Interactive Brokers",
       account_number: "U1234567",
       source: :bank_sync,
-      amount_cents: 4_275_000
+      balance_history: [
+        {6, 3_930_000},
+        {4, 4_080_000},
+        {3, 4_160_000},
+        {1, 4_230_000},
+        {0, 4_275_000}
+      ]
     },
     %{
       name: "Pillar 3a",
@@ -54,7 +78,13 @@ defmodule ZaimuTomo.DevSeeds do
       bank_name: "VIAC",
       account_number: "3a-004281",
       source: :bank_sync,
-      amount_cents: 8_940_000
+      balance_history: [
+        {6, 8_300_000},
+        {4, 8_510_000},
+        {3, 8_650_000},
+        {1, 8_780_000},
+        {0, 8_940_000}
+      ]
     }
   ]
 
@@ -88,45 +118,57 @@ defmodule ZaimuTomo.DevSeeds do
   end
 
   defp ensure_account!(scope, attrs) do
-    case Repo.get_by(FinancialAccount, user_id: scope.user.id, name: attrs.name) do
-      nil ->
-        {:ok, account_with_balance} =
-          FinancialAccounts.create_financial_account_with_balance(
-            scope,
-            Map.take(attrs, [
-              :name,
-              :account_type,
-              :currency,
-              :bank_name,
-              :account_number,
-              :source
-            ]),
-            %{amount_cents: attrs.amount_cents, recorded_on: Date.utc_today()}
-          )
+    balance_history = balance_history(attrs, Date.utc_today())
 
-        account_with_balance
+    account =
+      case Repo.get_by(FinancialAccount, user_id: scope.user.id, name: attrs.name) do
+        nil ->
+          [initial_snapshot | _] = balance_history
 
-      account ->
-        %{
-          account: account,
-          balance_snapshot: ensure_balance_snapshot!(scope, account, attrs.amount_cents)
-        }
-    end
+          {:ok, %{account: account}} =
+            FinancialAccounts.create_financial_account_with_balance(
+              scope,
+              Map.take(attrs, [
+                :name,
+                :account_type,
+                :currency,
+                :bank_name,
+                :account_number,
+                :source
+              ]),
+              initial_snapshot
+            )
+
+          account
+
+        account ->
+          account
+      end
+
+    ensure_balance_history!(scope, account, balance_history)
+
+    %{
+      account: account,
+      balance_snapshot: scope |> FinancialAccounts.list_balance_snapshots(account) |> hd()
+    }
   end
 
-  defp ensure_balance_snapshot!(scope, account, amount_cents) do
-    case FinancialAccounts.list_balance_snapshots(scope, account) do
-      [snapshot | _] ->
-        snapshot
+  defp balance_history(attrs, today) do
+    Enum.map(attrs.balance_history, fn {months_ago, amount_cents} ->
+      %{amount_cents: amount_cents, recorded_on: Date.shift(today, month: -months_ago)}
+    end)
+  end
 
-      [] ->
-        {:ok, snapshot} =
-          FinancialAccounts.record_balance(scope, account, %{
-            amount_cents: amount_cents,
-            recorded_on: Date.utc_today()
-          })
+  defp ensure_balance_history!(scope, account, balance_history) do
+    recorded_on_dates =
+      scope
+      |> FinancialAccounts.list_balance_snapshots(account)
+      |> MapSet.new(& &1.recorded_on)
 
-        snapshot
-    end
+    Enum.each(balance_history, fn snapshot ->
+      unless MapSet.member?(recorded_on_dates, snapshot.recorded_on) do
+        {:ok, _snapshot} = FinancialAccounts.record_balance(scope, account, snapshot)
+      end
+    end)
   end
 end
