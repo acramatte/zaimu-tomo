@@ -67,6 +67,20 @@ mix phx.server
 
 Then open [localhost:4000](http://localhost:4000). The bundled PostgreSQL service maps to host port `5432`; set `POSTGRES_PORT` in the shell (or as a Compose variable) to override if another local Postgres already uses that port.
 
+### Development demo data
+
+`mix setup` seeds an idempotent demo account alongside the development database. Re-run it at any time with:
+
+```bash
+mix run priv/repo/seeds.exs
+```
+
+The seed data creates Maya Keller (`demo@zaimutomo.test`) with password
+`demo-password-123`, plus five financial accounts. They cover cash, savings, and
+investments; CHF, EUR, and USD balances; and manual and bank-synced sources. It
+only creates missing demo records, so re-running it does not duplicate the user,
+accounts, or balance snapshots.
+
 RustFS exposes its S3-compatible API on [localhost:9000](http://localhost:9000)
 and its local console on [localhost:9001](http://localhost:9001). The bootstrap
 command creates the disposable `zaimu-tomo-dev` bucket with versioning and
