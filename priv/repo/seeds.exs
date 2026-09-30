@@ -1,11 +1,9 @@
-# Script for populating the database. You can run it as:
+# Script for populating the development database. You can run it as:
 #
 #     mix run priv/repo/seeds.exs
-#
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     ZaimuTomo.Repo.insert!(%ZaimuTomo.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+
+%{user: user, accounts: accounts} = ZaimuTomo.DevSeeds.seed!()
+%{email: email, password: password} = ZaimuTomo.DevSeeds.demo_credentials()
+
+IO.puts("Seeded #{length(accounts)} financial accounts for #{user.display_name}.")
+IO.puts("Log in with #{email} / #{password}")
