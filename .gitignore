@@ -46,3 +46,6 @@ zaimu_tomo.iml
 
 # Git worktree checkouts created inside the repo (metadata + files)
 .worktrees/
+
+# Amp orb portal state (generated per orb)
+.amp/portals/
