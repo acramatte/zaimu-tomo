@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Prepare a fresh Amp orb (Debian 12) for ZaimuTomo development.
+# Idempotent: safe to rerun on a warm snapshot. See https://ampcode.com/docs/orbs
+#
+# ORB-ONLY. Never run this locally or in production: it disables Postgres
+# durability (fsync), installs tools into /usr/local/bin with sudo, and adds
+# the user to the docker group. Production setup lives in the Dockerfile and
+# .kamal/; local setup is documented in README.md.
+set -euo pipefail
+
+# Keep in sync with .github/workflows/ci.yml and Dockerfile.
+OTP_VERSION="28.5.0.7"
+OTP_SHA256="38f507761691e3bc4bf4f23eda7f03390341864e71c37555de501695d8bae308"
+ELIXIR_VERSION="1.19.4"
+ELIXIR_SHA256="8fd7b5705b756c0e1ec71f9e8281b4b75801b9564f0205b5035319e8505ad2b4"
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+beam_root="$HOME/.local/share/beam"
+export DEBIAN_FRONTEND=noninteractive
+
+step() {
+  local start=$SECONDS
+  echo "--- $*"
+  "$@"
+  echo "--- $* done in $((SECONDS - start))s"
+}
+
+install_system_packages() {
+  local missing=()
+  dpkg -s inotify-tools >/dev/null 2>&1 || missing+=(inotify-tools)
+  # The orb base image ships Docker Engine and its apt source, but not Compose.
+  dpkg -s docker-compose-plugin >/dev/null 2>&1 || missing+=(docker-compose-plugin)
+  if [ ${#missing[@]} -gt 0 ]; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
+  fi
+}
+
+install_otp() {
+  local dir="$beam_root/otp-$OTP_VERSION"
+  if [ ! -x "$dir/bin/erl" ]; then
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/otp.tar.gz" "https://builds.hex.pm/builds/otp/ubuntu-22.04/OTP-$OTP_VERSION.tar.gz"
+    echo "$OTP_SHA256  $tmp/otp.tar.gz" | sha256sum -c --quiet
+    rm -rf "$dir" && mkdir -p "$dir"
+    tar xzf "$tmp/otp.tar.gz" -C "$dir" --strip-components=1
+    "$dir/Install" -minimal "$dir" >/dev/null
+    rm -rf "$tmp"
+  fi
+  for bin in erl erlc escript; do
+    sudo ln -sfn "$dir/bin/$bin" "/usr/local/bin/$bin"
+  done
+}
+
+install_elixir() {
+  local dir="$beam_root/elixir-$ELIXIR_VERSION-otp-28"
+  if [ ! -x "$dir/bin/elixir" ]; then
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/elixir.zip" "https://builds.hex.pm/builds/elixir/v$ELIXIR_VERSION-otp-28.zip"
+    echo "$ELIXIR_SHA256  $tmp/elixir.zip" | sha256sum -c --quiet
+    rm -rf "$dir" && mkdir -p "$dir"
+    unzip -q "$tmp/elixir.zip" -d "$dir"
+    rm -rf "$tmp"
+  fi
+  for bin in elixir elixirc iex mix; do
+    sudo ln -sfn "$dir/bin/$bin" "/usr/local/bin/$bin"
+  done
+}
+
+install_hex_rebar() {
+  mix local.hex --force --if-missing
+  mix local.rebar --force --if-missing
+}
+
+start_services() {
+  # Lets agents and Testcontainers use the socket without sudo in later sessions.
+  id -nG "$USER" | grep -qw docker || sudo usermod -aG docker "$USER"
+  sudo systemctl start docker
+  sudo docker compose up -d db rustfs
+  until sudo docker compose exec -T db pg_isready -q -U postgres; do sleep 0.5; done
+  # Orbs are disposable: trade durability for speed. Stored in the volume only.
+  sudo docker compose exec -T db psql -q -U postgres \
+    -c "ALTER SYSTEM SET fsync = off" \
+    -c "ALTER SYSTEM SET synchronous_commit = off" \
+    -c "ALTER SYSTEM SET full_page_writes = off" \
+    -c "SELECT pg_reload_conf()" >/dev/null
+  sudo docker compose --profile bootstrap run --rm rustfs-init
+}
+
+compile_deps() {
+  mix deps.get
+  mix compile
+  MIX_ENV=test mix compile
+  mix assets.setup
+}
+
+setup_databases() {
+  mix ecto.create --quiet
+  mix ecto.migrate --quiet
+  mix run priv/repo/seeds.exs
+  MIX_ENV=test mix ecto.create --quiet
+  MIX_ENV=test mix ecto.migrate --quiet
+}
+
+stop_services() {
+  # Stop cleanly so the snapshot holds consistent volumes. Compose's
+  # `restart: unless-stopped` brings the containers back when .agents/resume
+  # starts Docker again.
+  sudo systemctl stop docker docker.socket
+}
+
+write_agent_guidance() {
+  local file="$HOME/.config/amp/AGENTS.md"
+  local begin="<!-- zaimu-tomo orb setup: begin -->"
+  local end="<!-- zaimu-tomo orb setup: end -->"
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+  sed -i "\|^$begin\$|,\|^$end\$|d" "$file"
+  cat >>"$file" <<EOF
+$begin
+# ZaimuTomo orb notes
+
+- Elixir $ELIXIR_VERSION / OTP $OTP_VERSION are on PATH; deps, dev and test builds are precompiled.
+- PostgreSQL (localhost:5432) and RustFS (localhost:9000, console 9001) run from docker-compose.yml; \`.agents/resume\` starts Docker on wake. Restart with \`docker compose up -d db rustfs\`.
+- If \`docker\` reports a socket permission error, use \`sudo docker\`.
+- Dev database is seeded: sign in as \`demo@zaimutomo.test\` / \`demo-password-123\`.
+- Run the dev server with \`amp orb services ensure\` (service \`web\`, port 4000).
+$end
+EOF
+}
+
+total_start=$SECONDS
+step install_system_packages
+step install_otp
+step install_elixir
+step install_hex_rebar
+step start_services
+step compile_deps
+step setup_databases
+step stop_services
+step write_agent_guidance
+echo "--- setup finished in $((SECONDS - total_start))s"

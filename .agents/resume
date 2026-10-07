@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs after orb activation and every wake. Keep it fast and idempotent.
+# ORB-ONLY: not part of local or production setup (see .agents/setup).
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Compose's `restart: unless-stopped` restarts db and rustfs with the daemon.
+sudo systemctl start docker
+
+for _ in $(seq 1 30); do
+  sudo docker compose exec -T db pg_isready -q -U postgres 2>/dev/null && exit 0
+  sleep 0.25
+done
+echo "PostgreSQL container did not become ready" >&2
+exit 1

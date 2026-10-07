@@ -1,0 +1,9 @@
+services:
+  web:
+    command: mix phx.server
+    port: 4000
+    health: /
+    portal:
+      url: /
+      title: ZaimuTomo
+      description: "Sign in as demo@zaimutomo.test / demo-password-123."
