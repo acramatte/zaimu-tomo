@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Prepare a fresh Amp orb (Debian 12) for ZaimuTomo development.
 # Idempotent: safe to rerun on a warm snapshot. See https://ampcode.com/docs/orbs
+#
+# ORB-ONLY. Never run this locally or in production: it disables Postgres
+# durability (fsync), installs tools into /usr/local/bin with sudo, and adds
+# the user to the docker group. Production setup lives in the Dockerfile and
+# .kamal/; local setup is documented in README.md.
 set -euo pipefail
 
 # Keep in sync with .github/workflows/ci.yml and Dockerfile.

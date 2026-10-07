@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Runs after orb activation and every wake. Keep it fast and idempotent.
+# ORB-ONLY: not part of local or production setup (see .agents/setup).
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
