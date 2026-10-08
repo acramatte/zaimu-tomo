@@ -43,18 +43,18 @@ config :zaimu_tomo, :typesafe,
   review_threshold: 0.7,
   receive_timeout: 30_000,
   total_timeout: 10_000,
-  max_retries: 0,
-  max_concurrency: 2,
-  max_queue: 100
+  max_retries: 0
 
 # Durable background jobs for document processing (Oban OSS). The documents
 # queue is deliberately small: OCR + LLM runs are expensive and, in local dev
 # with a single-NPU FLM backend, must be serialized (see OBAN_DOCUMENTS_
-# CONCURRENCY in config/runtime.exs). testing: :manual in config/test.exs.
+# CONCURRENCY in config/runtime.exs). The typesafe queue bounds concurrent
+# TypeSafe shadow verification runs (see TYPESAFE_MAX_CONCURRENCY).
+# testing: :manual in config/test.exs.
 config :zaimu_tomo, Oban,
   engine: Oban.Engines.Basic,
   repo: ZaimuTomo.Repo,
-  queues: [documents: 2],
+  queues: [documents: 2, typesafe: 2],
   plugins: [
     # Keep finished jobs a week for debugging/audit of retries.
     {Oban.Pruner, max_age: 7 * 24 * 60 * 60},

@@ -70,14 +70,16 @@ if config_env() != :test do
     review_threshold: typesafe_review_threshold,
     receive_timeout: parse_integer_env.("TYPESAFE_RECEIVE_TIMEOUT", 30_000, 1),
     total_timeout: parse_integer_env.("TYPESAFE_TOTAL_TIMEOUT", 10_000, 1),
-    max_retries: parse_integer_env.("TYPESAFE_MAX_RETRIES", 0, 0),
-    max_concurrency: parse_integer_env.("TYPESAFE_MAX_CONCURRENCY", 2, 1),
-    max_queue: parse_integer_env.("TYPESAFE_MAX_QUEUE", 100, 1)
+    max_retries: parse_integer_env.("TYPESAFE_MAX_RETRIES", 0, 0)
 
   # The documents queue is bounded so OCR + LLM runs don't fan out. Local dev
   # with a single-NPU FLM backend should set OBAN_DOCUMENTS_CONCURRENCY=1.
+  # The typesafe queue bounds concurrent TypeSafe shadow verification runs.
   config :zaimu_tomo, Oban,
-    queues: [documents: parse_integer_env.("OBAN_DOCUMENTS_CONCURRENCY", 2, 1)]
+    queues: [
+      documents: parse_integer_env.("OBAN_DOCUMENTS_CONCURRENCY", 2, 1),
+      typesafe: parse_integer_env.("TYPESAFE_MAX_CONCURRENCY", 2, 1)
+    ]
 end
 
 default_extractor =
