@@ -44,6 +44,19 @@ defmodule ZaimuTomo.Release do
   end
 
   defp start_app do
+    load_app()
+
+    # Eval nodes run maintenance only: no queues, no plugins, no leadership, so
+    # a short-lived node never grabs a job and dies mid-run (leaving it orphaned
+    # until Lifeline rescues it).
+    oban = Application.fetch_env!(@app, Oban)
+
+    Application.put_env(
+      @app,
+      Oban,
+      Keyword.merge(oban, queues: false, plugins: false, peer: false)
+    )
+
     case Application.ensure_all_started(@app) do
       {:ok, _started} -> :ok
       {:error, reason} -> raise "could not start #{@app}: #{inspect(reason)}"
