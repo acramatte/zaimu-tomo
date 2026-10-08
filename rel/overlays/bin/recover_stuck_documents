@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+
+if [ "${CONFIRM:-}" = "true" ]; then
+  exec ./zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!(confirm: true)'
+fi
+
+exec ./zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!()'
