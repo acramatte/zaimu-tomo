@@ -168,7 +168,7 @@ defmodule ZaimuTomoWeb.SpendingLiveTest do
 
     extracted_content = extracted_content_fixture(document, user)
     decision = approved_review_fixture(extracted_content, user)
-    {:ok, entry} = Accounting.create_from_decision(decision)
+    {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
 
     entry =
       entry
