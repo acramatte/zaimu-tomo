@@ -5,6 +5,15 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+### Documentation (keep it current)
+
+- The system design, infrastructure, and runbooks live in `docs/`. Start at `docs/README.md`. `docs/architecture.md` is a lightweight arc42 document and is the source of truth for how the system fits together. Read it before non-trivial work.
+- **Docs are part of the change.** If your change alters a context, schema, flow, Oban queue or job, external service, env var, deployment unit, or runbook, update the matching `docs/` page in the same commit. The "Keeping the docs current" table in `docs/README.md` maps change types to sections. Structural or infrastructure decisions get a dated row in `docs/architecture.md` §9. New or resolved risks and debt go in §11.
+- New env vars must appear in `docs/configuration.md`, `config/deploy.yml`, and (if secret) `.kamal/secrets.example`.
+- `specs/` holds historical spec-kit design records. Do not treat them as current. The `docs/` pages win when they disagree.
+- Never put secrets, real hostnames or IPs, host port allocations, or backup destinations in docs. Name the variable instead.
+- Docs-only commits use `docs:` and `Tests: docs-only change; verified with git diff --check`.
+
 ### Commit, branch & PR conventions
 
 **Commits** use imperative mood with a Conventional-Commits-style type prefix (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`). The body leads with WHY ("Add X so that Y" / "Replace X with Y so that Z"), then a design-decisions paragraph (what was extracted/shared and why), then a final `Tests:` line listing the exact test command(s) run. Keep commits focused; squash related refinements.
@@ -163,10 +172,3 @@ _A config-driven dev tool for Elixir projects to manage AGENTS.md files and agen
 [usage_rules:otp usage rules](deps/usage_rules/usage-rules/otp.md)
 <!-- usage_rules:otp-end -->
 <!-- usage-rules-end -->
-
-## Active Technologies
-- Elixir 1.19 + Ecto, Postgrex, Phoenix Framework (001-persist-ocr-data)
-- PostgreSQL (existing database infrastructure) (001-persist-ocr-data)
-
-## Recent Changes
-- 001-persist-ocr-data: Added Elixir 1.19 + Ecto, Postgrex, Phoenix Framework
