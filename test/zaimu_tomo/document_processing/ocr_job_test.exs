@@ -126,6 +126,10 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       assert_received {:perform_result, {:error, summary}}
       assert summary == "ocr_upload_failed:http_429"
       refute summary =~ "SECRET-INVOICE-TEXT"
+
+      assert log =~
+               ~r/\[Oban\] .*OCRJob job .* attempt 1\/5 failed \(failure\): ocr_upload_failed:http_429/
+
       refute log =~ "SECRET-INVOICE-TEXT"
     end
 
@@ -200,9 +204,16 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       Application.put_env(:zaimu_tomo, :mistral, Keyword.put(original, :api_key, nil))
       on_exit(fn -> Application.put_env(:zaimu_tomo, :mistral, original) end)
 
-      assert :ok = perform_job(OCRJob, args_for(document), attempt: 1, max_attempts: 5)
+      log =
+        capture_log(fn ->
+          assert :ok = perform_job(OCRJob, args_for(document), attempt: 1, max_attempts: 5)
+        end)
 
       assert [%ExtractedContent{status: "failed"}] = Repo.all(ExtractedContent)
+
+      assert log =~
+               "[OCR] Processing failed for document #{document.id} (permanent): " <>
+                 "ocr_upload_failed:missing_api_key"
     end
 
     test "a storage :not_found is permanent and writes one failed row" do

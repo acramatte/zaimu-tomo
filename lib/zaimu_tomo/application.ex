@@ -8,6 +8,7 @@ defmodule ZaimuTomo.Application do
   @impl true
   def start(_type, _args) do
     ZaimuTomo.Langfuse.setup()
+    ZaimuTomo.ObanFailureLogger.attach()
 
     children =
       [

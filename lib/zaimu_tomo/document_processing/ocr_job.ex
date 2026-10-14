@@ -93,16 +93,28 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJob do
   end
 
   # Permanent (any attempt) or transient on the final attempt: record one failure.
-  defp handle_failure(_class, _final?, document, reason, expected_extraction_id) do
-    record_failure(document, reason, expected_extraction_id)
+  defp handle_failure(class, _final?, document, reason, expected_extraction_id) do
+    record_failure(class, document, reason, expected_extraction_id)
   end
 
-  defp record_failure(document, reason, expected_extraction_id) do
+  defp record_failure(class, document, reason, expected_extraction_id) do
     case Worker.persist_and_emit_failure(document, reason, expected_extraction_id) do
-      {:ok, _content} -> :ok
-      {:error, :already_processed} -> {:cancel, :already_processed}
-      {:error, :document_deleted} -> {:cancel, :document_deleted}
-      {:error, {:persistence_failed, errors}} -> handle_persist_failure(document, errors)
+      {:ok, _content} ->
+        Logger.warning(
+          "[OCR] Processing failed for document #{document.id} (#{class}): " <>
+            ErrorClassification.summarize(reason)
+        )
+
+        :ok
+
+      {:error, :already_processed} ->
+        {:cancel, :already_processed}
+
+      {:error, :document_deleted} ->
+        {:cancel, :document_deleted}
+
+      {:error, {:persistence_failed, errors}} ->
+        handle_persist_failure(document, errors)
     end
   end
 
