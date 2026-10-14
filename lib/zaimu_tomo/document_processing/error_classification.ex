@@ -47,6 +47,17 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
     :enfile
   ]
 
+  # Bare atoms emitted by the OCR, prompt, extractor and verifier stages (not
+  # storage), all permanent.
+  @pipeline_atoms [
+    :unexpected_api_structure,
+    :missing_structured_output,
+    :invalid_extraction_payload,
+    :langfuse_prompt_api_not_configured,
+    :invalid_langfuse_prompt_response,
+    :prompt_fetcher_failed
+  ]
+
   @doc """
   Classify a processing failure `reason` as `:transient` or `:permanent`.
   """
@@ -117,13 +128,9 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   # -- Known permanent bare atoms --------------------------------------
   # The stored bytes are gone; a retry cannot help.
   def classify(:not_found), do: :permanent
-  # Provider returned an unexpected body shape.
-  def classify(:unexpected_api_structure), do: :permanent
-  def classify(:missing_structured_output), do: :permanent
-  def classify(:invalid_extraction_payload), do: :permanent
-  def classify(:langfuse_prompt_api_not_configured), do: :permanent
-  def classify(:invalid_langfuse_prompt_response), do: :permanent
-  def classify(:prompt_fetcher_failed), do: :permanent
+  # OCR / prompt / extractor / verifier outcomes (unexpected body shape,
+  # missing or invalid output, prompt config).
+  def classify(reason) when reason in @pipeline_atoms, do: :permanent
 
   # -- Storage transport (bare posix / transport) ----------------------
   # Only the explicitly listed filesystem/transport atoms are retried; every
@@ -177,6 +184,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
     do: "storage:transport_#{reason}"
 
   def summarize(%Req.TransportError{}), do: "storage:transport"
+  def summarize(reason) when reason in @pipeline_atoms, do: Atom.to_string(reason)
   def summarize(reason) when is_atom(reason), do: "storage:#{reason}"
   def summarize(_other), do: "unclassified"
 end

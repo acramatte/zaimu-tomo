@@ -179,6 +179,9 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
     test "storage atoms, posix pairs and unknown shapes" do
       assert ErrorClassification.summarize(:enospc) == "storage:enospc"
 
+      assert ErrorClassification.summarize(:missing_structured_output) ==
+               "missing_structured_output"
+
       assert ErrorClassification.summarize({:ocr_upload_failed, :enoent}) ==
                "ocr_upload_failed:enoent"
 
