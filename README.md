@@ -25,33 +25,21 @@ Upload invoices and receipts, and ZaimuTomo handles the grunt work:
 
 1. **OCR** converts the uploaded document to markdown.
 2. **Extraction** uses an LLM to read the markdown and pull out the structured invoice or receipt fields.
-3. **Verification** runs a second LLM pass that checks the extracted fields are actually grounded in the document and flags anything it can't support. When `TYPESAFE_API_KEY` is set, Jev also evaluates independent per-field error probabilities in shadow mode; the generative verifier remains authoritative while those results are collected for comparison.
+3. **Verification** runs a second LLM pass that checks the extracted fields are actually grounded in the document and flags anything it can't support. Optionally, TypeSafe Jev runs an independent per-field check in shadow mode for comparison.
 
 You review the results and approve what looks right — only then does it become an accounting journal entry. Nothing is recorded without your sign-off.
 
 _The name “Zaimu Tomo” (財務の友) comes from the Japanese words for “finance” and “friend,” where 財務 (zaimu) means “financial affairs” and 友 (tomo) means “friend” or “companion.”_
 
-## Langfuse (optional)
+## Documentation
 
-ZaimuTomo integrates with Langfuse for prompt management (the extract and verify prompts live there), OpenTelemetry traces of the document-processing workflow, and user feedback on extraction quality. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable it.
+Architecture, infrastructure, deployment, and operations docs live in
+[`docs/`](docs/README.md):
 
-## TypeSafe verification (optional)
-
-Set `TYPESAFE_API_KEY` to enqueue Jev beside the configured verifier. Jev's per-field
-probabilities are written asynchronously under `analysis.verification.typesafe_shadow`
-and shown in the review page's **Quality checks** section behind **View independent
-check**; they do not change the authoritative verification status or delay persistence
-of the extraction. Server logs record `skipped` (debug), `started`/`succeeded` (info),
-or a sanitized failure class (warning) without OCR text or API credentials. When
-Langfuse is enabled, Jev is a sibling `typesafe-shadow-verification` span under
-`process-invoice`, next to `verify-extraction`, so their durations can be compared.
-The default model is `jev-latest` and the shadow review threshold is `0.7`.
-Override them with `TYPESAFE_MODEL` and `TYPESAFE_REVIEW_THRESHOLD`; use
-`TYPESAFE_URL` only for a compatible API endpoint override. Shadow runs live on
-a dedicated durable Oban queue with two concurrent jobs by default — tune the
-queue limit with `TYPESAFE_MAX_CONCURRENCY` — and use a 10-second whole-call
-deadline, a 30-second inactivity timeout, and no retries; tune these with
-`TYPESAFE_TOTAL_TIMEOUT`, `TYPESAFE_RECEIVE_TIMEOUT`, and `TYPESAFE_MAX_RETRIES`.
+- [Architecture (arc42)](docs/architecture.md): system design, top-down
+- [Deployment](docs/deployment.md) and [Operations runbook](docs/operations.md)
+- [Configuration reference](docs/configuration.md): every environment variable
+- [AI backends](docs/local-ai.md): OCR, extractor, and verifier setup
 
 ## Run Locally
 
@@ -97,4 +85,4 @@ virtual-hosted provider uses `false`.
 
 ### AI configuration
 
-OCR always uses Mistral's Document OCR API, so set `MISTRAL_API_KEY` to process documents. The extractor and verifier each select an explicit backend and model with `AI_EXTRACTOR_BACKEND` / `AI_EXTRACTOR_MODEL` and `AI_VERIFIER_BACKEND` / `AI_VERIFIER_MODEL`. See [docs/localAI.md](docs/localAI.md) for setup.
+OCR always uses Mistral's Document OCR API, so set `MISTRAL_API_KEY` to process documents. The extractor and verifier each select an explicit backend and model with `AI_EXTRACTOR_BACKEND` / `AI_EXTRACTOR_MODEL` and `AI_VERIFIER_BACKEND` / `AI_VERIFIER_MODEL`. See [docs/local-ai.md](docs/local-ai.md) for setup, and [docs/configuration.md](docs/configuration.md) for optional Langfuse tracing and TypeSafe shadow verification.
