@@ -145,7 +145,7 @@ flowchart TB
 | `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected / failed), the `EventLog` audit trail, and Langfuse feedback scores. |
-| `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, posting (category plus need/want), tax deduction claims, and spending aggregates. |
+| `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection, posting (category plus need/want), tax deduction claims, and spending aggregates. |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. |
@@ -192,8 +192,8 @@ sequenceDiagram
     J->>DB: txn: lock document, append extracted_content,<br/>create pending review_decision, enqueue TypeSafe (optional)
     J-->>LV: PubSub document_processing:success
     U->>LV: approve / amend / reject
-    LV->>DB: update review_decision + event_log
-    LV->>DB: approved/amended → create journal_entry (+ tax claim)
+    LV->>DB: txn: update review_decision,<br/>create journal_entry + tax claim + event_log
+    Note over LV,DB: a duplicate invoice (same issuer + number, or an<br/>unconfirmed exact issuer/date/amount/currency match) rolls the transition back
     U->>LV: assign category + need/want → posted
 ```
 
@@ -292,6 +292,7 @@ erDiagram
 - Money is stored in integer cents with an ISO currency code. Each user has a `base_currency` (default CHF), which is snapshotted into each OCR job as the currency hint.
 - `oban_jobs` lives in the same database. Finished jobs are pruned after 7 days.
 - Deleting a document that has a posted journal entry is blocked by a foreign key.
+- A partial unique index on `journal_entries (user_id, lower(btrim(issuer)), lower(btrim(invoice_number)))` blocks posting the same numbered invoice twice per user. An unnumbered invoice matching an existing entry's exact `(issuer, date, amount, currency)` tuple is a soft match that requires explicit reviewer confirmation to post. See `Accounting.duplicate_candidates/2`.
 
 ### Multi-tenancy and authorization
 
@@ -363,6 +364,7 @@ is in [`specs/`](../specs/README.md).
 | D6 | 2026-08 | Document bytes in S3-compatible storage (self-hosted RustFS), with a provider-neutral `Storage` facade | Decouples bytes from the release. A later provider switch is config only. See `specs/003`. |
 | D7 | 2026-09 | TypeSafe Jev as a *shadow* verifier | Collects independent per-field error probabilities without affecting outcomes until it is trusted. |
 | D8 | 2026-09 | Replace fire-and-forget `Task` OCR with durable Oban jobs, enqueued in the upload transaction | Uploads can't lose their job. Retries, Lifeline rescue, user retry, and operator recovery. The TypeSafe shadow also moved to Oban. |
+| D9 | 2026-08 | Duplicate invoice detection: DB-enforced unique index, plus the journal entry in the same transaction as the review decision | A numbered invoice (same user, issuer, invoice number) cannot post twice; the database enforces it regardless of code path. An unnumbered exact `(issuer, date, amount, currency)` match warns and needs explicit confirmation. Posting the journal entry, tax claim, and event log now happens in the same `Ecto.Multi` as the decision update, so a duplicate or a failed audit write rolls the whole transition back — closing the gap in §11. |
 
 ---
 
@@ -385,7 +387,6 @@ is in [`specs/`](../specs/README.md).
 |---|---|
 | Legacy upload volume | `zaimu_tomo_uploads` is still mounted (`config/deploy.yml`, `Dockerfile`) from the pre-S3 migration. Remove it after the restore check is recorded (see [operations.md](operations.md#legacy-upload-volume)). |
 | Single host | App, DB, and object store share one VPS. Backups are the only DR mechanism. |
-| Journal entry creation outside the approval transaction | `Accounting.create_from_decision/2` is called from the LiveView after the decision update, so an approved decision can exist without an entry (for example when the date is invalid). |
 | No production mailer | `runtime.exs` configures no Swoosh adapter for prod, so email-based auth flows (confirmation, magic links) don't deliver in production. |
 | Shared S3 credential | The app's S3 key is the RustFS root credential. Per-application credentials are not yet introduced. |
 | `force_ssl` off | HTTP behind the VPN is by design. Enable `FORCE_SSL` at build time if the app is ever exposed publicly. |
