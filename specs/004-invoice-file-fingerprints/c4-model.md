@@ -44,7 +44,8 @@ flowchart TB
       fingerprint["Raw-byte SHA-256 helper\nexact bytes, lowercase hex"]
       documents["Documents context + Document schema\nscoped metadata and content_sha256"]
       storage["Storage facade + configured adapter\nprivate object operations"]
-      worker["OCR worker + DocumentOCR\nOCR and extraction orchestration"]
+      oban[["Oban OCRJob\ndocuments queue"]]
+      worker["DocumentProcessing.Worker + DocumentOCR\nOCR and extraction orchestration"]
       review["Review context + Review LiveViews\napprove/amend and show candidates"]
       accounting["Accounting context\nfield and file duplicate candidates"]
     end
@@ -58,8 +59,10 @@ flowchart TB
     documents -->|same raw body| fingerprint
     documents -->|same raw body| storage
     fingerprint -->|content_sha256| documents
-    documents --> db
+    documents -->|insert document + enqueue OCRJob, one txn| db
+    documents -->|Oban.insert, same txn| oban
     storage --> store
+    oban --> worker
     worker -->|read original object| storage
     worker --> mistral
     worker -->|extraction and review state| db
@@ -79,7 +82,8 @@ sequenceDiagram
     participant Storage as Storage facade
     participant Docs as Documents context
     participant DB as PostgreSQL
-    participant Worker as OCR worker
+    participant Oban as Oban OCRJob
+    participant Worker as DocumentProcessing.Worker
     participant Review as Review context
     participant Accounting as Accounting context
 
@@ -90,7 +94,9 @@ sequenceDiagram
     Storage-->>Docs: stored key
     Docs-->>Upload: key + filename + digest
     Upload->>Docs: create/update document with key and digest
-    Docs->>DB: persist documents.content_sha256
+    Docs->>DB: txn: insert document (content_sha256) + enqueue OCRJob
+    DB->>Oban: OCRJob dequeued (documents queue)
+    Oban->>Worker: run one attempt
     Worker->>Storage: read document object for OCR
     Worker->>DB: persist extraction and pending review
     User->>Review: approve or amend invoice
