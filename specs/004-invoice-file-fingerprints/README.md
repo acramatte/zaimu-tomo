@@ -1,6 +1,6 @@
 # Exact-Byte Invoice File Fingerprints
 
-Proposal only; runtime code is not included.
+Implemented on `feat/invoice-file-fingerprinting`; the production backfill has not been run yet. The current design lives in [`docs/architecture.md`](../../docs/architecture.md) (§8, decision D11).
 
 - [Feature specification](spec.md)
 - [Implementation and rollout plan](plan.md)

@@ -53,6 +53,7 @@ runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
 | `bin/migrate` | Run Ecto migrations. |
 | `bin/recover_stuck_documents` | Re-enqueue stuck documents (dry run unless `CONFIRM=true`). |
 | `bin/verify_storage` | HEAD every `documents.object_key` in the bucket. |
+| `bin/backfill_document_fingerprints` | Fill missing document and journal-entry SHA-256 fingerprints (idempotent, online). Optional arguments: journal entry IDs a human confirmed as file reuses. |
 | `bin/migrate_to_s3` | One-off legacy copy from the old upload volume. |
 
 Keep the Elixir/OTP versions in sync across `Dockerfile`, `.github/workflows/ci.yml`, and `.agents/setup`.
@@ -96,7 +97,7 @@ Notes:
 
 - Kamal performs a zero-downtime switch at the proxy. In-flight Oban jobs on the old container are rescued by `Oban.Lifeline` after 30 minutes, if they don't finish during shutdown.
 - Migrations run *after* the new container is live, so write migrations that the previous release can run against (additive first, destructive later).
-- Kamal aliases (`config/deploy.yml` → `aliases`) are invoked directly: `kamal console`, `kamal migrate`, `kamal db_rollback`, `kamal verify_storage`, `kamal recover_stuck_documents`, `kamal migrate_to_s3`.
+- Kamal aliases (`config/deploy.yml` → `aliases`) are invoked directly: `kamal console`, `kamal migrate`, `kamal db_rollback`, `kamal verify_storage`, `kamal recover_stuck_documents`, `kamal backfill_document_fingerprints`, `kamal migrate_to_s3`.
 
 ## CI
 

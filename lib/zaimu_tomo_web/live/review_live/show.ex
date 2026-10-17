@@ -5,6 +5,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomoWeb.ReviewLive.Duplicates
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -23,10 +24,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
              |> assign(:show_rejection_form, false)
              |> assign(:effective_data, ReviewDecision.effective_data(rd))
              |> assign(:feedback, feedback_assigns(rd))
-             |> assign(
-               :duplicate_candidates,
-               duplicate_candidates(rd, ReviewDecision.effective_data(rd))
-             )
+             |> assign(:duplicates, duplicates(rd))
              |> assign(:duplicate_error, false)}
 
           {:error, reason} ->
@@ -176,30 +174,32 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
           <div>{@review_decision.rejection_reason}</div>
         </div>
         <div
-          :if={@duplicate_error or @duplicate_candidates.candidates != []}
+          :if={@duplicate_error or @duplicates.candidates != []}
+          id="duplicate-panel"
           style="margin-top:16px;border:1px solid var(--warn);border-radius:8px;padding:14px"
         >
           <div style="font-weight:600;margin-bottom:6px">
-            {if @duplicate_candidates.strong?,
-              do: "Invoice already recorded",
-              else: "Possible duplicate"}
+            {Duplicates.title(@duplicates.verdict)}
           </div>
           <div class="muted" style="font-size:14px;margin-bottom:10px">
-            <%= if @duplicate_candidates.strong? do %>
-              This invoice number is already recorded for this issuer. Amend the data or reject the document.
-            <% else %>
-              An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
+            <%= case @duplicates.verdict do %>
+              <% :same_file_blocked -> %>
+                This is the same uploaded file as a recorded entry, and the invoice details match it. Reject this duplicate review.
+              <% :file_reuse -> %>
+                Same file as the entry posted on {Duplicates.file_match_posted_on(@duplicates)}. Is this a reused bill for a new period?
+              <% :invoice_number -> %>
+                This invoice number is already recorded for this issuer. Amend the data or reject the document.
+              <% _ -> %>
+                An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
             <% end %>
           </div>
           <.duplicate_candidate
-            :for={candidate <- @duplicate_candidates.candidates}
-            candidate={candidate}
+            :for={%{entry: entry, reason: reason} <- @duplicates.candidates}
+            candidate={entry}
+            reason={reason}
           />
           <button
-            :if={
-              @review_decision.review_status == "pending" and not @duplicate_candidates.strong? and
-                @duplicate_candidates.candidates != []
-            }
+            :if={@review_decision.review_status == "pending" and @duplicates.verdict == :possible}
             class="btn sm primary"
             type="button"
             phx-click="approve"
@@ -207,6 +207,17 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
             phx-disable-with="Posting…"
           >
             Post anyway
+          </button>
+          <button
+            :if={@review_decision.review_status == "pending" and @duplicates.verdict == :file_reuse}
+            id="confirm-file-reuse"
+            class="btn sm primary"
+            type="button"
+            phx-click="approve"
+            phx-value-confirm_file_reuse="true"
+            phx-disable-with="Posting…"
+          >
+            Yes, post as a reused bill
           </button>
         </div>
         <%= if @review_decision.review_status == "pending" do %>
@@ -232,7 +243,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
           <% else %>
             <div style="margin-top:16px;display:flex;gap:8px">
               <button
-                :if={@duplicate_candidates.candidates == []}
+                :if={@duplicates.candidates == []}
                 class="btn sm primary"
                 type="button"
                 phx-click="approve"
@@ -302,22 +313,26 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
 
   @impl true
   def handle_event("approve", params, socket) do
-    review_decision = socket.assigns.review_decision
+    duplicates = duplicates(socket.assigns.review_decision)
 
-    duplicates =
-      duplicate_candidates(review_decision, ReviewDecision.effective_data(review_decision))
-
-    # Mirrors the amend flow: a strong match never posts, and a possible
-    # duplicate posts only through the explicit "Post anyway" action.
+    # Mirrors the amend flow: a blocking match never posts, a possible
+    # duplicate posts only through the explicit "Post anyway" action, and an
+    # exact-file match only through the explicit reuse confirmation.
     cond do
-      duplicates.strong? ->
+      Accounting.blocked?(duplicates) ->
         {:noreply, duplicate_refused(socket, duplicates)}
 
-      duplicates.candidates != [] and params["confirmed"] != "true" ->
-        {:noreply, assign(socket, :duplicate_candidates, duplicates)}
+      duplicates.verdict == :file_reuse and params["confirm_file_reuse"] == "true" ->
+        approve(socket, confirm_file_reuse: true)
+
+      duplicates.verdict == :possible and params["confirmed"] == "true" ->
+        approve(socket, [])
+
+      duplicates.verdict == :none ->
+        approve(socket, [])
 
       true ->
-        approve(socket)
+        {:noreply, assign(socket, :duplicates, duplicates)}
     end
   end
 
@@ -394,42 +409,38 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     end
   end
 
-  defp duplicate_candidates(%ReviewDecision{review_status: "pending"} = rd, data) do
-    candidates = Accounting.duplicate_candidates(rd.user_id, data)
-    %{candidates: candidates, strong?: Accounting.strong_match?(data, candidates)}
+  defp duplicates(%ReviewDecision{review_status: "pending"} = rd) do
+    Review.duplicate_check(rd, ReviewDecision.effective_data(rd))
   end
 
-  defp duplicate_candidates(_review_decision, _data), do: %{candidates: [], strong?: false}
+  defp duplicates(_review_decision), do: %{verdict: :none, candidates: []}
 
-  defp approve(socket) do
+  defp approve(socket, opts) do
     user_id = socket.assigns.current_scope.user.id
     extracted_content_id = socket.assigns.review_decision.extracted_content_id
 
-    case Review.approve_invoice(extracted_content_id, user_id) do
+    case Review.approve_invoice(extracted_content_id, user_id, nil, opts) do
       {:ok, decision} ->
         {:noreply, redirect_to_journal_entry(socket, decision, "Invoice approved and posted")}
 
-      {:error, :duplicate_invoice} ->
-        review_decision = socket.assigns.review_decision
+      {:error, reason} when reason in [:duplicate_invoice, :file_reuse_not_applicable] ->
+        # Another posting may have landed since the page was rendered; show
+        # the current matches instead of a stale verdict.
+        {:noreply, duplicate_refused(socket, duplicates(socket.assigns.review_decision))}
 
-        duplicates =
-          duplicate_candidates(review_decision, ReviewDecision.effective_data(review_decision))
-
-        {:noreply, duplicate_refused(socket, duplicates)}
-
-      {:error, reason} ->
+      {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Could not post this invoice")}
     end
   end
 
   defp duplicate_refused(socket, duplicates) do
     socket
-    |> put_flash(
-      :error,
-      "This invoice number has already been recorded for this issuer. Amend the data or reject the document."
-    )
+    |> put_flash(:error, Duplicates.refusal_message(duplicates.verdict))
     |> assign(:duplicate_error, true)
-    |> assign(:duplicate_candidates, duplicates)
+    |> assign(:duplicates, duplicates)
   end
 
   defp redirect_to_journal_entry(socket, decision, flash_msg) do

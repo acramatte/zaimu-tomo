@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+# usage: bin/backfill_document_fingerprints [CONFIRM_REUSE_JOURNAL_ENTRY_ID ...]
+ids=""
+for id in "$@"; do
+  case "$id" in
+    '' | *[!0-9]*)
+      echo "usage: bin/backfill_document_fingerprints [CONFIRM_REUSE_JOURNAL_ENTRY_ID ...]" >&2
+      exit 64
+      ;;
+  esac
+  ids="${ids:+$ids, }$id"
+done
+
+cd -P -- "$(dirname -- "$0")"
+exec ./zaimu_tomo eval "ZaimuTomo.Release.backfill_document_fingerprints!(confirm_reuse: [$ids])"

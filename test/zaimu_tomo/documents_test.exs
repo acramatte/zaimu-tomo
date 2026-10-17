@@ -133,4 +133,104 @@ defmodule ZaimuTomo.DocumentsTest do
       assert %Ecto.Changeset{} = Documents.change_document(scope, document)
     end
   end
+
+  describe "fingerprints" do
+    alias ZaimuTomo.Documents.Document
+    alias ZaimuTomo.Documents.Fingerprint
+
+    import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
+    import ZaimuTomo.DocumentsFixtures
+
+    # Published SHA-256 test vector (FIPS 180-2) and its one-byte neighbour.
+    @abc_sha256 "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    @abd_sha256 "a52d159f262b2c6ddb724a61840befc36eb30c88877a4030b65cbe86298449c9"
+
+    test "sha256/1 encodes the exact bytes as 64 lowercase hex characters" do
+      assert Fingerprint.sha256("abc") == @abc_sha256
+      assert Fingerprint.sha256(["a", ["b"], "c"]) == @abc_sha256
+      assert Fingerprint.sha256("abd") == @abd_sha256
+      assert Fingerprint.sha256(<<0xFF, 0x00>>) =~ ~r/\A[0-9a-f]{64}\z/
+    end
+
+    test "store_upload/2 stores the bytes and returns the digest of the same bytes" do
+      path = temp_upload("abc")
+
+      assert {:ok, %{object_key: object_key, filename: "bill.pdf", content_sha256: @abc_sha256}} =
+               Documents.store_upload(path, "bill.pdf")
+
+      assert "documents/" <> _ = object_key
+      assert String.ends_with?(object_key, ".pdf")
+      assert {:ok, "abc"} = Storage.read_object(object_key)
+    end
+
+    test "store_upload/2 stores nothing when the upload cannot be read" do
+      missing = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}")
+
+      assert {:error, :enoent} = Documents.store_upload(missing, "bill.pdf")
+      assert [] = :ets.tab2list(Memory)
+    end
+
+    test "create_document/2 persists the digest" do
+      scope = user_scope_fixture()
+
+      assert {:ok, document} =
+               Documents.create_document(scope, %{
+                 filename: "bill.pdf",
+                 object_key: "documents/bill.pdf",
+                 content_sha256: @abc_sha256
+               })
+
+      assert Repo.reload!(document).content_sha256 == @abc_sha256
+    end
+
+    test "the changeset rejects a digest that is not 64 lowercase hex characters" do
+      scope = user_scope_fixture()
+      attrs = %{filename: "bill.pdf", object_key: "documents/bill.pdf"}
+
+      for bad <- [String.upcase(@abc_sha256), String.slice(@abc_sha256, 0, 63), "not-a-digest"] do
+        changeset = Document.changeset(%Document{}, Map.put(attrs, :content_sha256, bad), scope)
+        assert %{content_sha256: ["has invalid format"]} = errors_on(changeset)
+      end
+    end
+
+    test "a metadata-only update preserves the digest" do
+      scope = user_scope_fixture()
+      document = document_fixture(scope, %{content_sha256: @abc_sha256})
+
+      assert {:ok, updated} =
+               Documents.update_document(scope, document, %{filename: "renamed.pdf"})
+
+      assert Repo.reload!(updated).content_sha256 == @abc_sha256
+    end
+
+    test "replacing the object updates the digest with the key" do
+      scope = user_scope_fixture()
+      document = document_fixture(scope, %{content_sha256: @abc_sha256})
+
+      assert {:ok, updated} =
+               Documents.update_document(scope, document, %{
+                 object_key: "documents/replacement.pdf",
+                 content_sha256: @abd_sha256
+               })
+
+      assert Repo.reload!(updated).content_sha256 == @abd_sha256
+    end
+
+    test "replacing the object without a new digest clears the stale digest" do
+      scope = user_scope_fixture()
+      document = document_fixture(scope, %{content_sha256: @abc_sha256})
+
+      assert {:ok, updated} =
+               Documents.update_document(scope, document, %{object_key: "documents/other.pdf"})
+
+      assert Repo.reload!(updated).content_sha256 == nil
+    end
+
+    defp temp_upload(bytes) do
+      path = Path.join(System.tmp_dir!(), "upload-#{System.unique_integer([:positive])}")
+      File.write!(path, bytes)
+      on_exit(fn -> File.rm(path) end)
+      path
+    end
+  end
 end

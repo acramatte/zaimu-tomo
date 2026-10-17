@@ -2,7 +2,7 @@
 
 **Input**: User request and decisions in [spec.md](spec.md)
 **Prerequisites**: PR #60 (`feat/duplicate-invoice-detection`)
-**Status**: Proposed — implementation and runtime tests have not been run
+**Status**: Implemented — focused tests and `mix precommit` pass; production backfill pending
 
 ## Phase 0 — Confirm contract
 
@@ -60,13 +60,13 @@
 3. Verify the C4 diagrams render, links resolve, and the spec/plan/task status describes a proposal until runtime work is completed.
 4. Record the actual backfill procedure and its collision report handling in deployment documentation when implementation is scheduled.
 
-**Implementation test command** (future gate):
+**Implementation test command**:
 
 ```sh
-mix test test/zaimu_tomo/documents_test.exs test/zaimu_tomo/accounting_test.exs test/zaimu_tomo/review_test.exs test/zaimu_tomo_web/live/document_live_test.exs test/zaimu_tomo_web/live/review_live_test.exs
+mix test test/zaimu_tomo/documents_test.exs test/zaimu_tomo/accounting_test.exs test/zaimu_tomo/review_test.exs test/zaimu_tomo/documents/fingerprint_backfill_test.exs test/zaimu_tomo_web/live/document_live_test.exs test/zaimu_tomo_web/live/review_live_test.exs
 ```
 
-Then run `mix precommit`. These commands are planned; they were not run for this documentation-only change.
+Then run `mix precommit`.
 
 ## Change surface and dependencies
 

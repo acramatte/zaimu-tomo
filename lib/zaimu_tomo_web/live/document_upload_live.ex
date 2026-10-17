@@ -107,12 +107,8 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
   defp do_consume(socket) do
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        object_key = Documents.object_key_for(entry.client_name)
-
-        with {:ok, body} <- File.read(path),
-             {:ok, ^object_key} <- Storage.put_object(object_key, body) do
-          {:ok, %{object_key: object_key, client_name: entry.client_name}}
-        else
+        case Documents.store_upload(path, entry.client_name) do
+          {:ok, stored} -> {:ok, stored}
           {:error, reason} -> {:ok, %{storage_error: reason}}
         end
       end)
@@ -126,11 +122,8 @@ defmodule ZaimuTomoWeb.DocumentUploadLive do
     put_flash(sock, :error, "Unable to store document")
   end
 
-  defp handle_saved_entry(sock, %{object_key: object_key, client_name: client_name}) do
-    case Documents.create_document(sock.assigns.current_scope, %{
-           "object_key" => object_key,
-           "filename" => client_name
-         }) do
+  defp handle_saved_entry(sock, %{object_key: object_key} = stored) do
+    case Documents.create_document(sock.assigns.current_scope, stored) do
       {:ok, document} ->
         notify_parent(sock, document)
         push_event(sock, "upload:success", %{filename: document.filename})

@@ -19,7 +19,7 @@ For the current system, read [`docs/`](../docs/README.md), starting with
 | `001-persist-ocr-data` | `extracted_content` table, one row per processing attempt | Shipped (2026-03) |
 | `002-review-ocr-data` | Human review workflow, review decisions, event log | Shipped (2026-05) |
 | `003-s3-document-storage` | Moving document bytes to S3-compatible RustFS, migration and backup | Shipped (2026-08); legacy volume cleanup pending |
-| `004-invoice-file-fingerprints` | Exact-byte SHA-256 fingerprints as a stronger duplicate-invoice signal than extracted fields | Proposed; depends on PR [#60](https://github.com/acramatte/zaimu-tomo/pull/60) |
+| `004-invoice-file-fingerprints` | Exact-byte SHA-256 fingerprints as a stronger duplicate-invoice signal than extracted fields | Shipped (2026-10); production backfill pending |
 
 New features may still start with a spec here. When they ship, record the
 lasting decisions in `docs/architecture.md` §9 and update the affected `docs/`

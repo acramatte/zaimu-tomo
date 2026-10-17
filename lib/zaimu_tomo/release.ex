@@ -6,6 +6,7 @@ defmodule ZaimuTomo.Release do
   @app :zaimu_tomo
 
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.Documents.FingerprintBackfill
   alias ZaimuTomo.Storage.{Migration, Verification}
 
   def migrate do
@@ -29,6 +30,11 @@ defmodule ZaimuTomo.Release do
   def migrate_to_s3_from_env! do
     System.fetch_env!("SOURCE_DIR")
     |> migrate_to_s3!()
+  end
+
+  def backfill_document_fingerprints!(opts \\ []) do
+    start_app()
+    report_or_raise(FingerprintBackfill.run(opts), FingerprintBackfill)
   end
 
   def verify_storage! do
