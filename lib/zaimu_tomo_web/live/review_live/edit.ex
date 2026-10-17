@@ -6,6 +6,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomoWeb.ReviewLive.Duplicates
 
   @impl true
   def render(assigns) do
@@ -17,27 +18,47 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
 
     <div
       :if={@duplicates.candidates != []}
+      id="duplicate-panel"
       style="max-width:640px;margin-top:16px;border:1px solid var(--warn);border-radius:8px;padding:14px"
     >
       <div style="font-weight:600;margin-bottom:6px">
-        {if @duplicates.strong?, do: "Invoice already recorded", else: "Possible duplicate"}
+        {Duplicates.title(@duplicates.verdict)}
       </div>
       <div class="muted" style="font-size:14px;margin-bottom:10px">
-        <%= if @duplicates.strong? do %>
-          This invoice number is already recorded for this issuer. Correct the data below before posting.
-        <% else %>
-          An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
+        <%= case @duplicates.verdict do %>
+          <% :same_file_blocked -> %>
+            This is the same uploaded file as a recorded entry, and the details below match it. Reject this duplicate review.
+          <% :file_reuse -> %>
+            Same file as the entry posted on {Duplicates.file_match_posted_on(@duplicates)}. Is this a reused bill for a new period?
+          <% :invoice_number -> %>
+            This invoice number is already recorded for this issuer. Correct the data below before posting.
+          <% _ -> %>
+            An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
         <% end %>
       </div>
-      <.duplicate_candidate :for={candidate <- @duplicates.candidates} candidate={candidate} />
+      <.duplicate_candidate
+        :for={%{entry: entry, reason: reason} <- @duplicates.candidates}
+        candidate={entry}
+        reason={reason}
+      />
       <button
-        :if={not @duplicates.strong? and @pending_save}
+        :if={pending_verdict(@pending_save) == :possible}
         class="btn sm primary"
         type="button"
         phx-click="confirm_duplicate_save"
         phx-disable-with="Posting…"
       >
         Post anyway
+      </button>
+      <button
+        :if={pending_verdict(@pending_save) == :file_reuse}
+        id="confirm-file-reuse"
+        class="btn sm primary"
+        type="button"
+        phx-click="confirm_file_reuse_save"
+        phx-disable-with="Posting…"
+      >
+        Yes, post as a reused bill
       </button>
     </div>
 
@@ -131,58 +152,69 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   def handle_event("save", %{"review_decision" => form_params} = params, socket) do
     decision_data = Map.get(params, "decision_data", %{})
     notes = form_params["review_notes"]
-    user_id = socket.assigns.current_scope.user.id
-    extracted_content_id = socket.assigns.review_decision.extracted_content_id
     duplicates = duplicates(socket.assigns.review_decision, to_extracted_data(decision_data))
 
-    # A possible duplicate always needs the explicit "Post anyway" action for
-    # the data just submitted; saving again re-checks and re-asks.
-    cond do
-      duplicates.strong? ->
+    # A possible duplicate or an exact-file match always needs the explicit
+    # confirmation for the data just submitted; saving again re-checks and
+    # re-asks.
+    case duplicates.verdict do
+      :none ->
+        save(socket, decision_data, notes, [])
+
+      verdict when verdict in [:possible, :file_reuse] ->
+        {:noreply,
+         socket
+         |> assign(:duplicates, duplicates)
+         |> assign(:pending_save, %{verdict: verdict, data: decision_data, notes: notes})}
+
+      verdict ->
         {:noreply,
          socket
          |> assign(:duplicates, duplicates)
          |> assign(:pending_save, nil)
-         |> put_flash(:error, "This invoice number has already been recorded for this issuer")}
-
-      duplicates.candidates != [] ->
-        {:noreply,
-         socket
-         |> assign(:duplicates, duplicates)
-         |> assign(:pending_save, {decision_data, notes})}
-
-      true ->
-        save(socket, extracted_content_id, user_id, decision_data, notes)
+         |> put_flash(:error, Duplicates.refusal_message(verdict))}
     end
   end
 
   @impl true
   def handle_event("confirm_duplicate_save", _params, socket) do
     case socket.assigns.pending_save do
-      {decision_data, notes} ->
-        user_id = socket.assigns.current_scope.user.id
-        extracted_content_id = socket.assigns.review_decision.extracted_content_id
-        save(socket, extracted_content_id, user_id, decision_data, notes)
+      %{verdict: :possible, data: decision_data, notes: notes} ->
+        save(socket, decision_data, notes, [])
 
-      nil ->
+      _ ->
         {:noreply, socket}
     end
   end
 
-  defp save(socket, extracted_content_id, user_id, decision_data, notes) do
-    case Review.amend_invoice(extracted_content_id, user_id, decision_data, notes) do
+  @impl true
+  def handle_event("confirm_file_reuse_save", _params, socket) do
+    case socket.assigns.pending_save do
+      %{verdict: :file_reuse, data: decision_data, notes: notes} ->
+        save(socket, decision_data, notes, confirm_file_reuse: true)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  defp save(socket, decision_data, notes, opts) do
+    user_id = socket.assigns.current_scope.user.id
+    extracted_content_id = socket.assigns.review_decision.extracted_content_id
+
+    case Review.amend_invoice(extracted_content_id, user_id, decision_data, notes, opts) do
       {:ok, decision} ->
         {:noreply, redirect_to_journal_entry(socket, decision, "Review saved successfully")}
 
-      {:error, :duplicate_invoice} ->
+      {:error, reason} when reason in [:duplicate_invoice, :file_reuse_not_applicable] ->
+        duplicates =
+          duplicates(socket.assigns.review_decision, to_extracted_data(decision_data))
+
         {:noreply,
          socket
-         |> assign(
-           :duplicates,
-           duplicates(socket.assigns.review_decision, to_extracted_data(decision_data))
-         )
+         |> assign(:duplicates, duplicates)
          |> assign(:pending_save, nil)
-         |> put_flash(:error, "This invoice number has already been recorded for this issuer")}
+         |> put_flash(:error, Duplicates.refusal_message(duplicates.verdict))}
 
       {:error, reason} when is_binary(reason) ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -191,6 +223,9 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
         {:noreply, assign(socket, :form, to_form(changeset))}
     end
   end
+
+  defp pending_verdict(%{verdict: verdict}), do: verdict
+  defp pending_verdict(nil), do: nil
 
   # Casts the submitted form data with the invoice schema, so the duplicate
   # pre-check compares the same typed values the amendment would persist.
@@ -205,8 +240,7 @@ defmodule ZaimuTomoWeb.ReviewLive.Edit do
   defp to_extracted_data(_), do: %ExtractedData{}
 
   defp duplicates(%ReviewDecision{} = decision, %ExtractedData{} = data) do
-    candidates = Accounting.duplicate_candidates(decision.user_id, data)
-    %{candidates: candidates, strong?: Accounting.strong_match?(data, candidates)}
+    Review.duplicate_check(decision, data)
   end
 
   defp redirect_to_journal_entry(socket, decision, flash_msg) do

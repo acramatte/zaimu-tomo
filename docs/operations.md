@@ -15,8 +15,9 @@ Day-2 tasks for the production deployment described in
 | Find stuck documents (dry run) | `kamal recover_stuck_documents` |
 | Re-enqueue stuck documents | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!(confirm: true)'"` |
 | Verify every stored object exists | `kamal verify_storage` |
+| Backfill document fingerprints | `kamal backfill_document_fingerprints` |
 
-Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, and `mix zaimu_tomo.verify_storage`.
+Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, and `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`.
 
 ## Document processing
 
@@ -44,6 +45,41 @@ can retry stuck and failed documents from the UI. To sweep them in bulk:
 1. Dry run: `kamal recover_stuck_documents` lists the stuck documents per user.
 2. Enqueue: `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!(confirm: true)'"`
    (inside the container, `CONFIRM=true bin/recover_stuck_documents` does the same). This is idempotent, because Oban uniqueness prevents a second live job per document.
+
+### Document fingerprint backfill
+
+Uploads record a SHA-256 of their exact bytes (`documents.content_sha256`), and
+postings copy it to `journal_entries.source_document_sha256`. Rows created
+before the `20261017120000` migration have no fingerprint until this one-off
+backfill reads their objects. The unique index exists before it runs, so it is
+safe while the app stays online; no upload or approval pause is needed.
+
+1. Run `kamal backfill_document_fingerprints`. It hashes every document with a
+   null digest through the storage facade, then copies digests to journal
+   entries one row at a time, oldest posting first. The report lists IDs and
+   counts only, never bytes or digests. It exits non-zero while coverage is
+   incomplete.
+2. Read the report:
+   - **Missing object / read failure:** the digest stays null; that document and
+     its entries have no exact-file protection. Restore the object if a backup
+     has it (then rerun), otherwise record the partial coverage.
+   - **Collision:** two historical postings of the same user have identical
+     bytes. The later entry stays null and is named with the entry it collides
+     with. Nothing is deleted or merged. Review both entries in the ledger:
+     a genuine duplicate is corrected through the normal ledger process; a
+     legitimate reuse (for example, the same QR-bill for two periods) is
+     confirmed by a human.
+3. To record a human-confirmed reuse, rerun with the later entry's ID:
+   `kamal app exec "bin/backfill_document_fingerprints <journal_entry_id> ..."`
+   (locally, `mix zaimu_tomo.backfill_document_fingerprints --confirm-reuse <id>`).
+   The entry gets its digest and `source_file_reuse_confirmed` in one update. An
+   ID that does not collide is reported as unused and left unchanged.
+4. Rerun after any resolution until it reports complete coverage, or until the
+   only remaining rows are documented missing objects.
+
+This is the only permitted update of an existing entry's fingerprint. If a
+database-level immutability trigger on `journal_entries` is ever added, run the
+backfill first or allow this update explicitly.
 
 ### Throttling
 

@@ -464,6 +464,20 @@ body {
 }
 .duplicate-candidate:last-of-type { border-bottom: 0; }
 .duplicate-candidate .btn { margin-left: auto; }
+.duplicate-reason {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+}
+.duplicate-reason-same_file,
+.duplicate-reason-invoice_number {
+  border-color: var(--warn);
+  color: var(--warn);
+}
 .budget-row .name {
   font-family: 'Geist', sans-serif;
   font-size: 13.5px;

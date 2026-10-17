@@ -672,4 +672,180 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
       assert to =~ "/journal_entries/"
     end
   end
+
+  describe "exact-file duplicate detection" do
+    @digest String.duplicate("f", 64)
+
+    @rent %{
+      amount_to_pay_cents: 150_000,
+      invoice_date: "2026-05-01",
+      invoice_number: nil,
+      currency: "CHF",
+      reason_for_payment: "Rent",
+      issuer: "Landlord AG"
+    }
+
+    defp post_file_invoice(scope, user, digest, data) do
+      content =
+        extracted_content_fixture(document_fixture(scope, %{content_sha256: digest}), user, %{
+          extracted_data: data
+        })
+
+      {:ok, _} = Review.create_initial_decision(content)
+      {:ok, decision} = Review.approve_invoice(content.id, user.id)
+      {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
+      entry
+    end
+
+    defp pending_file_review(scope, user, digest, data) do
+      document_fixture(scope, %{content_sha256: digest})
+      |> extracted_content_fixture(user, %{extracted_data: data})
+      |> pending_review_fixture()
+    end
+
+    test "blocks the same file with the same facts and directs the reviewer to reject", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      entry = post_file_invoice(scope, user, @digest, @rent)
+      review = pending_file_review(scope, user, @digest, @rent)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Same file already recorded"
+      assert html =~ "Reject this duplicate review."
+      assert has_element?(show_live, ".duplicate-reason", "Same file")
+      assert has_element?(show_live, ~s|a[href="/journal_entries/#{entry.id}"]|, "Open entry")
+      refute has_element?(show_live, "button", "Approve & post")
+      refute has_element?(show_live, "button", "Post anyway")
+      refute has_element?(show_live, "#confirm-file-reuse")
+      refute html =~ "This invoice number is already recorded"
+      refute html =~ @digest
+
+      # A crafted confirmation is refused by the view and the context alike.
+      render_click(show_live, "approve", %{"confirm_file_reuse" => "true"})
+      assert render(show_live) =~ "Reject this duplicate review."
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+      assert Accounting.get_journal_entry_for_decision(review.id) == :error
+    end
+
+    test "asks to confirm a reuse when only the file matches, and posts after confirmation", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      original = post_file_invoice(scope, user, @digest, @rent)
+
+      # A different OCR reading of the same bytes (scenario 1).
+      review =
+        pending_file_review(scope, user, @digest, %{
+          @rent
+          | issuer: "Landlord A.G.",
+            amount_to_pay_cents: 15_000
+        })
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Same file already recorded"
+      assert html =~ "Is this a reused bill for a new period?"
+      assert html =~ Calendar.strftime(original.inserted_at, "%Y-%m-%d")
+      refute has_element?(show_live, "button", "Approve & post")
+      refute has_element?(show_live, "button", "Post anyway")
+
+      # The plain approve event does not post an exact-file match.
+      render_click(show_live, "approve")
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+
+      assert {:error, {:redirect, %{to: "/journal_entries/" <> id}}} =
+               show_live |> element("#confirm-file-reuse") |> render_click()
+
+      entry = Repo.get!(ZaimuTomo.Accounting.JournalEntry, String.to_integer(id))
+      assert entry.source_file_reuse_confirmed
+      assert entry.source_document_sha256 == @digest
+    end
+
+    test "a reused QR-bill becomes confirmable after amending the date", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      _original = post_file_invoice(scope, user, @digest, @rent)
+      review = pending_file_review(scope, user, @digest, @rent)
+
+      {:ok, edit_live, html} = live(conn, ~p"/reviews/#{review}/edit")
+      assert html =~ "Same file already recorded"
+
+      submit = fn date ->
+        edit_live
+        |> form("#review_form", %{
+          "review_decision" => %{"review_notes" => "Next month"},
+          "decision_data" => %{
+            "issuer" => "Landlord AG",
+            "invoice_number" => "",
+            "invoice_date" => date,
+            "amount_to_pay_cents" => "150000",
+            "currency" => "CHF",
+            "reason_for_payment" => "Rent"
+          }
+        })
+        |> render_submit()
+      end
+
+      # Unchanged facts stay a hard block with reject guidance.
+      html = submit.("2026-05-01")
+      assert html =~ "Reject this duplicate review."
+      refute has_element?(edit_live, "#confirm-file-reuse")
+      render_click(edit_live, "confirm_file_reuse_save")
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+
+      # The new period makes it a confirmable reuse; saving alone never posts.
+      assert submit.("2026-06-01") =~ "Is this a reused bill for a new period?"
+      assert Repo.get!(ReviewDecision, review.id).review_status == "pending"
+      refute has_element?(edit_live, "button", "Post anyway")
+
+      assert {:error, {:redirect, %{to: "/journal_entries/" <> id}}} =
+               edit_live |> element("#confirm-file-reuse") |> render_click()
+
+      entry = Repo.get!(ZaimuTomo.Accounting.JournalEntry, String.to_integer(id))
+      assert entry.source_file_reuse_confirmed
+      assert entry.date == ~D[2026-06-01]
+    end
+
+    test "another user's posting of the same bytes is never shown", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      other_user = user_fixture()
+      _theirs = post_file_invoice(user_scope_fixture(other_user), other_user, @digest, @rent)
+      review = pending_file_review(scope, user, @digest, @rent)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      refute html =~ "Same file already recorded"
+      refute html =~ "Possible duplicate"
+      assert has_element?(show_live, "button", "Approve & post")
+    end
+
+    test "a soft match on a different file keeps the Post anyway flow", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      _original = post_file_invoice(scope, user, @digest, @rent)
+      review = pending_file_review(scope, user, String.duplicate("0", 64), @rent)
+
+      {:ok, show_live, html} = live(conn, ~p"/reviews/#{review}")
+
+      assert html =~ "Possible duplicate"
+      assert has_element?(show_live, ".duplicate-reason", "Same details")
+      refute has_element?(show_live, "#confirm-file-reuse")
+
+      assert {:error, {:redirect, %{to: "/journal_entries/" <> id}}} =
+               show_live |> element("button", "Post anyway") |> render_click()
+
+      refute Repo.get!(ZaimuTomo.Accounting.JournalEntry, String.to_integer(id)).source_file_reuse_confirmed
+    end
+  end
 end

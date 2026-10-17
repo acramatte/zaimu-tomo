@@ -51,6 +51,109 @@ defmodule ZaimuTomo.Accounting do
     |> Repo.all()
   end
 
+  @typedoc """
+  Why a journal entry is a duplicate candidate, strongest first: the same
+  uploaded file, the same (issuer, invoice number), or the same
+  (issuer, date, amount, currency) tuple.
+  """
+  @type match_reason :: :same_file | :invoice_number | :same_details
+
+  @typedoc """
+  The outcome of `duplicate_check/3`.
+
+  * `:none` — no candidate; post freely.
+  * `:possible` — only a soft (issuer, date, amount, currency) match; posting
+    needs the existing explicit "post anyway" confirmation.
+  * `:file_reuse` — the same uploaded file and nothing else matches; posting
+    needs an explicit file-reuse confirmation (for example, a reused QR-bill).
+  * `:invoice_number` — the invoice number is already recorded for the issuer;
+    blocked until the data is amended.
+  * `:same_file_blocked` — the same uploaded file and the invoice facts also
+    match; blocked, the review should be rejected.
+  """
+  @type verdict :: :none | :possible | :file_reuse | :invoice_number | :same_file_blocked
+
+  @type duplicate_check :: %{
+          verdict: verdict(),
+          candidates: [%{entry: JournalEntry.t(), reason: match_reason()}]
+        }
+
+  @doc """
+  Checks `data` (the invoice's final values) and the source document's
+  fingerprint against the user's journal entries.
+
+  Combines `duplicate_candidates/2` with an exact match on
+  `source_document_sha256`. A candidate matching several rules is listed once
+  with its strongest reason. An exact-file match is confirmable as a reuse only
+  when neither field rule matches; the (issuer, date, amount, currency) tuple
+  is also compared against the file-matched entries even when `data` has an
+  invoice number, so the same file with the same facts is never confirmable.
+
+  A nil fingerprint never matches, and other users' entries are never queried.
+  """
+  @spec duplicate_check(integer() | nil, ExtractedData.t(), String.t() | nil) ::
+          duplicate_check()
+  def duplicate_check(nil, %ExtractedData{}, _source_sha256),
+    do: %{verdict: :none, candidates: []}
+
+  def duplicate_check(user_id, %ExtractedData{} = data, source_sha256) do
+    field_matches = duplicate_candidates(user_id, data)
+    file_matches = file_candidates(user_id, source_sha256)
+    field_reason = if strong_match?(data, field_matches), do: :invoice_number, else: :same_details
+
+    verdict =
+      cond do
+        file_matches != [] and
+            (field_matches != [] or same_details_as_file_match?(user_id, data, file_matches)) ->
+          :same_file_blocked
+
+        file_matches != [] ->
+          :file_reuse
+
+        field_reason == :invoice_number ->
+          :invoice_number
+
+        field_matches != [] ->
+          :possible
+
+        true ->
+          :none
+      end
+
+    candidates =
+      Enum.map(file_matches, &%{entry: &1, reason: :same_file}) ++
+        Enum.map(field_matches, &%{entry: &1, reason: field_reason})
+
+    %{verdict: verdict, candidates: Enum.uniq_by(candidates, & &1.entry.id)}
+  end
+
+  @doc "True when a `duplicate_check/3` verdict forbids posting outright."
+  @spec blocked?(duplicate_check()) :: boolean()
+  def blocked?(%{verdict: verdict}), do: verdict in [:invoice_number, :same_file_blocked]
+
+  defp file_candidates(_user_id, nil), do: []
+
+  defp file_candidates(user_id, source_sha256) when is_binary(source_sha256) do
+    from(je in JournalEntry,
+      where: je.user_id == ^user_id and je.source_document_sha256 == ^source_sha256,
+      order_by: [desc: je.inserted_at, desc: je.id]
+    )
+    |> Repo.all()
+  end
+
+  defp same_details_as_file_match?(user_id, data, file_matches) do
+    ids = Enum.map(file_matches, & &1.id)
+
+    from(je in JournalEntry,
+      where: je.user_id == ^user_id and je.id in ^ids,
+      where: fragment("lower(btrim(?)) = lower(btrim(?))", je.issuer, ^data.issuer),
+      select: count(je.id)
+    )
+    |> soft_match_filters(data)
+    |> Repo.one()
+    |> Kernel.>(0)
+  end
+
   # Numbered and unnumbered matches are mutually exclusive: a nonblank invoice
   # number is the identity, otherwise the exact tuple is compared.
   defp candidate_filters(query, %ExtractedData{invoice_number: number} = data) do
@@ -117,9 +220,20 @@ defmodule ZaimuTomo.Accounting do
   callers can compose this multi into a larger transaction, such as the
   review-to-journal-entry transition that must roll back on a duplicate
   invoice.
+
+  Options:
+
+    * `:source_document_sha256` — the source document's fingerprint, copied
+      to the entry as an immutable posting-time snapshot.
+    * `:source_file_reuse_confirmed` — `true` only when the reviewer explicitly
+      confirmed a reuse of the same file; defaults to `false`.
   """
-  @spec create_multi_from_decision(%ReviewDecision{}, map()) :: Ecto.Multi.t()
-  def create_multi_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
+  @spec create_multi_from_decision(%ReviewDecision{}, map(), keyword()) :: Ecto.Multi.t()
+  def create_multi_from_decision(
+        %ReviewDecision{} = decision,
+        tax_claim_attrs \\ %{},
+        opts \\ []
+      ) do
     data = decision.decision_data || decision.original_data
 
     attrs = %{
@@ -131,7 +245,9 @@ defmodule ZaimuTomo.Accounting do
       description: data.reason_for_payment,
       issuer: data.issuer,
       invoice_number: data.invoice_number,
-      status: "uncategorized"
+      status: "uncategorized",
+      source_document_sha256: Keyword.get(opts, :source_document_sha256),
+      source_file_reuse_confirmed: Keyword.get(opts, :source_file_reuse_confirmed, false)
     }
 
     tax_claim_attrs = normalize_tax_claim_attrs(attrs.amount_cents, tax_claim_attrs)
@@ -145,16 +261,21 @@ defmodule ZaimuTomo.Accounting do
 
   @doc """
   True when a journal-entry insert failed on the unique
-  (user, issuer, invoice number) index.
+  (user, issuer, invoice number) index or the unique (user, source file
+  digest) index over unconfirmed postings.
 
   Matches the constraint name rather than the error message, so unrelated
   changeset errors are never mistaken for a duplicate.
   """
   @spec duplicate_error?(Ecto.Changeset.t()) :: boolean()
   def duplicate_error?(%Ecto.Changeset{errors: errors}) do
+    duplicate_indexes = [
+      JournalEntry.duplicate_invoice_index(),
+      JournalEntry.duplicate_source_file_index()
+    ]
+
     Enum.any?(errors, fn {_field, {_message, opts}} ->
-      opts[:constraint] == :unique and
-        opts[:constraint_name] == JournalEntry.duplicate_invoice_index()
+      opts[:constraint] == :unique and opts[:constraint_name] in duplicate_indexes
     end)
   end
 

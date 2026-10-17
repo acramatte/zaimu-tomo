@@ -4,7 +4,7 @@
 
 This proposed feature adds exact-byte invoice identity to the existing duplicate-invoice review flow. It does not change the OCR/LLM pipeline and does not implement perceptual or OCR-text similarity.
 
-**Status:** design only. The runtime fingerprint fields, backfill task, unique index, and UI behavior described below are proposed, not implemented.
+**Status:** implemented. The fingerprint fields, unique index, backfill task, and UI behavior described below exist; the production backfill has not been run yet.
 
 ## C1 — System context
 

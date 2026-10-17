@@ -591,8 +591,176 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
+  describe "duplicate_check/3" do
+    @file_a String.duplicate("a", 64)
+    @file_b String.duplicate("b", 64)
+
+    test "an exact same-user file match with different extracted facts is confirmable" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user, invoice_number: "INV-1", content_sha256: @file_a)
+      assert entry.source_document_sha256 == @file_a
+
+      # A second OCR run read different issuer, number, amount, and date.
+      data = %ExtractedData{
+        issuer: "ACME Holding",
+        invoice_number: "INV-9",
+        invoice_date: "2026-07-01",
+        amount_to_pay_cents: 99_00,
+        currency: "CHF"
+      }
+
+      assert Accounting.duplicate_candidates(user.id, data) == []
+
+      assert %{verdict: :file_reuse, candidates: [%{entry: %{id: id}, reason: :same_file}]} =
+               Accounting.duplicate_check(user.id, data, @file_a)
+
+      assert id == entry.id
+      refute Accounting.blocked?(Accounting.duplicate_check(user.id, data, @file_a))
+      assert %{verdict: :none} = Accounting.duplicate_check(user.id, data, @file_b)
+    end
+
+    test "the same file with the same issuer, date, amount, and currency is blocked even with another number" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, invoice_number: "INV-1", content_sha256: @file_a)
+
+      data = %ExtractedData{
+        issuer: " acme corp ",
+        invoice_number: "INV-2",
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "chf"
+      }
+
+      check = Accounting.duplicate_check(user.id, data, @file_a)
+      assert check.verdict == :same_file_blocked
+      assert Accounting.blocked?(check)
+
+      # Moving the date to a new period makes the reuse confirmable.
+      assert %{verdict: :file_reuse} =
+               Accounting.duplicate_check(user.id, %{data | invoice_date: "2026-07-09"}, @file_a)
+    end
+
+    test "a candidate matching both file and invoice number is listed once as the same file" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user, invoice_number: "INV-1", content_sha256: @file_a)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: "INV-1",
+        invoice_date: "2026-08-01",
+        amount_to_pay_cents: 1,
+        currency: "CHF"
+      }
+
+      assert %{verdict: :same_file_blocked, candidates: [%{entry: %{id: id}, reason: :same_file}]} =
+               Accounting.duplicate_check(user.id, data, @file_a)
+
+      assert id == entry.id
+    end
+
+    test "a file match plus a field match on another entry is blocked and lists both" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      file_entry = create_entry(scope, user, invoice_number: "INV-1", content_sha256: @file_a)
+      number_entry = create_entry(scope, user, invoice_number: "INV-2", content_sha256: @file_b)
+
+      data = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: "INV-2",
+        invoice_date: "2026-08-01",
+        amount_to_pay_cents: 1,
+        currency: "CHF"
+      }
+
+      check = Accounting.duplicate_check(user.id, data, @file_a)
+      assert check.verdict == :same_file_blocked
+
+      assert Enum.map(check.candidates, &{&1.entry.id, &1.reason}) == [
+               {file_entry.id, :same_file},
+               {number_entry.id, :invoice_number}
+             ]
+    end
+
+    test "field-only verdicts keep their meaning" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _numbered = create_entry(scope, user, invoice_number: "INV-1", content_sha256: @file_a)
+
+      numbered = %ExtractedData{
+        issuer: "Acme Corp",
+        invoice_number: "INV-1",
+        invoice_date: "2026-06-09",
+        amount_to_pay_cents: 42_00,
+        currency: "CHF"
+      }
+
+      assert %{verdict: :invoice_number, candidates: [%{reason: :invoice_number}]} =
+               Accounting.duplicate_check(user.id, numbered, @file_b)
+
+      assert %{verdict: :possible, candidates: [%{reason: :same_details}]} =
+               Accounting.duplicate_check(user.id, %{numbered | invoice_number: nil}, nil)
+    end
+
+    test "never matches another user's file or a missing fingerprint" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      other_user = user_fixture()
+      other_scope = user_scope_fixture(other_user)
+      _other = create_entry(other_scope, other_user, issuer: "Other", content_sha256: @file_a)
+      _legacy = create_entry(scope, user, issuer: "Legacy", content_sha256: nil)
+
+      data = %ExtractedData{issuer: "Mine", invoice_number: "INV-5", currency: "CHF"}
+
+      assert %{verdict: :none, candidates: []} =
+               Accounting.duplicate_check(user.id, data, @file_a)
+
+      assert %{verdict: :none, candidates: []} = Accounting.duplicate_check(user.id, data, nil)
+    end
+
+    test "the database allows one unconfirmed posting per file per user" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _entry = create_entry(scope, user, issuer: "First", content_sha256: @file_a)
+
+      insert = fn owner, attrs ->
+        owner_scope = user_scope_fixture(owner)
+        content = extracted_content_fixture(document_fixture(owner_scope), owner, %{})
+        {:ok, decision} = Review.create_initial_decision(content)
+
+        %{
+          review_decision_id: decision.id,
+          user_id: owner.id,
+          amount_cents: 1,
+          currency: "CHF",
+          date: ~D[2026-01-01],
+          issuer: "Unrelated #{System.unique_integer([:positive])}",
+          source_document_sha256: @file_a
+        }
+        |> Map.merge(attrs)
+        |> JournalEntry.changeset_for_create()
+        |> Repo.insert()
+      end
+
+      assert {:error, changeset} = insert.(user, %{})
+      assert Accounting.duplicate_error?(changeset)
+
+      assert {"the same file has already been recorded", _} =
+               changeset.errors[:source_document_sha256]
+
+      assert {:ok, %JournalEntry{source_file_reuse_confirmed: true}} =
+               insert.(user, %{source_file_reuse_confirmed: true})
+
+      assert {:ok, _} = insert.(user_fixture(), %{})
+      assert {:ok, _} = insert.(user, %{source_document_sha256: @file_b})
+    end
+  end
+
   defp create_entry(scope, user, overrides \\ []) do
-    document = document_fixture(scope)
+    {content_sha256, overrides} = Keyword.pop(overrides, :content_sha256)
+    document = document_fixture(scope, %{content_sha256: content_sha256})
 
     extracted_data =
       %{
@@ -631,11 +799,12 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
-  defp document_fixture(scope) do
+  defp document_fixture(scope, attrs \\ %{}) do
     Repo.insert!(%Document{
       filename: "invoice.pdf",
       object_key: "documents/invoice.pdf",
-      user_id: scope.user.id
+      user_id: scope.user.id,
+      content_sha256: attrs[:content_sha256]
     })
   end
 

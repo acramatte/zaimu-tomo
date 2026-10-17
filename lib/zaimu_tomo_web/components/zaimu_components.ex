@@ -409,10 +409,14 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
   # ── Duplicate invoice candidate ───────────────────────────────────────────
 
   attr :candidate, :map, required: true
+  attr :reason, :atom, default: nil, values: [nil, :same_file, :invoice_number, :same_details]
 
   def duplicate_candidate(assigns) do
     ~H"""
     <div class="duplicate-candidate">
+      <span :if={@reason} class={["duplicate-reason", "duplicate-reason-#{@reason}"]}>
+        {duplicate_reason_label(@reason)}
+      </span>
       <span class="mono">{@candidate.issuer || "—"}</span>
       <span class="mono dim">
         #{if @candidate.invoice_number in [nil, ""], do: "—", else: @candidate.invoice_number}
@@ -425,6 +429,10 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     </div>
     """
   end
+
+  defp duplicate_reason_label(:same_file), do: "Same file"
+  defp duplicate_reason_label(:invoice_number), do: "Same invoice #"
+  defp duplicate_reason_label(:same_details), do: "Same details"
 
   # ── Dashboard activity feed item ───────────────────────────────────────────
 

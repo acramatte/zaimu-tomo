@@ -1,8 +1,8 @@
 # Feature Specification: Exact-Byte Invoice File Fingerprints
 
-**Feature Branch**: `docs/invoice-file-fingerprinting` (specification branch; implementation branch to follow)
+**Feature Branch**: `docs/invoice-file-fingerprinting` (specification); implemented on `feat/invoice-file-fingerprinting`
 **Created**: 2026-09-23
-**Status**: Proposed — documentation only; no runtime code is included
+**Status**: Implemented — production backfill pending
 **Depends on**: PR #60, `feat/duplicate-invoice-detection`
 
 ## 1. Context and problem
