@@ -143,8 +143,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
               class="account-history-swatch"
               style={"background:#{series.color}"}
               aria-hidden="true"
-            >
-            </span>
+            ></span>
             <span>{series.name}</span>
             <span class="account-history-visibility">
               {if MapSet.member?(@visible_account_ids, series.account_id), do: "Shown", else: "Hidden"}

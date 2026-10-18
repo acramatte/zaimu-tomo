@@ -33,9 +33,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - %ExtractedContent{} or nil
   """
   def get_by_id(extraction_id) do
-    query = from ec in ExtractedContent,
-            where: ec.id == ^extraction_id,
-            limit: 1
+    query =
+      from ec in ExtractedContent,
+        where: ec.id == ^extraction_id,
+        limit: 1
 
     Repo.one(query)
   end
@@ -73,10 +74,11 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     - %ExtractedContent{} or nil
   """
   def get_latest_by_document(document_id) do
-    query = from ec in ExtractedContent,
-            where: ec.document_id == ^document_id,
-            order_by: [desc: :inserted_at, desc: :id],
-            limit: 1
+    query =
+      from ec in ExtractedContent,
+        where: ec.document_id == ^document_id,
+        order_by: [desc: :inserted_at, desc: :id],
+        limit: 1
 
     Repo.one(query)
   end
