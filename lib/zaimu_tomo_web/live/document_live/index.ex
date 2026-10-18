@@ -83,28 +83,28 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
           >
             <div class="stat">{if ext == "", do: "DOC", else: ext}</div>
             <div class="body">
-            <div class="title">
-              {(data && data.issuer) || document.filename}
-              <.status_pill status={status} />
-            </div>
-            <div class="desc">
-              <%= case status do %>
-                <% "processing" -> %>
-                  Sent to OCR · extraction in progress
-                <% "review" -> %>
-                  <span class="amt">
-                    {if data && data.amount_to_pay_cents && data.currency,
-                      do: fmt_cents(data.amount_to_pay_cents, data.currency),
-                      else: "—"}
-                  </span>
-                  {if data && data.invoice_number, do: " · #{data.invoice_number}", else: ""} · ready to verify
-                <% "failed" -> %>
-                  {(ec && get_in(ec.error_details || %{}, ["message"])) || "Processing failed"}
-                <% _ -> %>
-                  {document.filename}
-              <% end %>
-              · <span class="muted">{document.filename}</span>
-            </div>
+              <div class="title">
+                {(data && data.issuer) || document.filename}
+                <.status_pill status={status} />
+              </div>
+              <div class="desc">
+                <%= case status do %>
+                  <% "processing" -> %>
+                    Sent to OCR · extraction in progress
+                  <% "review" -> %>
+                    <span class="amt">
+                      {if data && data.amount_to_pay_cents && data.currency,
+                        do: fmt_cents(data.amount_to_pay_cents, data.currency),
+                        else: "—"}
+                    </span>
+                    {if data && data.invoice_number, do: " · #{data.invoice_number}", else: ""} · ready to verify
+                  <% "failed" -> %>
+                    {(ec && get_in(ec.error_details || %{}, ["message"])) || "Processing failed"}
+                  <% _ -> %>
+                    {document.filename}
+                <% end %>
+                · <span class="muted">{document.filename}</span>
+              </div>
             </div>
           </.link>
           <div class="actions">
@@ -178,8 +178,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
                 <iframe
                   src={~p"/documents/#{@preview_doc}/preview"}
                   title={"Preview of #{@preview_doc.filename}"}
-                >
-                </iframe>
+                ></iframe>
               <% {:ok, :image} -> %>
                 <div class="doc-modal-image">
                   <img

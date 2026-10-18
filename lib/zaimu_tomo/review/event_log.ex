@@ -18,12 +18,12 @@ defmodule ZaimuTomo.Review.EventLog do
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [
-        :event_type,
-        :invoice_id,
-        :user_id,
-        :metadata,
-        :status
-      ])
+      :event_type,
+      :invoice_id,
+      :user_id,
+      :metadata,
+      :status
+    ])
     |> validate_required([:event_type, :metadata])
     |> validate_inclusion(:status, ["pending", "completed", "failed"])
     |> foreign_key_constraint(:user_id)

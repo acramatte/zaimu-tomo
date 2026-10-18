@@ -62,7 +62,11 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert_patch(index_live, ~p"/documents?preview=#{document.id}")
       assert has_element?(index_live, "#document-preview")
-      assert has_element?(index_live, "#document-preview iframe, #document-preview img, #document-preview .doc-modal-empty")
+
+      assert has_element?(
+               index_live,
+               "#document-preview iframe, #document-preview img, #document-preview .doc-modal-empty"
+             )
     end
 
     test "pressing Escape closes the preview", %{conn: conn, document: document} do
@@ -94,7 +98,10 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     test "deletes document in listing", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents")
 
-      assert index_live |> element("#documents-#{document.id} [aria-label=\"Delete document\"]") |> render_click()
+      assert index_live
+             |> element("#documents-#{document.id} [aria-label=\"Delete document\"]")
+             |> render_click()
+
       refute has_element?(index_live, "#documents-#{document.id}")
     end
   end
