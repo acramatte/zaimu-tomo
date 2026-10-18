@@ -5,6 +5,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.Currency
+  alias ZaimuTomo.RecurringExpenses.RecurringExpense
   alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]
@@ -45,6 +46,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     field :notes, :string
 
     belongs_to :review_decision, ReviewDecision
+    belongs_to :recurring_expense, RecurringExpense
     belongs_to :user, User
     has_one :tax_deduction_claim, TaxDeductionClaim
 
@@ -56,6 +58,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     %__MODULE__{}
     |> cast(attrs, [
       :review_decision_id,
+      :recurring_expense_id,
       :user_id,
       :amount_cents,
       :currency,
