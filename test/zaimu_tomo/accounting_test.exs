@@ -1,5 +1,6 @@
 defmodule ZaimuTomo.AccountingTest do
   use ZaimuTomo.DataCase
+  use ExUnitProperties
 
   import Ecto.Query, warn: false
   import ZaimuTomo.AccountsFixtures
@@ -237,6 +238,63 @@ defmodule ZaimuTomo.AccountingTest do
       assert {:error, changeset} = Accounting.create_from_decision(decision)
       assert %{date: ["can't be blank"]} = errors_on(changeset)
     end
+  end
+
+  describe "monthly_spending/2 (property)" do
+    property "totals, counts, and per-category sums match an independently computed aggregate" do
+      check all(entries <- entries_generator(), max_runs: 12) do
+        user = user_fixture()
+        scope = user_scope_fixture(user)
+
+        Enum.each(entries, fn {amount_cents, day_offset, category} ->
+          date = Date.add(~D[2026-06-01], day_offset)
+          create_entry(scope, user, date, amount_cents, "CHF", category)
+        end)
+
+        result = Accounting.monthly_spending(scope, ~D[2026-06-15])
+
+        expected_total = entries |> Enum.map(&elem(&1, 0)) |> Enum.sum()
+
+        expected_by_category =
+          entries
+          |> Enum.group_by(&elem(&1, 2), &elem(&1, 0))
+          |> Map.new(fn {category, amounts} -> {category, Enum.sum(amounts)} end)
+
+        actual_by_category =
+          Map.new(result.categories, fn %{category: category, total_cents: total} ->
+            {category, total}
+          end)
+
+        assert result.total_cents == expected_total
+        assert result.entry_count == length(entries)
+        assert actual_by_category == expected_by_category
+      end
+    end
+
+    property "entries outside the reference month never contribute to the total" do
+      check all(amount_cents <- StreamData.integer(-50_000..50_000), max_runs: 15) do
+        user = user_fixture()
+        scope = user_scope_fixture(user)
+
+        create_entry(scope, user, ~D[2026-05-31], amount_cents, "CHF", "Groceries")
+        create_entry(scope, user, ~D[2026-07-01], amount_cents, "CHF", "Groceries")
+
+        assert %{total_cents: 0, entry_count: 0, categories: []} =
+                 Accounting.monthly_spending(scope, ~D[2026-06-15])
+      end
+    end
+  end
+
+  defp entries_generator do
+    StreamData.list_of(
+      StreamData.tuple({
+        StreamData.integer(-50_000..50_000),
+        StreamData.integer(0..27),
+        StreamData.member_of(["Groceries", "Software", "Utilities", "Rent"])
+      }),
+      min_length: 1,
+      max_length: 4
+    )
   end
 
   describe "list_journal_entries/1" do

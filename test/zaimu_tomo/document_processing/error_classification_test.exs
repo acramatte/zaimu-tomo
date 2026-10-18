@@ -1,7 +1,22 @@
 defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ZaimuTomo.DocumentProcessing.ErrorClassification
+
+  @stages [
+    :ocr_request_failed,
+    :ocr_upload_failed,
+    :prompt_fetch_failed,
+    :llm_request_failed,
+    :some_new_stage
+  ]
+
+  # Stages whose {:http_status, status, body} shape falls through to the
+  # generic stage-tagged clause. :prompt_fetch_failed and :llm_request_failed
+  # have their own earlier clauses for other shapes of their second element
+  # (an integer status or a map), which take priority over the generic one.
+  @http_status_stages [:ocr_request_failed, :ocr_upload_failed, :some_new_stage]
 
   describe "transient errors (retried without persisting)" do
     test "scratch / temporary file creation failure" do
@@ -189,6 +204,72 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
 
       assert ErrorClassification.summarize({:ocr_request_failed, "SECRET-INVOICE-TEXT"}) ==
                "unclassified"
+    end
+  end
+
+  describe "classify/1 (property)" do
+    property "never raises, for any shape the pipeline could hand it" do
+      check all(reason <- StreamData.term()) do
+        assert ErrorClassification.classify(reason) in [:transient, :permanent]
+      end
+    end
+
+    property "{:unexpected_status, status} follows the documented 408/429/5xx-transient rule" do
+      check all(status <- StreamData.integer(0..599)) do
+        expected = if status in [408, 429] or status >= 500, do: :transient, else: :permanent
+        assert ErrorClassification.classify({:unexpected_status, status}) == expected
+      end
+    end
+
+    property "{:llm_request_failed, %{status: status}} additionally treats 409/425 as transient" do
+      check all(status <- StreamData.integer(0..599)) do
+        expected =
+          if status in [408, 409, 425, 429] or status >= 500, do: :transient, else: :permanent
+
+        assert ErrorClassification.classify({:llm_request_failed, %{status: status}}) == expected
+      end
+    end
+
+    property "stage-tagged {:http_status, status, body} follows the 408/429/5xx-transient rule for any stage" do
+      check all(
+              stage <- StreamData.member_of(@http_status_stages),
+              status <- StreamData.integer(0..599),
+              body <- StreamData.string(:printable, max_length: 20)
+            ) do
+        expected = if status in [408, 429] or status >= 500, do: :transient, else: :permanent
+        assert ErrorClassification.classify({stage, {:http_status, status, body}}) == expected
+      end
+    end
+
+    property "{:prompt_fetch_failed, status} follows the 408/429/5xx-transient rule" do
+      check all(status <- StreamData.integer(0..599)) do
+        expected = if status in [408, 429] or status >= 500, do: :transient, else: :permanent
+        assert ErrorClassification.classify({:prompt_fetch_failed, status}) == expected
+      end
+    end
+  end
+
+  describe "summarize/1 (property)" do
+    property "never includes the raw error body, across every shape that could carry one" do
+      check all(
+              stage <- StreamData.member_of(@stages),
+              status <- StreamData.integer(100..599),
+              secret <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
+            ) do
+        body = "SECRET-" <> secret
+
+        results = [
+          ErrorClassification.summarize({stage, {:http_status, status, body}}),
+          ErrorClassification.summarize({:llm_request_failed, %{status: status, reason: body}}),
+          ErrorClassification.summarize({:prompt_fetch_failed, status}),
+          ErrorClassification.summarize(%{unexpected: body})
+        ]
+
+        for result <- results do
+          refute result =~ "SECRET-",
+                 "summarize/1 leaked the raw error body into #{inspect(result)}"
+        end
+      end
     end
   end
 end

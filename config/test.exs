@@ -49,3 +49,9 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Property tests (StreamData/ExUnitProperties): fewer generations locally for
+# fast feedback, more in CI for thorough coverage. Properties that hit the
+# database set an explicit lower `max_runs:` regardless, to bound CI time.
+config :stream_data,
+  max_runs: if(System.get_env("CI"), do: 200, else: 50)
