@@ -322,8 +322,6 @@ defmodule ZaimuTomo.Langfuse do
     end
   end
 
-  defp compile_prompt(_template, _variables), do: {:error, :invalid_langfuse_prompt_response}
-
   @spec enabled?() :: boolean()
   def enabled?, do: config() |> Keyword.get(:enabled, false)
 

@@ -44,7 +44,7 @@ Key properties:
 
 ## The image
 
-`Dockerfile` is a two-stage build: `elixir:1.19.4-otp-28` builds the release
+`Dockerfile` is a two-stage build: `elixir:1.20.0-otp-28` builds the release
 (`mix compile`, `mix assets.deploy`, `mix release`), and `debian:trixie-slim`
 runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
 

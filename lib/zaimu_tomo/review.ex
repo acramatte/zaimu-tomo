@@ -144,7 +144,6 @@ defmodule ZaimuTomo.Review do
     else
       nil -> {:error, "Extracted content not found or not owned by user"}
       false -> {:error, "No Langfuse trace recorded for this extraction"}
-      {:error, _reason} = error -> error
     end
   end
 

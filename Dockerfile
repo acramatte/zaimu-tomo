@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG ELIXIR_VERSION=1.19.4
+ARG ELIXIR_VERSION=1.20.0
 ARG OTP_VERSION=28
 ARG DEBIAN_VERSION=trixie-slim
 
