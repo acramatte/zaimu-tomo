@@ -20,6 +20,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
     timestamps()
   end
 
+  @type t :: %__MODULE__{}
+
   def changeset(extracted_content, attrs) do
     extracted_content
     |> cast(attrs, [

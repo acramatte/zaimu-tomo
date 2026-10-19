@@ -14,6 +14,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
     field(:issuer, :string)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:amount_to_pay_cents, :invoice_date, :currency, :reason_for_payment, :issuer]
   @optional_fields [:invoice_number]
 

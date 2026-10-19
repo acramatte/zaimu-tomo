@@ -112,3 +112,11 @@ shouldn't block unrelated work). A separate scheduled workflow
 that's the only way to catch a CVE disclosed on a day with no pushes at all. CI
 does **not** deploy. Deploys are manual with Kamal from the operator's machine.
 Dependabot opens grouped dependency bumps.
+
+A separate scheduled workflow (`.github/workflows/nightly-dialyzer.yml`) runs
+`mix dialyzer` nightly, with its PLTs cached under `priv/plts` (keyed on
+`mix.lock`, rebuilt only when dependencies change). Advisory, not a required
+check: Dialyzer's whole-program success typing is a complementary, slower
+check that doesn't gate pushes. Known tool/stdlib false positives are
+suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
+benign — re-verify them after any Ecto, Elixir, or OTP upgrade.
