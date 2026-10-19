@@ -1,0 +1,33 @@
+name: Nightly dependency audit
+
+on:
+  schedule:
+    # 03:17 UTC daily. This is the detection mechanism for a CVE disclosed
+    # in an existing dependency on a day with no pushes at all — the
+    # per-push "security-audit" job in ci.yml can't catch that since it
+    # only runs when someone pushes.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  MIX_ENV: test
+
+jobs:
+  audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Audit dependencies (CVEs and retirements)
+        run: mix hex.audit
