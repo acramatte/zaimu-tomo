@@ -32,6 +32,9 @@ zaimu_tomo-*.tar
 # Ignore digested assets cache.
 /priv/static/cache_manifest.json
 
+# Dialyzer PLTs (rebuilt by CI, cached by hashFiles('**/mix.lock')).
+/priv/plts/
+
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
 /assets/node_modules/
