@@ -70,6 +70,9 @@ defmodule ZaimuTomo.MixProject do
       {:phoenix_live_view, "~> 1.2.12"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:testcontainers, "~> 2.4", only: :test},
+      # Avoid the four Hackney 1.x CVEs until Testcontainers releases its
+      # upstream Hackney 4 support; Tesla 1.21.2 already supports this line.
+      {:hackney, "~> 4.8", only: :test, override: true},
       {:stream_data, "~> 1.2", only: :test},
       {:phoenix_live_dashboard, "~> 0.9.1"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
