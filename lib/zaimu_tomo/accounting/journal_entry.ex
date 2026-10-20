@@ -5,9 +5,12 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.Currency
+  alias ZaimuTomo.Documents.Fingerprint
   alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]
+  @duplicate_invoice_index "journal_entries_user_issuer_number_unique_index"
+  @duplicate_source_file_index "journal_entries_user_source_document_sha256_unique_index"
 
   @typedoc "Journal entry schema struct"
   @type t :: %__MODULE__{
@@ -23,6 +26,8 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
           need_or_want: String.t() | nil,
           status: String.t() | nil,
           notes: String.t() | nil,
+          source_document_sha256: String.t() | nil,
+          source_file_reuse_confirmed: boolean(),
           review_decision_id: integer() | nil,
           user_id: integer() | nil,
           review_decision: Ecto.Schema.belongs_to(struct()),
@@ -43,6 +48,10 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     field :need_or_want, :string
     field :status, :string
     field :notes, :string
+    # Posting-time snapshot of the source document's fingerprint. Only the
+    # one-off backfill may set it on an existing row (see the backfill module).
+    field :source_document_sha256, :string, redact: true
+    field :source_file_reuse_confirmed, :boolean, default: false
 
     belongs_to :review_decision, ReviewDecision
     belongs_to :user, User
@@ -63,7 +72,9 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
       :description,
       :issuer,
       :invoice_number,
-      :status
+      :status,
+      :source_document_sha256,
+      :source_file_reuse_confirmed
     ])
     |> Currency.normalize_and_validate(:currency)
     |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency, :date])
@@ -71,7 +82,42 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint(:review_decision_id)
+    |> fingerprint_constraints()
+    |> unique_constraint(:invoice_number,
+      name: @duplicate_invoice_index,
+      message: "has already been recorded for this issuer"
+    )
   end
+
+  @doc """
+  Changeset for the historical fingerprint backfill: the only permitted update
+  of `source_document_sha256` (and, for a human-resolved collision,
+  `source_file_reuse_confirmed`) on an existing entry.
+  """
+  @spec changeset_for_fingerprint_backfill(t(), map()) :: Ecto.Changeset.t(t())
+  def changeset_for_fingerprint_backfill(%__MODULE__{} = entry, attrs) do
+    entry
+    |> cast(attrs, [:source_document_sha256, :source_file_reuse_confirmed])
+    |> validate_required([:source_document_sha256])
+    |> fingerprint_constraints()
+  end
+
+  defp fingerprint_constraints(changeset) do
+    changeset
+    |> validate_format(:source_document_sha256, Fingerprint.format())
+    |> unique_constraint(:source_document_sha256,
+      name: @duplicate_source_file_index,
+      message: "the same file has already been recorded"
+    )
+  end
+
+  @doc "Name of the unique (user, issuer, invoice number) index."
+  @spec duplicate_invoice_index() :: String.t()
+  def duplicate_invoice_index, do: @duplicate_invoice_index
+
+  @doc "Name of the unique (user, source file digest) index over unconfirmed postings."
+  @spec duplicate_source_file_index() :: String.t()
+  def duplicate_source_file_index, do: @duplicate_source_file_index
 
   @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_categorize(%__MODULE__{} = entry, attrs) do

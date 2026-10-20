@@ -4,12 +4,13 @@ defmodule ZaimuTomo.Documents do
   """
 
   import Ecto.Query, warn: false
-  alias ZaimuTomo.Repo
 
-  alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.Storage
 
   @doc """
@@ -17,6 +18,37 @@ defmodule ZaimuTomo.Documents do
   """
   def object_key_for(filename) when is_binary(filename) do
     "documents/#{Ecto.UUID.generate()}#{Path.extname(filename)}"
+  end
+
+  @doc """
+  Reads an uploaded file, stores its bytes, and fingerprints them.
+
+  The SHA-256 is computed over the exact binary passed to
+  `Storage.put_object/2`, so the returned key and digest always describe the
+  same bytes. Returns attributes ready for `create_document/2` or
+  `update_document/3`; the caller owns deleting the object if persisting the
+  row fails.
+
+  ## Examples
+
+      iex> store_upload("/tmp/plug-123", "invoice.pdf")
+      {:ok, %{object_key: "documents/….pdf", filename: "invoice.pdf", content_sha256: "…"}}
+
+  """
+  @spec store_upload(Path.t(), String.t()) ::
+          {:ok, %{object_key: String.t(), filename: String.t(), content_sha256: String.t()}}
+          | {:error, term()}
+  def store_upload(path, filename) when is_binary(path) and is_binary(filename) do
+    object_key = object_key_for(filename)
+
+    with {:ok, body} <- File.read(path),
+         content_sha256 = Fingerprint.sha256(body),
+         {:ok, ^object_key} <- Storage.put_object(object_key, body) do
+      {:ok, %{object_key: object_key, filename: filename, content_sha256: content_sha256}}
+    else
+      {:ok, _other_key} -> {:error, :unexpected_object_key}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

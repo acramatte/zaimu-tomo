@@ -129,27 +129,20 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
   def handle_event("save", %{}, socket) do
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        object_key = Documents.object_key_for(entry.client_name)
-
-        with {:ok, body} <- File.read(path),
-             {:ok, ^object_key} <- Storage.put_object(object_key, body) do
-          {:ok, %{object_key: object_key, client_name: entry.client_name}}
-        else
+        case Documents.store_upload(path, entry.client_name) do
+          {:ok, stored} -> {:ok, stored}
           {:error, reason} -> {:ok, %{storage_error: reason}}
         end
       end)
 
+    # Only server-computed attributes reach the changeset; a metadata-only
+    # edit passes none, so the stored digest is preserved.
     case entries do
       [%{storage_error: _reason}] ->
         {:noreply, put_flash(socket, :error, "Unable to store document")}
 
-      [%{object_key: object_key, client_name: client_name}] ->
-        save_document(
-          socket,
-          socket.assigns.live_action,
-          %{"object_key" => object_key, "filename" => client_name},
-          object_key
-        )
+      [%{object_key: object_key} = stored] ->
+        save_document(socket, socket.assigns.live_action, stored, object_key)
 
       [] ->
         save_document(socket, socket.assigns.live_action, %{}, nil)

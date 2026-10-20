@@ -44,7 +44,7 @@ Key properties:
 
 ## The image
 
-`Dockerfile` is a two-stage build: `elixir:1.19.4-otp-28` builds the release
+`Dockerfile` is a two-stage build: `elixir:1.20.0-otp-28` builds the release
 (`mix compile`, `mix assets.deploy`, `mix release`), and `debian:trixie-slim`
 runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
 
@@ -53,6 +53,7 @@ runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
 | `bin/migrate` | Run Ecto migrations. |
 | `bin/recover_stuck_documents` | Re-enqueue stuck documents (dry run unless `CONFIRM=true`). |
 | `bin/verify_storage` | HEAD every `documents.object_key` in the bucket. |
+| `bin/backfill_document_fingerprints` | Fill missing document and journal-entry SHA-256 fingerprints (idempotent, online). Optional arguments: journal entry IDs a human confirmed as file reuses. |
 | `bin/migrate_to_s3` | One-off legacy copy from the old upload volume. |
 
 Keep the Elixir/OTP versions in sync across `Dockerfile`, `.github/workflows/ci.yml`, and `.agents/setup`.
@@ -96,12 +97,25 @@ Notes:
 
 - Kamal performs a zero-downtime switch at the proxy. In-flight Oban jobs on the old container are rescued by `Oban.Lifeline` after 30 minutes, if they don't finish during shutdown.
 - Migrations run *after* the new container is live, so write migrations that the previous release can run against (additive first, destructive later).
-- Kamal aliases (`config/deploy.yml` → `aliases`) are invoked directly: `kamal console`, `kamal migrate`, `kamal db_rollback`, `kamal verify_storage`, `kamal recover_stuck_documents`, `kamal migrate_to_s3`.
+- Kamal aliases (`config/deploy.yml` → `aliases`) are invoked directly: `kamal console`, `kamal migrate`, `kamal db_rollback`, `kamal verify_storage`, `kamal recover_stuck_documents`, `kamal backfill_document_fingerprints`, `kamal migrate_to_s3`.
 
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on pushes to `main` and on every
-PR, for any base branch so stacked PRs are covered. It compiles with warnings as
-errors, migrates a Postgres 18 service, and runs `mix test`. CI does **not**
-deploy. Deploys are manual with Kamal from the operator's machine. Dependabot
-opens grouped dependency bumps.
+PR, for any base branch so stacked PRs are covered, as three jobs: `lint` (format
+check, blocking `mix credo --strict`, unused-dependency check), `test` (compiles
+with warnings as errors, migrates a Postgres 18 service, runs `mix test`), and `security-audit`
+(`mix hex.audit`, advisory/non-blocking — a new CVE in an unrelated dependency
+shouldn't block unrelated work). A separate scheduled workflow
+(`.github/workflows/nightly-audit.yml`) re-runs `mix hex.audit` nightly, since
+that's the only way to catch a CVE disclosed on a day with no pushes at all. CI
+does **not** deploy. Deploys are manual with Kamal from the operator's machine.
+Dependabot opens grouped dependency bumps.
+
+A separate scheduled workflow (`.github/workflows/nightly-dialyzer.yml`) runs
+`mix dialyzer` nightly, with its PLTs cached under `priv/plts` (keyed on
+`mix.lock`, rebuilt only when dependencies change). Advisory, not a required
+check: Dialyzer's whole-program success typing is a complementary, slower
+check that doesn't gate pushes. Known tool/stdlib false positives are
+suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
+benign — re-verify them after any Ecto, Elixir, or OTP upgrade.

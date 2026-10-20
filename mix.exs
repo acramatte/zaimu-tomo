@@ -12,7 +12,22 @@ defmodule ZaimuTomo.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      usage_rules: usage_rules()
+      usage_rules: usage_rules(),
+      dialyzer: dialyzer()
+    ]
+  end
+
+  # PLTs live under priv/plts (not _build) so the CI cache key can target
+  # them directly without caching the rest of _build.
+  defp dialyzer do
+    [
+      plt_core_path: "priv/plts/core",
+      plt_local_path: "priv/plts/local",
+      # Without :mix, Dialyzer can't see the Mix.Task behaviour or Mix.raise/1,
+      # so every mix task under lib/mix/tasks/ reports spurious
+      # callback_info_missing/unknown_function findings.
+      plt_add_apps: [:mix],
+      ignore_warnings: ".dialyzer_ignore.exs"
     ]
   end
 
@@ -80,6 +95,7 @@ defmodule ZaimuTomo.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:usage_rules, "~> 1.2.5", only: [:dev]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.3.0"},

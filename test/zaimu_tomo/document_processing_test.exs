@@ -1,10 +1,11 @@
 defmodule ZaimuTomo.DocumentProcessingTest do
   use ZaimuTomo.DataCase, async: false
 
+  alias ZaimuTomo.AccountsFixtures
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
-  alias ZaimuTomo.AccountsFixtures
 
   describe "ocr_job/3" do
     test "builds a self-contained command snapshotting the currency at enqueue time" do
@@ -40,7 +41,7 @@ defmodule ZaimuTomo.DocumentProcessingTest do
   describe "DocumentOCR processing" do
     test "DocumentOCR.process/1 handles file processing" do
       # Test with a non-existent file (should return error)
-      result = ZaimuTomo.DocumentProcessing.DocumentOCR.process("non_existent_file.pdf")
+      result = DocumentOCR.process("non_existent_file.pdf")
 
       # Should return an error tuple
       assert match?({:error, _}, result)

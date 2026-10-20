@@ -9,9 +9,15 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
   alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Documents.Fingerprint
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory
+
+  # Independently computed with `printf '…' | sha256sum`.
+  @invoice_bytes_sha256 "f3cbbf0fb1cedd39097a0159ee1b5e1a85fec1efcf8150399a6d25c3cf9739f3"
+  @new_bytes_sha256 "11e2defd59f47c7f2aac84d6a5d6747e98e785afffb72c8bb7b05ec74e1d663c"
 
   setup :register_and_log_in_user
 
@@ -90,9 +96,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert render(form_live) =~ "Edit Document"
 
-      # Skip validation and submission tests for now as file upload works differently
-      # The form now uses live file uploads which require a different testing approach
-      # TODO: Enhance this test with proper file upload simulation
+      # File upload and edit submission are covered in "Form uploads" below.
     end
 
     test "deletes document in listing", %{conn: conn, document: document} do
@@ -135,6 +139,37 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert document.filename == "invoice.pdf"
       assert "documents/" <> _ = document.object_key
       assert :ok = Storage.head_object(document.object_key)
+
+      # The digest is SHA-256 of the uploaded bytes and of the stored object.
+      assert document.content_sha256 == @invoice_bytes_sha256
+      assert {:ok, stored} = Storage.read_object(document.object_key)
+      assert Fingerprint.sha256(stored) == document.content_sha256
+    end
+
+    test "the dashboard drop zone stores the digest of the uploaded bytes", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, index_live, _html} = live(conn, ~p"/documents")
+      upload_live = find_live_child(index_live, "doc-upload")
+
+      upload =
+        file_input(upload_live, "#doc-upload-form", :document, [
+          %{
+            last_modified: 1_594_171_879_000,
+            name: "invoice.pdf",
+            content: "invoice bytes",
+            size: 13,
+            type: "application/pdf"
+          }
+        ])
+
+      assert render_upload(upload, "invoice.pdf") =~ "100%"
+      render_hook(upload_live, "save", %{})
+
+      [document] = Documents.list_documents(scope)
+      assert document.content_sha256 == @invoice_bytes_sha256
+      assert {:ok, "invoice bytes"} = Storage.read_object(document.object_key)
     end
 
     test "replaces the stored object only after updating the document", %{
@@ -171,6 +206,22 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert updated_document.object_key != document.object_key
       assert {:error, :not_found} = Storage.head_object(document.object_key)
       assert :ok = Storage.head_object(updated_document.object_key)
+      assert updated_document.content_sha256 == @new_bytes_sha256
+    end
+
+    test "saving an edit without a new file preserves the digest", %{conn: conn, scope: scope} do
+      document = document_fixture(scope, %{content_sha256: @invoice_bytes_sha256})
+
+      {:ok, live, _html} = live(conn, ~p"/documents/#{document}/edit")
+
+      assert {:error, {:live_redirect, %{to: "/documents"}}} =
+               live
+               |> form("#document-form")
+               |> render_submit()
+
+      updated_document = Documents.get_document!(scope, document.id)
+      assert updated_document.object_key == document.object_key
+      assert updated_document.content_sha256 == @invoice_bytes_sha256
     end
 
     test "removes a newly stored object when document persistence fails", %{
@@ -194,6 +245,17 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert render_upload(upload, "invoice.pdf") =~ "100%"
       assert render_submit(form(live, "#document-form")) =~ "New Document"
       assert [] = :ets.tab2list(Memory)
+      assert Repo.aggregate(Document, :count) == 0
+    end
+
+    test "never renders the digest", %{conn: conn, scope: scope} do
+      document = document_fixture(scope, %{content_sha256: @invoice_bytes_sha256})
+
+      {:ok, _live, index_html} = live(conn, ~p"/documents")
+      {:ok, _live, show_html} = live(conn, ~p"/documents/#{document}")
+
+      refute index_html =~ @invoice_bytes_sha256
+      refute show_html =~ @invoice_bytes_sha256
     end
   end
 
@@ -291,9 +353,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert render(form_live) =~ "Edit Document"
 
-      # Skip validation and submission tests for now as file upload works differently
-      # The form now uses live file uploads which require a different testing approach
-      # TODO: Enhance this test with proper file upload simulation
+      # File upload and edit submission are covered in "Form uploads" above.
     end
   end
 

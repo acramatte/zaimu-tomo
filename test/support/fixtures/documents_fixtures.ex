@@ -4,6 +4,8 @@ defmodule ZaimuTomo.DocumentsFixtures do
   entities via the `ZaimuTomo.Documents` context.
   """
 
+  alias ZaimuTomo.Documents.Document
+
   @doc """
   Generate a document.
   """
@@ -15,8 +17,8 @@ defmodule ZaimuTomo.DocumentsFixtures do
       })
 
     {:ok, document} =
-      %ZaimuTomo.Documents.Document{}
-      |> ZaimuTomo.Documents.Document.changeset(attrs, scope)
+      %Document{}
+      |> Document.changeset(attrs, scope)
       |> ZaimuTomo.Repo.insert()
 
     document

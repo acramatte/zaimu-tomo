@@ -12,8 +12,8 @@ trap 'status=$?; echo "--- setup failed at line $LINENO after ${SECONDS}s (exit 
 # Keep in sync with .github/workflows/ci.yml and Dockerfile.
 OTP_VERSION="28.5.0.7"
 OTP_SHA256="38f507761691e3bc4bf4f23eda7f03390341864e71c37555de501695d8bae308"
-ELIXIR_VERSION="1.19.4"
-ELIXIR_SHA256="8fd7b5705b756c0e1ec71f9e8281b4b75801b9564f0205b5035319e8505ad2b4"
+ELIXIR_VERSION="1.20.0"
+ELIXIR_SHA256="fd73368afaf63698e72b1d30631253622c6420c2ed9d064d17d84ceef2a3aa2a"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"

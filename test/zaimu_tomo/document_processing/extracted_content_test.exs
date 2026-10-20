@@ -1,8 +1,9 @@
 defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
   use ZaimuTomo.DataCase, async: true
 
-  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0, user_fixture: 0]
   import ZaimuTomo.DocumentsFixtures
 
@@ -21,7 +22,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       {:ok, extracted_data} =
-        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        ExtractedData.changeset(extracted_data_attrs)
         |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
@@ -52,7 +53,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       {:ok, extracted_data} =
-        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        ExtractedData.changeset(extracted_data_attrs)
         |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
@@ -82,7 +83,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       {:ok, extracted_data} =
-        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(extracted_data_attrs)
+        ExtractedData.changeset(extracted_data_attrs)
         |> Ecto.Changeset.apply_action(:insert)
 
       attrs = %{
@@ -115,7 +116,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       {:ok, old_data} =
-        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(old_extracted_data)
+        ExtractedData.changeset(old_extracted_data)
         |> Ecto.Changeset.apply_action(:insert)
 
       old_attrs = %{
@@ -136,7 +137,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentTest do
       }
 
       {:ok, new_data} =
-        ZaimuTomo.DocumentProcessing.ExtractedData.changeset(new_extracted_data)
+        ExtractedData.changeset(new_extracted_data)
         |> Ecto.Changeset.apply_action(:insert)
 
       new_attrs = %{

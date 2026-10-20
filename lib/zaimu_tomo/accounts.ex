@@ -7,7 +7,7 @@ defmodule ZaimuTomo.Accounts do
 
   alias ZaimuTomo.Repo
 
-  alias ZaimuTomo.Accounts.{User, UserToken, UserNotifier}
+  alias ZaimuTomo.Accounts.{User, UserNotifier, UserToken}
 
   ## Database getters
 

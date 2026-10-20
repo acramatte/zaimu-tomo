@@ -50,7 +50,7 @@ Main capabilities:
 
 ## 2. Constraints
 
-- **Stack:** Elixir 1.19 / OTP 28, Phoenix 1.8 with LiveView, Ecto with PostgreSQL 18, Tailwind v4, and esbuild. HTTP calls go through `Req`.
+- **Stack:** Elixir 1.20 / OTP 28, Phoenix 1.8 with LiveView, Ecto with PostgreSQL 18, Tailwind v4, and esbuild. HTTP calls go through `Req`.
 - **Single deployable:** one OTP release in one container, deployed with Kamal 2 to a single VPS.
 - **Network:** the app is not exposed on the public internet. Users reach it over WireGuard, and only SSH is public.
 - **Background work:** Oban OSS (no Pro features). The queue lives in the same Postgres database.
@@ -141,17 +141,17 @@ flowchart TB
 | Building block | Path | Responsibility |
 |---|---|---|
 | `Accounts` | `lib/zaimu_tomo/accounts*` | Users, sessions and tokens (phx.gen.auth), `Scope`, and per-user settings (display name, base currency). |
-| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Creates a document and its OCR job atomically, and deletes the object after the row is deleted. |
+| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Stores uploads and fingerprints their exact bytes (`store_upload/2`, `Fingerprint`), creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
 | `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected / failed), the `EventLog` audit trail, and Langfuse feedback scores. |
-| `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, posting (category plus need/want), tax deduction claims, and spending aggregates. |
+| `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want), tax deduction claims, and spending aggregates. |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. |
 | `LLMClient` | `lib/zaimu_tomo/llm_client.ex` | Per-role (extractor and verifier) backend and model resolution through ReqLLM, and response parsing and validation. |
 | `Langfuse` | `lib/zaimu_tomo/langfuse.ex` | Prompt fetch (with built-in local fallbacks), OpenTelemetry spans, and feedback scores. |
-| `Release` | `lib/zaimu_tomo/release.ex`, `rel/overlays/bin/*` | Release-time commands: migrate, rollback, S3 migration and verification, and stuck-document recovery. |
+| `Release` | `lib/zaimu_tomo/release.ex`, `rel/overlays/bin/*` | Release-time commands: migrate, rollback, S3 migration and verification, stuck-document recovery, and the document fingerprint backfill. |
 
 ### Level 2 — document processing
 
@@ -181,8 +181,8 @@ sequenceDiagram
     participant L as Extractor / Verifier LLM
 
     U->>LV: upload file
-    LV->>S3: PUT documents/<uuid>.<ext>
-    LV->>DB: txn: insert document + oban job
+    LV->>S3: Documents.store_upload: SHA-256 of the bytes,<br/>PUT the same bytes to documents/<uuid>.<ext>
+    LV->>DB: txn: insert document (with content_sha256) + oban job
     Note over LV,S3: on insert failure the object is deleted
     J->>DB: fetch document
     J->>S3: GET to temp file
@@ -191,9 +191,9 @@ sequenceDiagram
     J->>L: verify grounding
     J->>DB: txn: lock document, append extracted_content,<br/>create pending review_decision, enqueue TypeSafe (optional)
     J-->>LV: PubSub document_processing:success
-    U->>LV: approve / amend / reject
-    LV->>DB: update review_decision + event_log
-    LV->>DB: approved/amended → create journal_entry (+ tax claim)
+    U->>LV: approve / amend / reject (+ explicit file-reuse confirmation)
+    LV->>DB: txn: update review_decision, create journal_entry<br/>(source_document_sha256 snapshot) + tax claim + event_log
+    Note over LV,DB: a duplicate rolls the transition back: same issuer + number,<br/>or the same source file without a confirmed reuse (unique indexes).<br/>Soft issuer/date/amount/currency matches and confirmable file<br/>matches are refused before posting until the reviewer confirms
     U->>LV: assign category + need/want → posted
 ```
 
@@ -287,18 +287,20 @@ erDiagram
     financial_accounts ||--o{ balance_snapshots : ""
 ```
 
-- `documents` stores `filename` (original name) and `object_key` (`documents/<uuid>.<ext>`). The bytes live only in object storage.
+- `documents` stores `filename` (original name), `object_key` (`documents/<uuid>.<ext>`), and `content_sha256` (SHA-256 of the exact uploaded bytes, lowercase hex; null for legacy rows until the backfill reads them). The bytes live only in object storage. Replacing the object replaces the digest.
 - `extracted_content` holds `extracted_data` (an embedded schema), `raw_llm_response`, an `analysis` map (verification and TypeSafe shadow results), `status` (`success` or `failed`), `error_details`, and the Langfuse `trace_id`.
 - Money is stored in integer cents with an ISO currency code. Each user has a `base_currency` (default CHF), which is snapshotted into each OCR job as the currency hint.
 - `oban_jobs` lives in the same database. Finished jobs are pruned after 7 days.
 - Deleting a document that has a posted journal entry is blocked by a foreign key.
+- A partial unique index on `journal_entries (user_id, lower(btrim(issuer)), lower(btrim(invoice_number)))` blocks posting the same numbered invoice twice per user. An unnumbered invoice matching an existing entry's exact `(issuer, date, amount, currency)` tuple is a soft match that requires explicit reviewer confirmation to post. See `Accounting.duplicate_candidates/2`.
+- `journal_entries.source_document_sha256` is an immutable posting-time copy of the source document's `content_sha256`; `source_file_reuse_confirmed` (default false) marks a posting the reviewer explicitly confirmed as a reuse of the same file. The partial unique index `journal_entries (user_id, source_document_sha256) WHERE source_document_sha256 IS NOT NULL AND NOT source_file_reuse_confirmed` allows one unconfirmed posting per file per user. `Accounting.duplicate_check/3` ranks matches as same file > invoice number > same details; a file match is confirmable only when no field rule also matches (the tuple is compared against the file-matched entries even for numbered invoices). Confirmations are logged as `source_file_reuse_confirmed` events with the matched entry IDs. Fingerprints are user-scoped, redacted from inspect output, and never rendered or sent to an AI provider. Only `FingerprintBackfill` may set them on existing entries; there is no immutability trigger on `journal_entries` yet, and any future one must run after the backfill or allow it.
 
 ### Multi-tenancy and authorization
 
 Every context function takes `%Accounts.Scope{}` first and filters by
 `scope.user.id`. Routes requiring login live in `live_session :require_authenticated_user`.
 Unscoped functions exist only for maintenance tasks (storage verification,
-stuck recovery) and say so in their docs.
+stuck recovery, fingerprint backfill) and say so in their docs.
 
 ### Background jobs (Oban)
 
@@ -322,7 +324,7 @@ otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.m
 ### Observability
 
 - **Tracing:** OpenTelemetry spans per document (`process-invoice` → extraction, verification, TypeSafe shadow), exported to Langfuse when it is enabled. The trace ID is stored on the extraction, so user 👍/👎 feedback becomes a Langfuse score.
-- **Logs:** tagged prefixes (`[OCR]`, `[TypeSafe]`). Failures are logged as bounded summaries, never as OCR text or provider bodies.
+- **Logs:** tagged prefixes (`[OCR]`, `[TypeSafe]`). Failures are logged as bounded summaries, never as OCR text or provider bodies. The default formatter includes the request ID and TypeSafe status, model, error class, and sanitized stacktrace metadata; development keeps its message-only format.
 - **Health:** `GET /health` and `/up` (no session or auth), used by kamal-proxy and the Docker `HEALTHCHECK`.
 - **LiveDashboard:** dev only (`/dev/dashboard`).
 
@@ -343,7 +345,7 @@ subscribe in `mount/3` when connected.
 ExUnit with the SQL sandbox. Storage uses the Memory adapter, HTTP uses
 `Req.Test` stubs, and Oban runs in manual testing mode. Run `mix precommit`
 before committing (compile with warnings as errors, unlock unused deps, format,
-test). Credo is available.
+test), plus `mix credo --strict`, which is blocking in CI (§9 D15).
 
 ---
 
@@ -364,6 +366,12 @@ is in [`specs/`](../specs/README.md).
 | D7 | 2026-09 | TypeSafe Jev as a *shadow* verifier | Collects independent per-field error probabilities without affecting outcomes until it is trusted. |
 | D8 | 2026-09 | Replace fire-and-forget `Task` OCR with durable Oban jobs, enqueued in the upload transaction | Uploads can't lose their job. Retries, Lifeline rescue, user retry, and operator recovery. The TypeSafe shadow also moved to Oban. |
 | D9 | 2026-10 | Add `stream_data` (test-only) for property-based tests on pure, boundary-heavy logic (currency normalization, error-retry classification, changeset validity, aggregation sums) | Generates and shrinks adversarial inputs instead of relying only on hand-picked examples; already caught an Ecto blank-string edge case in `Currency.normalize_and_validate/2`. DB-backed properties cap `max_runs` explicitly to bound CI time; `config :stream_data, max_runs` is lower locally, higher in CI (`CI=true`, set by GitHub Actions by default). |
+| D10 | 2026-08 | Duplicate invoice detection: DB-enforced unique index, plus the journal entry in the same transaction as the review decision | A numbered invoice (same user, issuer, invoice number) cannot post twice; the database enforces it regardless of code path. An unnumbered exact `(issuer, date, amount, currency)` match warns and needs explicit confirmation. Posting the journal entry, tax claim, and event log now happens in the same `Ecto.Multi` as the decision update, so a duplicate or a failed audit write rolls the whole transition back — closing the gap in §11. |
+| D11 | 2026-10 | Exact-byte SHA-256 fingerprints as an OCR-independent duplicate signal, copied to the journal entry at posting and enforced by a per-user partial unique index over unconfirmed postings | Re-uploading identical bytes is caught even when OCR/LLM reads different fields. A unique constraint cannot span document → extraction → review → entry, so the digest is snapshotted on the entry. Legitimately reused files (QR-bills, standing slips) post only with an explicit per-posting confirmation, recorded on the entry and in the event log. Legacy rows are filled by an online, idempotent backfill through the `Storage` facade, never by a migration. See `specs/004`. |
+| D12 | 2026-10 | Upgrade to Elixir 1.20 (OTP unchanged at 28) | Elixir 1.20 completes zero-annotation type inference across all constructs, so the existing `mix compile --warnings-as-errors` CI gate now also catches unreachable clauses and dead code for free, no specs or Dialyzer required. Surfaced and removed 3 pre-existing dead branches (`review.ex`, `llm_client.ex`, `langfuse.ex`) that the 1.19 compiler couldn't see. First step toward the CI reliability work tracked for direct-to-main pushes; a complementary nightly Dialyzer job (whole-program success typing) is still planned separately. |
+| D13 | 2026-10 | Split CI into `lint` / `test` / `security-audit` jobs; `mix credo --strict` and `mix hex.audit` run on every push but are advisory (non-blocking), with a separate nightly workflow re-running the audit so a CVE disclosed on a quiet day still gets caught | First step of hardening CI as the real safety net for pushing straight to `main` with less manual review. Credo and the audit aren't required checks yet because both already have a pre-existing backlog (51 Credo issues; `hackney` pinned to a vulnerable 1.x line by a test-only dependency) unrelated to any one change — see §11. `mix hex.audit` found 6 live advisories in locked dependencies; the `bandit` ones were fixed by a routine version bump in the same change, `hackney`'s needs a dependency change tracked separately. |
+| D14 | 2026-10 | Add Dialyzer (dialyxir) as a nightly, advisory-only CI job rather than a required per-push check | Whole-program success typing complements the Elixir 1.20 compiler's own type inference (D12) by also checking across the OTP/dependency boundary, but PLT builds are too slow for a per-push gate. First run found 10 findings: 3 duplicated dead code already fixed by the Elixir 1.20 upgrade; 5 are a well-known Dialyzer/`Ecto.Multi` opaque-`MapSet` false positive; 2 (`storage/s3.ex`) are a `File.stream!/2` success-typing gap verified benign directly in `iex` before suppressing. All 7 non-duplicate false positives are listed individually in `.dialyzer_ignore.exs` with the reasoning, not blanket-ignored, so a genuinely new finding in the same file still surfaces. Also added missing `@type t :: %__MODULE__{}` to `ExtractedData` and `ExtractedContent.ExtractedContent` (matching the convention already used in `Document`/`ReviewDecision`), which cleared 9 separate `unknown_type` findings and makes every existing `@spec` referencing them actually checked going forward. |
+| D15 | 2026-10 | Clear the 51-finding Credo backlog and make `mix credo --strict` blocking in the existing `lint` CI job | Supersedes D13's advisory Credo policy so new findings fail CI instead of rebuilding the backlog. Reorder aliases, alias nested module calls, use implicit function-level rescue/catch and readable string sigils, use `ReviewDecision.t()` in specs, and configure the existing TypeSafe Logger metadata explicitly. The two upload-test TODOs were stale: the same file already exercises uploads and edit submission, so replace them with references to that coverage. No checks are disabled and no findings are suppressed. Security audit and nightly Dialyzer remain advisory; GitHub branch protection settings are unchanged. |
 
 ---
 
@@ -377,6 +385,7 @@ is in [`specs/`](../specs/README.md).
 | A user opens another user's document ID | Not found (scoped query). |
 | The VPS is lost | Restore from the off-host object export plus the Postgres dump, then `bin/verify_storage` reports zero missing objects. |
 | Switching the LLM model | Env change and redeploy only. |
+| The same file is uploaded and approved twice concurrently | At most one journal entry commits (unique index); the other review rolls back and stays pending. |
 
 ---
 
@@ -386,10 +395,12 @@ is in [`specs/`](../specs/README.md).
 |---|---|
 | Legacy upload volume | `zaimu_tomo_uploads` is still mounted (`config/deploy.yml`, `Dockerfile`) from the pre-S3 migration. Remove it after the restore check is recorded (see [operations.md](operations.md#legacy-upload-volume)). |
 | Single host | App, DB, and object store share one VPS. Backups are the only DR mechanism. |
-| Journal entry creation outside the approval transaction | `Accounting.create_from_decision/2` is called from the LiveView after the decision update, so an approved decision can exist without an entry (for example when the date is invalid). |
 | No production mailer | `runtime.exs` configures no Swoosh adapter for prod, so email-based auth flows (confirmation, magic links) don't deliver in production. |
 | Shared S3 credential | The app's S3 key is the RustFS root credential. Per-application credentials are not yet introduced. |
 | `force_ssl` off | HTTP behind the VPN is by design. Enable `FORCE_SSL` at build time if the app is ever exposed publicly. |
+| Fingerprint coverage of legacy postings | Exact-file protection covers historical entries only after `bin/backfill_document_fingerprints` reports complete coverage. Missing objects and unresolved same-user collisions stay null and are not protected (see [operations.md](operations.md#document-fingerprint-backfill)). |
+| Confirmed reuses are not DB-constrained | A confirmed file reuse is excluded from the unique index; the "no field match" condition is checked in the posting transaction, not by a constraint, so two simultaneous postings by the same user could both pass it. |
+| `hackney` pinned to a vulnerable 1.x line | `testcontainers` (test-only) requires `~> 1.20`, but hackney's maintainers moved straight from 1.x to a 4.x line with no further 1.x patch releases, so `mix hex.audit` permanently flags 4 open CVEs (1 HIGH) on this transitive dependency until `testcontainers` (or its `tesla`/hackney requirement) supports hackney 4.x. Flagged by the new `security-audit` CI job and nightly audit; not fixed here since forcing hackney 4.x would likely break `testcontainers`. |
 
 ---
 

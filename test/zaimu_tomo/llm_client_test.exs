@@ -164,9 +164,16 @@ defmodule ZaimuTomo.LLMClientTest do
         message: %Message{
           role: :assistant,
           content: [
-            ContentPart.text(
-              "\n```json\n{\n  \"status\": \"verified\",\n  \"reason\": \"All extracted values are directly supported by the source OCR markdown.\",\n  \"field_issues\": \"\"\n}\n```\n"
-            )
+            ContentPart.text(~S"""
+
+            ```json
+            {
+              "status": "verified",
+              "reason": "All extracted values are directly supported by the source OCR markdown.",
+              "field_issues": ""
+            }
+            ```
+            """)
           ],
           tool_calls: []
         },
@@ -279,9 +286,12 @@ defmodule ZaimuTomo.LLMClientTest do
         message: %Message{
           role: :assistant,
           content: [
-            ContentPart.text(
-              "\n```json\n{\"status\": \"looks_good\", \"reason\": \"Fine\"}\n```\n"
-            )
+            ContentPart.text(~S"""
+
+            ```json
+            {"status": "looks_good", "reason": "Fine"}
+            ```
+            """)
           ],
           tool_calls: []
         },

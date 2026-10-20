@@ -1,0 +1,53 @@
+name: Nightly Dialyzer
+
+on:
+  schedule:
+    # 03:47 UTC daily (offset from nightly-audit.yml so they don't contend
+    # for the same runner queue).
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+env:
+  MIX_ENV: dev
+
+jobs:
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - name: Cache dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      # PLTs are the expensive part (whole-OTP success typing) and change
+      # only when deps change, so they get their own cache keyed on
+      # mix.lock rather than being rebuilt every run.
+      - name: Cache Dialyzer PLTs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-plt-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile
+
+      - name: Dialyzer
+        run: mix dialyzer

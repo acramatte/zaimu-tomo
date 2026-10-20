@@ -1,13 +1,13 @@
 defmodule ZaimuTomo.ReviewFixtures do
   @moduledoc false
-  alias ZaimuTomo.Repo
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
 
   @valid_extracted_data %{
     amount_to_pay_cents: 4200,
     invoice_date: "2026-05-08",
-    invoice_number: "INV-001",
+    invoice_number: nil,
     currency: "EUR",
     reason_for_payment: "Office supplies",
     issuer: "ACME Corp"

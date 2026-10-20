@@ -2,13 +2,13 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   use ZaimuTomo.DataCase, async: false
   use Oban.Testing, repo: ZaimuTomo.Repo
 
-  alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents.Document
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review.ReviewDecision
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
   import Bitwise, only: [band: 2]
 

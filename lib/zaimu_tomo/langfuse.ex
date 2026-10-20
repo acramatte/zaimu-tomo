@@ -200,13 +200,11 @@ defmodule ZaimuTomo.Langfuse do
   defp fetch_prompt_source(false, name, _label), do: fetch_local_prompt(name)
 
   defp fetch_prompt_result(name, label) do
-    try do
-      prompt_fetcher().(name, label)
-    rescue
-      _exception -> {:error, :prompt_fetcher_failed}
-    catch
-      _kind, _reason -> {:error, :prompt_fetcher_failed}
-    end
+    prompt_fetcher().(name, label)
+  rescue
+    _exception -> {:error, :prompt_fetcher_failed}
+  catch
+    _kind, _reason -> {:error, :prompt_fetcher_failed}
   end
 
   defp parse_prompt_response(
@@ -321,8 +319,6 @@ defmodule ZaimuTomo.Langfuse do
       {:error, {:missing_prompt_variables, missing_variables}}
     end
   end
-
-  defp compile_prompt(_template, _variables), do: {:error, :invalid_langfuse_prompt_response}
 
   @spec enabled?() :: boolean()
   def enabled?, do: config() |> Keyword.get(:enabled, false)

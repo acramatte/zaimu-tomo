@@ -238,7 +238,6 @@ defmodule ZaimuTomo.LLMClient do
          {:error, :no_structured_output} <- structured_output_from_tool_calls(response) do
       prose_object_from_response(response)
     else
-      {:ok, %{} = object} -> {:ok, object}
       %{} = object -> {:ok, object}
     end
   end
