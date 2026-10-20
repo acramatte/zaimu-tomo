@@ -2,8 +2,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.Documents.Document
 
   schema "extracted_content" do
     embeds_one :extracted_data, ExtractedData

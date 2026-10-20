@@ -96,9 +96,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert render(form_live) =~ "Edit Document"
 
-      # Skip validation and submission tests for now as file upload works differently
-      # The form now uses live file uploads which require a different testing approach
-      # TODO: Enhance this test with proper file upload simulation
+      # File upload and edit submission are covered in "Form uploads" below.
     end
 
     test "deletes document in listing", %{conn: conn, document: document} do
@@ -355,9 +353,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert render(form_live) =~ "Edit Document"
 
-      # Skip validation and submission tests for now as file upload works differently
-      # The form now uses live file uploads which require a different testing approach
-      # TODO: Enhance this test with proper file upload simulation
+      # File upload and edit submission are covered in "Form uploads" above.
     end
   end
 

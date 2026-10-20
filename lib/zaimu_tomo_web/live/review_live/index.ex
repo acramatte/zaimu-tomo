@@ -1,9 +1,9 @@
 defmodule ZaimuTomoWeb.ReviewLive.Index do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.ReviewDecision
-  alias ZaimuTomo.Accounts.Scope
 
   @impl true
   def mount(_params, _session, socket) do

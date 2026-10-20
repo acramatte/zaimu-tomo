@@ -4,8 +4,8 @@ defmodule ZaimuTomo.Accounts.UserNotifier do
   """
   import Swoosh.Email
 
-  alias ZaimuTomo.Mailer
   alias ZaimuTomo.Accounts.User
+  alias ZaimuTomo.Mailer
 
   # Delivers the email using the application mailer.
   defp deliver(recipient, subject, body) do

@@ -103,9 +103,8 @@ Notes:
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on pushes to `main` and on every
 PR, for any base branch so stacked PRs are covered, as three jobs: `lint` (format
-check, `mix credo --strict` advisory/non-blocking until its pre-existing backlog
-is cleared, unused-dependency check), `test` (compiles with warnings as errors,
-migrates a Postgres 18 service, runs `mix test`), and `security-audit`
+check, blocking `mix credo --strict`, unused-dependency check), `test` (compiles
+with warnings as errors, migrates a Postgres 18 service, runs `mix test`), and `security-audit`
 (`mix hex.audit`, advisory/non-blocking — a new CVE in an unrelated dependency
 shouldn't block unrelated work). A separate scheduled workflow
 (`.github/workflows/nightly-audit.yml`) re-runs `mix hex.audit` nightly, since

@@ -6,10 +6,10 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
 
-  alias ZaimuTomo.Review
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
 
   setup :register_and_log_in_user
 

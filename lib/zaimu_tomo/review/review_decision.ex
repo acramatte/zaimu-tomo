@@ -2,9 +2,9 @@ defmodule ZaimuTomo.Review.ReviewDecision do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedData
-  alias ZaimuTomo.Accounts.User
 
   schema "review_decisions" do
     embeds_one :original_data, ExtractedData

@@ -9,14 +9,14 @@ defmodule ZaimuTomo.Accounting do
   import Ecto.Query, warn: false
   require Logger
 
-  alias ZaimuTomo.Repo
+  alias Ecto.Multi
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
-  alias ZaimuTomo.Review.ReviewDecision
-  alias ZaimuTomo.Review.EventLog
   alias ZaimuTomo.DocumentProcessing.ExtractedData
-  alias Ecto.Multi
+  alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review.EventLog
+  alias ZaimuTomo.Review.ReviewDecision
 
   # ---------------------------------------------------------------------------
   # Duplicate detection
@@ -228,7 +228,7 @@ defmodule ZaimuTomo.Accounting do
     * `:source_file_reuse_confirmed` — `true` only when the reviewer explicitly
       confirmed a reuse of the same file; defaults to `false`.
   """
-  @spec create_multi_from_decision(%ReviewDecision{}, map(), keyword()) :: Ecto.Multi.t()
+  @spec create_multi_from_decision(ReviewDecision.t(), map(), keyword()) :: Ecto.Multi.t()
   def create_multi_from_decision(
         %ReviewDecision{} = decision,
         tax_claim_attrs \\ %{},

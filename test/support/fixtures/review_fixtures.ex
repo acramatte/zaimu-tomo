@@ -1,7 +1,7 @@
 defmodule ZaimuTomo.ReviewFixtures do
   @moduledoc false
-  alias ZaimuTomo.Repo
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
 
   @valid_extracted_data %{

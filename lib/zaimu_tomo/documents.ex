@@ -4,13 +4,13 @@ defmodule ZaimuTomo.Documents do
   """
 
   import Ecto.Query, warn: false
-  alias ZaimuTomo.Repo
 
-  alias ZaimuTomo.Documents.Document
-  alias ZaimuTomo.Documents.Fingerprint
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Repo
   alias ZaimuTomo.Storage
 
   @doc """

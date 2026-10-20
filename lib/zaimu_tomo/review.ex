@@ -11,15 +11,15 @@ defmodule ZaimuTomo.Review do
   require Logger
 
   alias Ecto.Multi
-  alias ZaimuTomo.Repo
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
-  alias ZaimuTomo.Review.ReviewDecision
-  alias ZaimuTomo.Review.EventLog
-  alias ZaimuTomo.Langfuse
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Langfuse
+  alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review.EventLog
+  alias ZaimuTomo.Review.ReviewDecision
 
   # ---------------------------------------------------------------------------
   # Initial decision creation (called by OCR worker)
