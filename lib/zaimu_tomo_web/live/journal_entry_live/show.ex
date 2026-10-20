@@ -91,6 +91,27 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
             <div class="name">Tax treatment</div>
             <div>{tax_treatment_label(@entry.tax_deduction_claim)}</div>
           </div>
+          <div :if={tax_treatment_status(@entry) == "candidate"} class="detail-row">
+            <div class="name">Tax claim</div>
+            <a class="btn sm" href={~p"/tax_claims/#{@entry.tax_deduction_claim.id}"}>
+              Resolve claim
+            </a>
+          </div>
+          <div :if={tax_treatment_status(@entry) == "claimed"} class="detail-row">
+            <div class="name">Tax return</div>
+            <div id="journal-entry-tax-return-reference">
+              {@entry.tax_deduction_claim.tax_return_reference || "—"}
+            </div>
+          </div>
+          <div :if={tax_treatment_status(@entry) == "disallowed"} class="detail-row">
+            <div class="name">Tax authority</div>
+            <div id="journal-entry-tax-authority">
+              {@entry.tax_deduction_claim.authority_name || "—"}
+              {if @entry.tax_deduction_claim.authority_reference,
+                do: " · #{@entry.tax_deduction_claim.authority_reference}",
+                else: ""}
+            </div>
+          </div>
           <div class="detail-row">
             <div class="name">Notes</div>
             <div>{@entry.notes || "—"}</div>
