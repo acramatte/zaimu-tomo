@@ -99,7 +99,7 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       Storage.put_object("documents/invoice.pdf", "invoice bytes")
       stub_mistral(fn conn -> Plug.Conn.send_resp(conn, 429, "rate limited") end)
 
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+      ZaimuTomo.DocumentProcessing.subscribe_events(scope)
 
       args = args_for(document)
       assert {:error, _reason} = perform_job(OCRJob, args, attempt: 1, max_attempts: 5)

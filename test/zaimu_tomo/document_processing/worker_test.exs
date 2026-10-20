@@ -270,7 +270,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       {:ok, stale} = insert_failed_extraction(document)
       {:ok, _newer} = insert_failed_extraction(document)
 
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
+      ZaimuTomo.DocumentProcessing.subscribe_events(scope)
 
       assert {:error, :already_processed} =
                Worker.persist_and_emit_success(
@@ -294,7 +294,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       {:ok, stale} = insert_failed_extraction(document)
       {:ok, _newer} = insert_failed_extraction(document)
 
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+      ZaimuTomo.DocumentProcessing.subscribe_events(scope)
 
       assert {:error, :already_processed} =
                Worker.persist_and_emit_failure(document, {:ocr_upload_failed, :enoent}, stale.id)
@@ -330,6 +330,58 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                Worker.persist_and_emit_failure(document, {:ocr_upload_failed, :enoent}, nil)
 
       assert Repo.aggregate(ExtractedContent, :count) == 0
+    end
+  end
+
+  describe "tenant isolation of processing events" do
+    test "a user only receives their own success and failure events" do
+      owner = user_scope_fixture(user_fixture())
+      other = user_scope_fixture(user_fixture())
+      document = document_fixture(owner, %{})
+      failing_document = document_fixture(owner, %{})
+
+      # Subscribe from a separate process as the other user so the test
+      # process receives only the owner's events.
+      parent = self()
+
+      spawn_link(fn ->
+        ZaimuTomo.DocumentProcessing.subscribe_events(other)
+        send(parent, :spy_ready)
+
+        receive do
+          message -> send(parent, {:spy_received, message})
+        after
+          500 -> :ok
+        end
+      end)
+
+      assert_receive :spy_ready
+      ZaimuTomo.DocumentProcessing.subscribe_events(owner)
+
+      assert {:ok, _} =
+               Worker.persist_and_emit_success(
+                 document,
+                 extracted_data(),
+                 %{},
+                 %{"status" => "not_run"},
+                 nil,
+                 "CHF",
+                 nil
+               )
+
+      assert_receive %{status: :completed, user_id: owner_id}
+      assert owner_id == owner.user.id
+
+      assert {:ok, _} =
+               Worker.persist_and_emit_failure(
+                 failing_document,
+                 {:ocr_upload_failed, :enoent},
+                 nil
+               )
+
+      assert_receive %{status: :failed, user_id: ^owner_id}
+
+      refute_receive {:spy_received, _}, 600
     end
   end
 
