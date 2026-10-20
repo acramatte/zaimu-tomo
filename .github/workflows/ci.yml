@@ -43,12 +43,7 @@ jobs:
         run: mix deps.unlock --check-unused
 
       - name: Credo
-        # Advisory for now: --strict already reports 51 pre-existing issues
-        # (mostly alias ordering and nested-module aliasing) that predate
-        # this check and aren't part of any one change. Visible so they
-        # don't get worse, not blocking until that backlog is cleared.
         run: mix credo --strict
-        continue-on-error: true
 
   test:
     name: Build and test

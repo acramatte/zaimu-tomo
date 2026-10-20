@@ -1,11 +1,11 @@
 defmodule ZaimuTomoWeb.ReviewLive.Edit do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.Accounting
+  alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.ReviewDecision
-  alias ZaimuTomo.Accounting
-  alias ZaimuTomo.DocumentProcessing.ExtractedData
-  alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomoWeb.ReviewLive.Duplicates
 
   @impl true

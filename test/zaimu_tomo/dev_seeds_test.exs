@@ -2,6 +2,7 @@ defmodule ZaimuTomo.DevSeedsTest do
   use ZaimuTomo.DataCase
 
   alias ZaimuTomo.{Accounts, DevSeeds, FinancialAccounts}
+  alias ZaimuTomo.Accounts.Scope
 
   test "creates a demo user with varied financial accounts and balances" do
     assert %{user: user, accounts: accounts} = DevSeeds.seed!()
@@ -29,7 +30,7 @@ defmodule ZaimuTomo.DevSeedsTest do
                }
              end)
 
-    scope = ZaimuTomo.Accounts.Scope.for_user(user)
+    scope = Scope.for_user(user)
 
     assert 5 == length(FinancialAccounts.list_financial_accounts(scope))
   end
@@ -43,7 +44,7 @@ defmodule ZaimuTomo.DevSeedsTest do
     assert Enum.map(second_seed.accounts, & &1.account.id) ==
              Enum.map(first_seed.accounts, & &1.account.id)
 
-    scope = ZaimuTomo.Accounts.Scope.for_user(second_seed.user)
+    scope = Scope.for_user(second_seed.user)
 
     assert 5 == length(FinancialAccounts.list_financial_accounts(scope))
 
@@ -54,7 +55,7 @@ defmodule ZaimuTomo.DevSeedsTest do
 
   test "adds missing balance history to existing demo accounts" do
     %{user: user, accounts: accounts} = DevSeeds.seed!()
-    scope = ZaimuTomo.Accounts.Scope.for_user(user)
+    scope = Scope.for_user(user)
     today = Date.utc_today()
 
     current_snapshot_ids =
@@ -79,7 +80,7 @@ defmodule ZaimuTomo.DevSeedsTest do
 
   test "creates monthly and bi-monthly balance history for every demo account" do
     %{user: user, accounts: accounts} = DevSeeds.seed!()
-    scope = ZaimuTomo.Accounts.Scope.for_user(user)
+    scope = Scope.for_user(user)
     today = Date.utc_today()
 
     expected_dates = [

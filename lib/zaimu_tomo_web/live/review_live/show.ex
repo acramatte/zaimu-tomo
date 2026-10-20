@@ -1,10 +1,10 @@
 defmodule ZaimuTomoWeb.ReviewLive.Show do
   use ZaimuTomoWeb, :live_view
 
-  alias ZaimuTomo.Review
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomoWeb.ReviewLive.Duplicates
 
   @impl true

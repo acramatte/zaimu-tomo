@@ -324,7 +324,7 @@ otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.m
 ### Observability
 
 - **Tracing:** OpenTelemetry spans per document (`process-invoice` → extraction, verification, TypeSafe shadow), exported to Langfuse when it is enabled. The trace ID is stored on the extraction, so user 👍/👎 feedback becomes a Langfuse score.
-- **Logs:** tagged prefixes (`[OCR]`, `[TypeSafe]`). Failures are logged as bounded summaries, never as OCR text or provider bodies.
+- **Logs:** tagged prefixes (`[OCR]`, `[TypeSafe]`). Failures are logged as bounded summaries, never as OCR text or provider bodies. The default formatter includes the request ID and TypeSafe status, model, error class, and sanitized stacktrace metadata; development keeps its message-only format.
 - **Health:** `GET /health` and `/up` (no session or auth), used by kamal-proxy and the Docker `HEALTHCHECK`.
 - **LiveDashboard:** dev only (`/dev/dashboard`).
 
@@ -345,7 +345,7 @@ subscribe in `mount/3` when connected.
 ExUnit with the SQL sandbox. Storage uses the Memory adapter, HTTP uses
 `Req.Test` stubs, and Oban runs in manual testing mode. Run `mix precommit`
 before committing (compile with warnings as errors, unlock unused deps, format,
-test). Credo is available.
+test), plus `mix credo --strict`, which is blocking in CI (§9 D15).
 
 ---
 
@@ -371,6 +371,7 @@ is in [`specs/`](../specs/README.md).
 | D12 | 2026-10 | Upgrade to Elixir 1.20 (OTP unchanged at 28) | Elixir 1.20 completes zero-annotation type inference across all constructs, so the existing `mix compile --warnings-as-errors` CI gate now also catches unreachable clauses and dead code for free, no specs or Dialyzer required. Surfaced and removed 3 pre-existing dead branches (`review.ex`, `llm_client.ex`, `langfuse.ex`) that the 1.19 compiler couldn't see. First step toward the CI reliability work tracked for direct-to-main pushes; a complementary nightly Dialyzer job (whole-program success typing) is still planned separately. |
 | D13 | 2026-10 | Split CI into `lint` / `test` / `security-audit` jobs; `mix credo --strict` and `mix hex.audit` run on every push but are advisory (non-blocking), with a separate nightly workflow re-running the audit so a CVE disclosed on a quiet day still gets caught | First step of hardening CI as the real safety net for pushing straight to `main` with less manual review. Credo and the audit aren't required checks yet because both already have a pre-existing backlog (51 Credo issues; `hackney` pinned to a vulnerable 1.x line by a test-only dependency) unrelated to any one change — see §11. `mix hex.audit` found 6 live advisories in locked dependencies; the `bandit` ones were fixed by a routine version bump in the same change, `hackney`'s needs a dependency change tracked separately. |
 | D14 | 2026-10 | Add Dialyzer (dialyxir) as a nightly, advisory-only CI job rather than a required per-push check | Whole-program success typing complements the Elixir 1.20 compiler's own type inference (D12) by also checking across the OTP/dependency boundary, but PLT builds are too slow for a per-push gate. First run found 10 findings: 3 duplicated dead code already fixed by the Elixir 1.20 upgrade; 5 are a well-known Dialyzer/`Ecto.Multi` opaque-`MapSet` false positive; 2 (`storage/s3.ex`) are a `File.stream!/2` success-typing gap verified benign directly in `iex` before suppressing. All 7 non-duplicate false positives are listed individually in `.dialyzer_ignore.exs` with the reasoning, not blanket-ignored, so a genuinely new finding in the same file still surfaces. Also added missing `@type t :: %__MODULE__{}` to `ExtractedData` and `ExtractedContent.ExtractedContent` (matching the convention already used in `Document`/`ReviewDecision`), which cleared 9 separate `unknown_type` findings and makes every existing `@spec` referencing them actually checked going forward. |
+| D15 | 2026-10 | Clear the 51-finding Credo backlog and make `mix credo --strict` blocking in the existing `lint` CI job | Supersedes D13's advisory Credo policy so new findings fail CI instead of rebuilding the backlog. Reorder aliases, alias nested module calls, use implicit function-level rescue/catch and readable string sigils, use `ReviewDecision.t()` in specs, and configure the existing TypeSafe Logger metadata explicitly. The two upload-test TODOs were stale: the same file already exercises uploads and edit submission, so replace them with references to that coverage. No checks are disabled and no findings are suppressed. Security audit and nightly Dialyzer remain advisory; GitHub branch protection settings are unchanged. |
 
 ---
 
@@ -400,7 +401,6 @@ is in [`specs/`](../specs/README.md).
 | Fingerprint coverage of legacy postings | Exact-file protection covers historical entries only after `bin/backfill_document_fingerprints` reports complete coverage. Missing objects and unresolved same-user collisions stay null and are not protected (see [operations.md](operations.md#document-fingerprint-backfill)). |
 | Confirmed reuses are not DB-constrained | A confirmed file reuse is excluded from the unique index; the "no field match" condition is checked in the posting transaction, not by a constraint, so two simultaneous postings by the same user could both pass it. |
 | `hackney` pinned to a vulnerable 1.x line | `testcontainers` (test-only) requires `~> 1.20`, but hackney's maintainers moved straight from 1.x to a 4.x line with no further 1.x patch releases, so `mix hex.audit` permanently flags 4 open CVEs (1 HIGH) on this transitive dependency until `testcontainers` (or its `tesla`/hackney requirement) supports hackney 4.x. Flagged by the new `security-audit` CI job and nightly audit; not fixed here since forcing hackney 4.x would likely break `testcontainers`. |
-| `mix credo --strict` backlog | Added to CI as advisory/non-blocking (§9 D13) because it already reports 51 pre-existing issues (mostly alias ordering and nested-module aliasing) unrelated to any one change. Needs a dedicated cleanup pass before it can become a required check. |
 
 ---
 

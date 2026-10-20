@@ -1,16 +1,17 @@
 defmodule ZaimuTomo.ReviewTest do
   use ZaimuTomo.DataCase, async: false
 
-  alias ZaimuTomo.Review
+  alias Ecto.Adapters.SQL.Sandbox
   alias ZaimuTomo.Accounting
-  alias ZaimuTomo.Repo
-  alias ZaimuTomo.Review.ReviewDecision
-  alias ZaimuTomo.Review.EventLog
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounting.TaxDeductionClaim
-  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Repo
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.EventLog
+  alias ZaimuTomo.Review.ReviewDecision
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
 
   import ZaimuTomo.DocumentsFixtures, only: [document_fixture: 1, document_fixture: 2]
@@ -397,7 +398,7 @@ defmodule ZaimuTomo.ReviewTest do
     test "commit at most one journal entry for the same file" do
       digest = String.duplicate("e", 64)
 
-      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+      Sandbox.unboxed_run(Repo, fn ->
         user = user_fixture()
 
         try do
@@ -409,7 +410,7 @@ defmodule ZaimuTomo.ReviewTest do
           tasks =
             for pending <- [a, b] do
               Task.async(fn ->
-                Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+                Sandbox.unboxed_run(Repo, fn ->
                   send(parent, {:ready, self()})
 
                   receive do

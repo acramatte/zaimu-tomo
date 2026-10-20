@@ -4,6 +4,7 @@ defmodule ZaimuTomo.ActivityTest do
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
 
+  alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Activity
 
   setup do
@@ -12,8 +13,8 @@ defmodule ZaimuTomo.ActivityTest do
 
     %{
       user: user,
-      scope: ZaimuTomo.Accounts.Scope.for_user(user),
-      other_scope: ZaimuTomo.Accounts.Scope.for_user(other_user),
+      scope: Scope.for_user(user),
+      other_scope: Scope.for_user(other_user),
       other_user: other_user
     }
   end

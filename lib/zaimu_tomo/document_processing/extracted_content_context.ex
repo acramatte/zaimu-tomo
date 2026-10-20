@@ -4,8 +4,8 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
   """
 
   import Ecto.Query
-  alias ZaimuTomo.Repo
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.Repo
 
   @doc """
   Creates a new extracted content record.

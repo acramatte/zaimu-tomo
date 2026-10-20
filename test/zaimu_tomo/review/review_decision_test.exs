@@ -1,8 +1,8 @@
 defmodule ZaimuTomo.Review.ReviewDecisionTest do
   use ExUnit.Case, async: true
 
-  alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.Review.ReviewDecision
 
   describe "decision_data || original_data priority" do
     test "returns original_data when decision_data is nil" do
