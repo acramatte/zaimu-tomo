@@ -36,6 +36,10 @@ config :zaimu_tomo, Oban, testing: :manual
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
+# Hackney 4's default pool loses the Unix-socket transport used by
+# Testcontainers and attempts DNS resolution of the Docker socket path.
+config :hackney, :use_default_pool, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
