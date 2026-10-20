@@ -93,7 +93,9 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
           </div>
           <div :if={tax_treatment_status(@entry) == "candidate"} class="detail-row">
             <div class="name">Tax claim</div>
-            <a class="btn sm" href={~p"/tax_claims"}>Resolve claim</a>
+            <a class="btn sm" href={~p"/tax_claims/#{@entry.tax_deduction_claim.id}"}>
+              Resolve claim
+            </a>
           </div>
           <div :if={tax_treatment_status(@entry) == "claimed"} class="detail-row">
             <div class="name">Tax return</div>

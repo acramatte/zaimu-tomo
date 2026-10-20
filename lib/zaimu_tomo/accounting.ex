@@ -363,59 +363,76 @@ defmodule ZaimuTomo.Accounting do
   end
 
   # ---------------------------------------------------------------------------
-  # Tax deduction claim resolution
+  # Tax deduction claim lifecycle
   # ---------------------------------------------------------------------------
 
-  @spec list_candidate_tax_deduction_claims(Scope.t()) :: [TaxDeductionClaim.t()]
-  def list_candidate_tax_deduction_claims(%Scope{user: user}) do
+  @spec list_tax_deduction_claim_years(Scope.t()) :: [integer()]
+  def list_tax_deduction_claim_years(%Scope{user: user}) do
     from(claim in TaxDeductionClaim,
-      where: claim.user_id == ^user.id and claim.status == "candidate",
-      preload: [:journal_entry],
-      order_by: [asc: claim.tax_year, asc: claim.inserted_at]
+      where: claim.user_id == ^user.id,
+      distinct: true,
+      order_by: [desc: claim.tax_year],
+      select: claim.tax_year
     )
     |> Repo.all()
   end
 
-  @spec resolve_tax_deduction_claim(Scope.t(), integer(), map()) ::
-          {:ok, TaxDeductionClaim.t()} | {:error, Ecto.Changeset.t() | String.t()}
-  def resolve_tax_deduction_claim(%Scope{user: user}, claim_id, attrs) do
+  @spec list_tax_deduction_claims(Scope.t(), integer()) :: [TaxDeductionClaim.t()]
+  def list_tax_deduction_claims(%Scope{user: user}, tax_year) do
+    from(claim in TaxDeductionClaim,
+      where: claim.user_id == ^user.id and claim.tax_year == ^tax_year,
+      preload: [:journal_entry],
+      order_by: [
+        asc:
+          fragment(
+            "CASE ? WHEN 'candidate' THEN 0 WHEN 'claimed' THEN 1 WHEN 'not_deductible' THEN 2 WHEN 'disallowed' THEN 3 ELSE 4 END",
+            claim.status
+          ),
+        asc: claim.inserted_at
+      ]
+    )
+    |> Repo.all()
+  end
+
+  @spec get_tax_deduction_claim(Scope.t(), integer()) ::
+          {:ok, TaxDeductionClaim.t()} | {:error, String.t()}
+  def get_tax_deduction_claim(%Scope{user: user}, claim_id) do
     case Repo.one(
            from claim in TaxDeductionClaim,
-             where:
-               claim.id == ^claim_id and claim.user_id == ^user.id and claim.status == "candidate"
+             where: claim.id == ^claim_id and claim.user_id == ^user.id,
+             preload: [:journal_entry]
          ) do
-      nil ->
-        {:error, "Candidate tax deduction claim not found or already resolved"}
-
-      claim ->
-        Multi.new()
-        |> Multi.update(
-          :tax_deduction_claim,
-          TaxDeductionClaim.changeset_for_resolution(claim, attrs)
-        )
-        |> Multi.run(:event_log, fn repo, %{tax_deduction_claim: resolved} ->
-          EventLog.changeset_for_create(%{
-            event_type: "tax_deduction_claim_resolved",
-            invoice_id: to_string(claim.journal_entry_id),
-            user_id: user.id,
-            metadata: %{
-              claim_id: claim.id,
-              from_status: claim.status,
-              to_status: resolved.status,
-              tax_return_reference: resolved.tax_return_reference,
-              authority_name: resolved.authority_name,
-              authority_reference: resolved.authority_reference
-            },
-            status: "completed"
-          })
-          |> repo.insert()
-        end)
-        |> Repo.transaction()
-        |> case do
-          {:ok, %{tax_deduction_claim: resolved}} -> {:ok, resolved}
-          {:error, _operation, changeset, _changes} -> {:error, changeset}
-        end
+      nil -> {:error, "Tax deduction claim not found or not owned by user"}
+      claim -> {:ok, claim}
     end
+  end
+
+  @spec review_tax_deduction_claim(Scope.t(), integer(), map()) ::
+          {:ok, TaxDeductionClaim.t()} | {:error, Ecto.Changeset.t() | String.t()}
+  def review_tax_deduction_claim(%Scope{user: user}, claim_id, attrs) do
+    transition_tax_deduction_claim(
+      user.id,
+      claim_id,
+      "candidate",
+      "Candidate tax deduction claim not found or already reviewed",
+      attrs,
+      &TaxDeductionClaim.changeset_for_candidate_review/2,
+      "tax_deduction_claim_reviewed"
+    )
+  end
+
+  @spec record_tax_authority_decision(Scope.t(), integer(), map()) ::
+          {:ok, TaxDeductionClaim.t()} | {:error, Ecto.Changeset.t() | String.t()}
+  def record_tax_authority_decision(%Scope{user: user}, claim_id, attrs) do
+    transition_tax_deduction_claim(
+      user.id,
+      claim_id,
+      "claimed",
+      "Claimed tax deduction claim not found or already decided by the authority",
+      attrs,
+      &TaxDeductionClaim.changeset_for_authority_decision/2,
+      "tax_deduction_claim_disallowed"
+    )
   end
 
   # ---------------------------------------------------------------------------
@@ -509,6 +526,57 @@ defmodule ZaimuTomo.Accounting do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  # The claim row is locked and its status re-checked inside the transaction, so
+  # two concurrent submissions cannot both transition the same claim.
+  defp transition_tax_deduction_claim(
+         user_id,
+         claim_id,
+         from_status,
+         not_found_message,
+         attrs,
+         changeset_fun,
+         event_type
+       ) do
+    Multi.new()
+    |> Multi.run(:locked_claim, fn repo, _changes ->
+      case repo.one(
+             from claim in TaxDeductionClaim,
+               where:
+                 claim.id == ^claim_id and claim.user_id == ^user_id and
+                   claim.status == ^from_status,
+               lock: "FOR UPDATE"
+           ) do
+        nil -> {:error, not_found_message}
+        claim -> {:ok, claim}
+      end
+    end)
+    |> Multi.update(:tax_deduction_claim, fn %{locked_claim: claim} ->
+      changeset_fun.(claim, attrs)
+    end)
+    |> Multi.run(:event_log, fn repo, %{locked_claim: claim, tax_deduction_claim: resolved} ->
+      EventLog.changeset_for_create(%{
+        event_type: event_type,
+        invoice_id: to_string(claim.journal_entry_id),
+        user_id: user_id,
+        metadata: %{
+          claim_id: claim.id,
+          from_status: claim.status,
+          to_status: resolved.status,
+          tax_return_reference: resolved.tax_return_reference,
+          authority_name: resolved.authority_name,
+          authority_reference: resolved.authority_reference
+        },
+        status: "completed"
+      })
+      |> repo.insert()
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{tax_deduction_claim: resolved}} -> {:ok, Repo.preload(resolved, :journal_entry)}
+      {:error, _operation, reason, _changes} -> {:error, reason}
+    end
+  end
 
   defp humanize_category(category) do
     category
