@@ -21,6 +21,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   durable `OCRJob` for retry.
   """
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.TemporaryFile
@@ -118,7 +119,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end)
     |> case do
       {:ok, content} ->
-        Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:success", %{
+        DocumentProcessing.broadcast_event(:success, document.user_id, %{
           document_id: document.id,
           extraction_id: content.id,
           user_id: document.user_id,
@@ -179,7 +180,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end)
     |> case do
       {:ok, content} ->
-        Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, "document_processing:failed", %{
+        DocumentProcessing.broadcast_event(:failed, document.user_id, %{
           document_id: document.id,
           extraction_id: content.id,
           user_id: document.user_id,

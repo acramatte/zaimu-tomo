@@ -190,7 +190,7 @@ sequenceDiagram
     J->>L: extract fields (currency hint = user base currency)
     J->>L: verify grounding
     J->>DB: txn: lock document, append extracted_content,<br/>create pending review_decision, enqueue TypeSafe (optional)
-    J-->>LV: PubSub document_processing:success
+    J-->>LV: PubSub user:id:document_processing:success
     U->>LV: approve / amend / reject (+ explicit file-reuse confirmation)
     LV->>DB: txn: update review_decision, create journal_entry<br/>(source_document_sha256 snapshot) + tax claim + event_log
     Note over LV,DB: a duplicate rolls the transition back: same issuer + number,<br/>or the same source file without a confirmed reuse (unique indexes).<br/>Soft issuer/date/amount/currency matches and confirmable file<br/>matches are refused before posting until the reviewer confirms
@@ -200,7 +200,7 @@ sequenceDiagram
 ### 6.2 Failure, retry and recovery
 
 - **Transient error** (timeouts, 408, 429, 5xx, transport errors) on a non-final attempt: the job returns `{:error, summary}` and **persists nothing**. Oban backs off and retries.
-- **Permanent error**, or a transient error on the final attempt (5): the job appends one `failed` `extracted_content` row and a `failed` review decision, broadcasts `document_processing:failed`, and completes.
+- **Permanent error**, or a transient error on the final attempt (5): the job appends one `failed` `extracted_content` row and a `failed` review decision, broadcasts `user:<id>:document_processing:failed`, and completes.
 - **Concurrency safety:** every terminal write locks the document row and checks that the latest extraction is still the one expected when the job was enqueued. Otherwise it cancels with `:already_processed`.
 - **Crash or deploy mid-run:** `Oban.Lifeline` moves `executing` jobs back after 30 minutes.
 - **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history.
@@ -336,7 +336,7 @@ otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.m
 
 ### Real-time UI
 
-PubSub topics: `user:<id>:documents`, `document_processing:success|failed`,
+PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed`,
 `invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
 subscribe in `mount/3` when connected.
 

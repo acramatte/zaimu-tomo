@@ -1,6 +1,7 @@
 defmodule ZaimuTomoWeb.ProcessingHeroLive do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
 
   on_mount {ZaimuTomoWeb.UserAuth, :require_authenticated}
@@ -12,8 +13,7 @@ defmodule ZaimuTomoWeb.ProcessingHeroLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Documents.subscribe_documents(socket.assigns.current_scope)
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+      DocumentProcessing.subscribe_events(socket.assigns.current_scope)
       schedule_prune()
     end
 

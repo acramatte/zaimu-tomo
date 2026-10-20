@@ -32,6 +32,27 @@ defmodule ZaimuTomo.DocumentProcessing do
   @type processing_state :: :processing | :stuck | :failed | :extracted
 
   @doc """
+  Subscribes the caller to the scope owner's processing events.
+
+  Messages are the maps broadcast by `broadcast_event/3`. Topics are per owner,
+  so a subscriber never receives another user's extracted data.
+  """
+  @spec subscribe_events(Scope.t()) :: :ok | {:error, term()}
+  def subscribe_events(%Scope{user: %{id: user_id}}) do
+    with :ok <- Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, event_topic(user_id, :success)) do
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, event_topic(user_id, :failed))
+    end
+  end
+
+  @doc false
+  @spec broadcast_event(:success | :failed, integer(), map()) :: :ok | {:error, term()}
+  def broadcast_event(kind, user_id, payload) when kind in [:success, :failed] do
+    Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, event_topic(user_id, kind), payload)
+  end
+
+  defp event_topic(user_id, kind), do: "user:#{user_id}:document_processing:#{kind}"
+
+  @doc """
   Builds the OCR job changeset for a document.
 
   The command is self-contained and resolved at enqueue time: the document id,

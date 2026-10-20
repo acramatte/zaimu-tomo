@@ -8,8 +8,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   def mount(%{"id" => id}, _session, socket) do
     if connected?(socket) do
       Documents.subscribe_documents(socket.assigns.current_scope)
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:success")
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "document_processing:failed")
+      DocumentProcessing.subscribe_events(socket.assigns.current_scope)
     end
 
     document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
