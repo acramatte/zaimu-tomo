@@ -173,6 +173,12 @@ body {
 .user-card > div:last-child {
   flex: 1; min-width: 0;
 }
+.app-version {
+  position: fixed; right: 12px; bottom: 8px; z-index: 10;
+  font: 400 10.5px 'Geist Mono', monospace;
+  color: var(--muted); opacity: 0.6;
+  pointer-events: none; user-select: none;
+}
 .avatar {
   width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(135deg, oklch(0.65 0.06 60), oklch(0.45 0.06 30));
