@@ -13,6 +13,7 @@ defmodule ZaimuTomo.DocumentProcessing do
   import Ecto.Query
 
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents.Document
@@ -20,6 +21,7 @@ defmodule ZaimuTomo.DocumentProcessing do
 
   @ocr_job_worker "ZaimuTomo.DocumentProcessing.OCRJob"
   @live_job_states ~w(available scheduled executing retryable)
+  @event_kinds [:success, :failed, :retried]
 
   @typedoc """
   Processing state of a document:
@@ -34,19 +36,24 @@ defmodule ZaimuTomo.DocumentProcessing do
   @doc """
   Subscribes the caller to the scope owner's processing events.
 
-  Messages are the maps broadcast by `broadcast_event/3`. Topics are per owner,
-  so a subscriber never receives another user's extracted data.
+  Messages are the maps broadcast by `broadcast_event/3`: a run finished
+  (`:success` / `:failed`) or a retry was enqueued (`:retried`). Topics are per
+  owner, so a subscriber never receives another user's extracted data.
   """
   @spec subscribe_events(Scope.t()) :: :ok | {:error, term()}
   def subscribe_events(%Scope{user: %{id: user_id}}) do
-    with :ok <- Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, event_topic(user_id, :success)) do
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, event_topic(user_id, :failed))
-    end
+    Enum.find_value(@event_kinds, :ok, fn kind ->
+      case Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, event_topic(user_id, kind)) do
+        :ok -> nil
+        error -> error
+      end
+    end)
   end
 
   @doc false
-  @spec broadcast_event(:success | :failed, integer(), map()) :: :ok | {:error, term()}
-  def broadcast_event(kind, user_id, payload) when kind in [:success, :failed] do
+  @spec broadcast_event(:success | :failed | :retried, integer(), map()) ::
+          :ok | {:error, term()}
+  def broadcast_event(kind, user_id, payload) when kind in @event_kinds do
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, event_topic(user_id, kind), payload)
   end
 
@@ -77,6 +84,42 @@ defmodule ZaimuTomo.DocumentProcessing do
     classify_state(live_job?(document.id), latest)
   end
 
+  @doc """
+  Returns the processing state of many documents at once.
+
+  Same semantics as `processing_state/1`, but resolved with two queries
+  (live jobs and latest extraction per document) regardless of how many ids are
+  given. Use it wherever a list of documents needs their current state.
+  """
+  @spec processing_states([pos_integer()]) :: %{pos_integer() => processing_state()}
+  def processing_states([]), do: %{}
+
+  def processing_states(document_ids) when is_list(document_ids) do
+    live_ids =
+      live_jobs()
+      |> where(
+        [j],
+        fragment("?->>'document_id'", j.args) in ^Enum.map(document_ids, &to_string/1)
+      )
+      |> select([j], fragment("?->>'document_id'", j.args))
+      |> Repo.all()
+      |> MapSet.new()
+
+    latest_statuses =
+      ExtractedContent
+      |> where([ec], ec.document_id in ^document_ids)
+      |> distinct([ec], ec.document_id)
+      |> order_by([ec], asc: ec.document_id, desc: ec.inserted_at, desc: ec.id)
+      |> select([ec], {ec.document_id, ec.status})
+      |> Repo.all()
+      |> Map.new()
+
+    Map.new(document_ids, fn id ->
+      latest = latest_statuses[id] && %{status: latest_statuses[id]}
+      {id, classify_state(MapSet.member?(live_ids, to_string(id)), latest)}
+    end)
+  end
+
   defp classify_state(true, _latest), do: :processing
   defp classify_state(false, nil), do: :stuck
   defp classify_state(false, %{status: "failed"}), do: :failed
@@ -102,9 +145,14 @@ defmodule ZaimuTomo.DocumentProcessing do
 
     case classify_state(live_job?(document.id), latest) do
       state when state in [:failed, :stuck] ->
-        document
-        |> ocr_job(scope.user.base_currency, latest && latest.id)
-        |> Oban.insert()
+        with {:ok, job} <-
+               document
+               |> ocr_job(scope.user.base_currency, latest && latest.id)
+               |> Oban.insert() do
+          # Lets open Index / hero views pick up the new live run without a reload.
+          broadcast_event(:retried, user_id, %{document_id: document.id, user_id: user_id})
+          {:ok, job}
+        end
 
       state ->
         {:error, {:not_retryable, state}}

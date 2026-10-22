@@ -83,7 +83,7 @@ defmodule ZaimuTomo.Documents do
   def list_documents(%Scope{} = scope) do
     ec_query =
       from ec in ExtractedContent,
-        order_by: [desc: ec.inserted_at],
+        order_by: [desc: ec.inserted_at, desc: ec.id],
         preload: :review_decision
 
     from(d in Document,
@@ -151,7 +151,7 @@ defmodule ZaimuTomo.Documents do
   def get_document_with_content!(%Scope{} = scope, id) do
     ec_query =
       from ec in ExtractedContent,
-        order_by: [desc: ec.inserted_at],
+        order_by: [desc: ec.inserted_at, desc: ec.id],
         preload: :review_decision
 
     Document

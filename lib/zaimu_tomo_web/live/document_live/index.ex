@@ -4,7 +4,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
 
-  @processing_window_seconds 10 * 60
   @prune_interval_ms 30_000
 
   @impl true
@@ -15,16 +14,13 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
       schedule_prune()
     end
 
-    documents = Documents.list_documents(socket.assigns.current_scope)
-
     {:ok,
      socket
      |> assign(:page_title, "Documents")
      |> assign(:current_path, "/documents")
-     |> assign(:processing_docs, processing_documents(documents))
      |> assign(:preview_id, nil)
      |> assign(:preview_doc, nil)
-     |> stream(:documents, documents)}
+     |> refresh_documents()}
   end
 
   @impl true
@@ -62,12 +58,12 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
       {live_render(@socket, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
       <div class="feed" id="documents-feed" phx-update="stream" style="margin-top:16px">
         <div
-          :for={{dom_id, document} <- @streams.documents}
+          :for={{dom_id, %{document: document, state: state}} <- @streams.documents}
           id={dom_id}
-          class={"feed-item #{derive_status(List.first(document.extracted_content))}"}
+          class={"feed-item #{row_status(state, List.first(document.extracted_content))}"}
         >
           <% ec = List.first(document.extracted_content) %>
-          <% status = derive_status(ec) %>
+          <% status = row_status(state, ec) %>
           <% data = ec && ec.extracted_data %>
           <% ext =
             document.filename
@@ -85,12 +81,18 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             <div class="body">
               <div class="title">
                 {(data && data.issuer) || document.filename}
-                <.status_pill status={status} />
+                <.status_pill status={if status == "stalled", do: "Processing stalled", else: status} />
               </div>
               <div class="desc">
                 <%= case status do %>
                   <% "processing" -> %>
                     Sent to OCR · extraction in progress
+                    <%= if ec && ec.status == "failed" do %>
+                      · previous attempt failed: {get_in(ec.error_details || %{}, ["message"]) ||
+                        "Processing failed"}
+                    <% end %>
+                  <% "stalled" -> %>
+                    Processing stalled · no OCR run is active, open to retry
                   <% "review" -> %>
                     <span class="amt">
                       {if data && data.amount_to_pay_cents && data.currency,
@@ -219,44 +221,23 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   end
 
   @impl true
-  def handle_info({:document_uploaded, document}, socket) do
-    {:noreply,
-     socket
-     |> add_processing_document(document)
-     |> stream(:documents, Documents.list_documents(socket.assigns.current_scope), reset: true)}
+  def handle_info({:document_uploaded, _document}, socket) do
+    {:noreply, refresh_documents(socket)}
   end
 
-  def handle_info({:created, %ZaimuTomo.Documents.Document{} = document}, socket) do
-    {:noreply,
-     socket
-     |> add_processing_document(document)
-     |> stream(:documents, Documents.list_documents(socket.assigns.current_scope), reset: true)}
-  end
-
-  def handle_info(%{document_id: id, user_id: uid}, socket)
+  def handle_info(%{document_id: _id, user_id: uid}, socket)
       when uid == socket.assigns.current_scope.user.id do
-    documents = Documents.list_documents(socket.assigns.current_scope)
-
-    {:noreply,
-     socket
-     |> update(:processing_docs, fn docs -> Enum.reject(docs, &(&1.id == id)) end)
-     |> assign(:processing_docs, processing_documents(documents))
-     |> stream(:documents, documents, reset: true)}
+    {:noreply, refresh_documents(socket)}
   end
 
   def handle_info(:prune_processing_docs, socket) do
     schedule_prune()
-    documents = Documents.list_documents(socket.assigns.current_scope)
-
-    {:noreply, assign(socket, :processing_docs, processing_documents(documents))}
+    {:noreply, refresh_documents(socket)}
   end
 
   def handle_info({type, %ZaimuTomo.Documents.Document{}}, socket)
       when type in [:created, :updated, :deleted] do
-    {:noreply,
-     stream(socket, :documents, Documents.list_documents(socket.assigns.current_scope),
-       reset: true
-     )}
+    {:noreply, refresh_documents(socket)}
   end
 
   defp derive_status(nil), do: "processing"
@@ -268,26 +249,24 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   defp derive_status(%{review_decision: %{review_status: "rejected"}}), do: "failed"
   defp derive_status(_), do: "review"
 
-  defp add_processing_document(socket, document) do
-    update(socket, :processing_docs, fn docs ->
-      [document | Enum.reject(docs, &(&1.id == document.id))]
-    end)
-  end
+  # Row status from the durable processing state, falling back to the latest
+  # extraction (review decision) once a run has completed.
+  defp row_status(:processing, _ec), do: "processing"
+  defp row_status(:stuck, _ec), do: "stalled"
+  defp row_status(:failed, _ec), do: "failed"
+  defp row_status(:extracted, ec), do: derive_status(ec)
 
-  defp processing_documents(documents) do
-    Enum.filter(documents, &processing_document?/1)
-  end
+  # Loads the documents with their durable processing state (two batched
+  # queries, independent of the row count) and resets the stream and hero.
+  defp refresh_documents(socket) do
+    documents = Documents.list_documents(socket.assigns.current_scope)
+    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
+    rows = Enum.map(documents, &%{id: &1.id, document: &1, state: states[&1.id]})
 
-  defp processing_document?(document) do
-    derive_status(List.first(document.extracted_content)) == "processing" and
-      recently_uploaded?(document)
+    socket
+    |> assign(:processing_docs, Enum.filter(documents, &(states[&1.id] == :processing)))
+    |> stream(:documents, rows, reset: true)
   end
-
-  defp recently_uploaded?(%{inserted_at: %DateTime{} = inserted_at}) do
-    DateTime.diff(DateTime.utc_now(), inserted_at, :second) <= @processing_window_seconds
-  end
-
-  defp recently_uploaded?(_document), do: false
 
   defp schedule_prune do
     Process.send_after(self(), :prune_processing_docs, @prune_interval_ms)

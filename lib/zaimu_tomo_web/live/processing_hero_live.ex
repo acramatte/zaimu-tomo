@@ -6,7 +6,6 @@ defmodule ZaimuTomoWeb.ProcessingHeroLive do
 
   on_mount {ZaimuTomoWeb.UserAuth, :require_authenticated}
 
-  @processing_window_seconds 10 * 60
   @prune_interval_ms 30_000
 
   @impl true
@@ -33,53 +32,32 @@ defmodule ZaimuTomoWeb.ProcessingHeroLive do
   end
 
   @impl true
-  def handle_info({:created, %ZaimuTomo.Documents.Document{} = document}, socket) do
-    {:noreply, add_processing_document(socket, document)}
+  def handle_info({:created, %ZaimuTomo.Documents.Document{}}, socket) do
+    {:noreply, refresh(socket)}
   end
 
-  def handle_info(%{document_id: id, user_id: uid}, socket)
+  def handle_info(%{document_id: _id, user_id: uid}, socket)
       when uid == socket.assigns.current_scope.user.id do
-    {:noreply,
-     socket
-     |> remove_processing_document(id)
-     |> assign(:processing_docs, processing_documents(socket.assigns.current_scope))}
+    {:noreply, refresh(socket)}
   end
 
   def handle_info(:prune_processing_docs, socket) do
     schedule_prune()
 
-    {:noreply,
-     assign(socket, :processing_docs, processing_documents(socket.assigns.current_scope))}
+    {:noreply, refresh(socket)}
   end
 
   def handle_info(_message, socket), do: {:noreply, socket}
 
+  defp refresh(socket) do
+    assign(socket, :processing_docs, processing_documents(socket.assigns.current_scope))
+  end
+
+  # Documents with a live OCR job, from durable job state (two batched queries).
   defp processing_documents(scope) do
-    scope
-    |> Documents.list_documents()
-    |> Enum.filter(&processing_document?/1)
-  end
-
-  defp processing_document?(document) do
-    List.first(document.extracted_content) == nil and recently_uploaded?(document)
-  end
-
-  defp recently_uploaded?(%{inserted_at: %DateTime{} = inserted_at}) do
-    DateTime.diff(DateTime.utc_now(), inserted_at, :second) <= @processing_window_seconds
-  end
-
-  defp recently_uploaded?(_document), do: false
-
-  defp add_processing_document(socket, document) do
-    update(socket, :processing_docs, fn docs ->
-      [document | Enum.reject(docs, &(&1.id == document.id))]
-    end)
-  end
-
-  defp remove_processing_document(socket, document_id) do
-    update(socket, :processing_docs, fn docs ->
-      Enum.reject(docs, &(&1.id == document_id))
-    end)
+    documents = Documents.list_documents(scope)
+    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
+    Enum.filter(documents, &(states[&1.id] == :processing))
   end
 
   defp schedule_prune do
