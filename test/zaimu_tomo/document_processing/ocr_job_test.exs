@@ -58,15 +58,9 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
     test "a failed OCR job insert rolls back the document insert" do
       scope = user_scope_fixture()
 
-      # Test-only seam: replace the Oban job table's positive_max_attempts
-      # check with an unsatisfiable one so the job insert inside the Multi
-      # fails with a changeset error (Oban declares that check constraint on
-      # the job changeset). The DDL rolls back with the sandbox transaction.
-      Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT positive_max_attempts")
-
-      Repo.query!(
-        "ALTER TABLE oban_jobs ADD CONSTRAINT positive_max_attempts CHECK (max_attempts > 100)"
-      )
+      # Make the job insert inside the Multi fail at the database with the
+      # max_attempts check violation Oban's job changeset declares.
+      fail_inserts!("oban_jobs", Oban.Job.new(%{}, worker: "X"), :max_attempts)
 
       assert {:error, %Ecto.Changeset{}} =
                Documents.create_document(scope, %{
@@ -143,20 +137,13 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       Application.put_env(:zaimu_tomo, :mistral, Keyword.put(original, :api_key, nil))
       on_exit(fn -> Application.put_env(:zaimu_tomo, :mistral, original) end)
 
-      # Test-only seam: repoint the review decision's extracted_content FK at
-      # an empty table so the failed-row write fails with a changeset error
-      # right after the content insert (same constraint name as the declared
-      # foreign_key_constraint(:extracted_content_id)). The DDL rolls back with
-      # the sandbox transaction.
-      Repo.query!("CREATE TABLE review_ghost (id bigint PRIMARY KEY)")
-
-      Repo.query!(
-        "ALTER TABLE review_decisions DROP CONSTRAINT review_decisions_extracted_content_id_fkey"
-      )
-
-      Repo.query!(
-        "ALTER TABLE review_decisions ADD CONSTRAINT review_decisions_extracted_content_id_fkey " <>
-          "FOREIGN KEY (extracted_content_id) REFERENCES review_ghost (id)"
+      # Make the failed-row write fail right after the content insert with
+      # the extracted_content_id FK violation the review decision changeset
+      # declares, so it surfaces as a changeset error.
+      fail_inserts!(
+        "review_decisions",
+        ReviewDecision.changeset_for_create(%{}),
+        :extracted_content_id
       )
 
       log =

@@ -89,17 +89,10 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
     end
 
     test "a failed job insert commits the extraction with an enqueue_failed shadow" do
-      # Test-only seam: replace the Oban job table's positive_max_attempts
-      # check with an unsatisfiable one so the TypeSafe job insert
-      # (max_attempts: 3) fails with a changeset error — Oban declares that
-      # check constraint on its job changeset. No production seam is added;
-      # the DDL rolls back with the sandbox transaction (same technique and
-      # concurrency caveats as ocr_job_test's failure injection).
-      Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT positive_max_attempts")
-
-      Repo.query!(
-        "ALTER TABLE oban_jobs ADD CONSTRAINT positive_max_attempts CHECK (max_attempts > 100)"
-      )
+      # Make the TypeSafe job insert fail at the database with the
+      # max_attempts check violation Oban's job changeset declares, so it
+      # surfaces as a changeset error. No production seam is added.
+      fail_inserts!("oban_jobs", Oban.Job.new(%{}, worker: "X"), :max_attempts)
 
       user = user_fixture()
       scope = user_scope_fixture(user)
@@ -133,14 +126,6 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
 
       assert log =~ "class=enqueue_failed"
       assert all_enqueued(worker: Worker) == []
-
-      # Restore the real check definition in-test (the sandbox rollback also
-      # covers assertion failures above).
-      Repo.query!("ALTER TABLE oban_jobs DROP CONSTRAINT positive_max_attempts")
-
-      Repo.query!(
-        "ALTER TABLE oban_jobs ADD CONSTRAINT positive_max_attempts CHECK (max_attempts > 0)"
-      )
     end
 
     test "a superseded success write enqueues no TypeSafe job" do

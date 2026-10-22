@@ -43,6 +43,43 @@ defmodule ZaimuTomo.DataCase do
   end
 
   @doc """
+  Makes every insert into `table` fail at the database with the constraint
+  error that `changeset` declares for `field`.
+
+  A test-owned `BEFORE INSERT` trigger raises the matching SQLSTATE with the
+  declared constraint name, so Ecto maps it to a real
+  `{:error, %Ecto.Changeset{}}` without altering the table's own constraints.
+  The name comes from the changeset (not a hard-coded string), so a dependency
+  renaming or dropping the constraint fails here instead of silently. The
+  trigger and its `pg_temp` function roll back with the sandbox transaction.
+
+      fail_inserts!("oban_jobs", Oban.Job.new(%{}, worker: "X"), :max_attempts)
+  """
+  def fail_inserts!(table, %Ecto.Changeset{} = changeset, field) do
+    %{constraint: name, type: type} =
+      Enum.find(changeset.constraints, &(&1.field == field)) ||
+        raise ArgumentError,
+              "#{inspect(changeset.data.__struct__)} declares no constraint on #{field}"
+
+    sqlstate = %{check: "check_violation", foreign_key: "foreign_key_violation"}[type]
+
+    ZaimuTomo.Repo.query!("""
+    CREATE FUNCTION pg_temp.fail_#{table}_insert() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION 'test-injected failure' USING ERRCODE = '#{sqlstate}', CONSTRAINT = '#{name}';
+    END
+    $$ LANGUAGE plpgsql
+    """)
+
+    ZaimuTomo.Repo.query!(
+      "CREATE TRIGGER fail_#{table}_insert BEFORE INSERT ON #{table} " <>
+        "FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_#{table}_insert()"
+    )
+
+    :ok
+  end
+
+  @doc """
   A helper that transforms changeset errors into a map of messages.
 
       assert {:error, changeset} = Accounts.create_user(%{password: "short"})
