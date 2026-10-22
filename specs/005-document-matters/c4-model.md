@@ -51,7 +51,8 @@ flowchart TB
 
     subgraph apphost[ZaimuTomo Phoenix / BEAM]
       web["Router + authenticated LiveViews\ndocument detail, matter timeline"]
-      processing["DocumentProcessing.Worker\nOCR, extraction, verification"]
+      processing["DocumentProcessing.OCRJob + Worker\nOCR, extraction, verification\n(:documents queue)"]
+      intelworker["DocumentIntelligence.Worker\ninterpret, suggest, brief\n(:intelligence queue, fail-open)"]
       evidence["DocumentEvidence context\nOCR text, excerpts, FTS"]
       intelligence["DocumentIntelligence context\ninterpretation, retrieval, brief validation"]
       matters["Matters context\nuser-owned grouping and relationships"]
@@ -68,8 +69,10 @@ flowchart TB
     web --> evidence
     web --> intelligence
     web --> matters
-    processing --> evidence
-    processing --> intelligence
+    processing -->|text in terminal transaction| evidence
+    processing -->|enqueue in same transaction| intelworker
+    intelworker --> intelligence
+    intelworker --> matters
     evidence --> postgres
     intelligence --> postgres
     matters --> postgres
@@ -104,8 +107,8 @@ flowchart LR
       matterlive["MatterLive\ntimeline + confirmation"]
     end
 
-    worker --> evidence
-    worker --> interpretation
+    worker -->|text in terminal transaction| evidence
+    worker -->|enqueues :intelligence job| interpretation
     interpretation --> relation
     evidence --> briefs
     relation --> matters
@@ -123,29 +126,29 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    participant Worker as DocumentProcessing.Worker
+    participant Job as OCRJob + Worker
     participant OCR as Mistral OCR
-    participant Evidence as DocumentEvidence
-    participant Interpret as DocumentIntelligence
+    participant DB as PostgreSQL
+    participant Intel as DocumentIntelligence.Worker
     participant Matters as Matters/Relationships
-    participant Brief as Briefs
     participant LLM as Configured LLM
     participant User as Authenticated user
 
-    Worker->>OCR: original private document
-    OCR-->>Worker: OCR markdown
-    Worker->>Evidence: persist source text + excerpts
-    Worker->>Interpret: create machine interpretation
-    Interpret->>LLM: source text, structured schema
-    LLM-->>Interpret: validated interpretation candidate
-    Interpret->>Matters: suggest relationships from scoped evidence
-    Brief->>Evidence: bounded scoped retrieval
-    Brief->>Matters: confirmed links + suggestions
-    Brief->>LLM: evidence pack and output schema
-    LLM-->>Brief: cited brief candidate
-    Brief->>Brief: validate all excerpt/document IDs and persist
-    User->>Brief: opens DocumentLive.Show
-    Brief-->>User: labelled draft explanation, unknowns, citations
+    Job->>OCR: original private document
+    OCR-->>Job: OCR response (pages[].markdown)
+    Job->>Job: extract + verify invoice (may fail for letters)
+    Job->>DB: one transaction: extraction row (success or failed),<br/>document text + excerpts, enqueue :intelligence job
+    Note over Job,Intel: the OCR job is done here, and nothing below can retry or fail it
+    Intel->>DB: read scoped text
+    Intel->>LLM: interpreter: source text, structured schema
+    LLM-->>Intel: validated interpretation (or durable failed row)
+    Intel->>Matters: suggest relationships from scoped evidence
+    Intel->>DB: bounded scoped retrieval (links, identifiers, FTS)
+    Intel->>LLM: explainer: evidence pack and output schema
+    LLM-->>Intel: cited brief candidate
+    Intel->>DB: validate all excerpt/document IDs, persist brief (ready or failed)
+    User->>DB: opens DocumentLive.Show
+    DB-->>User: labelled draft explanation, unknowns, citations
 ```
 
 ## Invariants

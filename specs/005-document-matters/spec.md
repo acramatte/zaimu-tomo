@@ -7,7 +7,9 @@
 
 ## 1. Context and problem
 
-ZaimuTomo currently stores document metadata, OCR/LLM-extracted invoice facts, human review decisions, journal entries, and tax-deduction claims. The document pipeline turns an uploaded file into OCR markdown in `ZaimuTomo.DocumentProcessing.Worker`, but does not persist that markdown. The application can therefore show individual invoice fields but cannot later explain *why* a document matters, search its source language, or cite passages that support a conclusion.
+ZaimuTomo currently stores document metadata, OCR/LLM-extracted invoice facts, human review decisions, journal entries, and tax-deduction claims. The document pipeline (`ZaimuTomo.DocumentProcessing.OCRJob` → `Worker.run/1`) turns an uploaded file into OCR markdown. For a **successful** extraction the full Mistral OCR response, including per-page markdown, is already kept in `extracted_content.raw_llm_response` (the TypeSafe shadow worker re-derives the markdown from it with `DocumentOCR.extract_markdown/1`). That JSON blob is neither searchable nor citable, and a **failed** extraction keeps no OCR output at all.
+
+The second gap matters for this feature: extraction requires invoice fields (amount, date, currency, reason, issuer). A tax assessment letter, reminder, or correspondence without a payable amount fails `extract_invoice/2` validation, is classified permanent, and its OCR text is discarded. The documents this feature most needs to explain are therefore exactly the ones the pipeline currently drops. The application can show individual invoice fields but cannot later explain *why* a document matters, search its source language, or cite passages that support a conclusion.
 
 Users receive documents that form a sequence rather than isolated invoices. A Swiss-tax example often includes a prior-year final assessment/reconciliation and separate current-year provisional instalments. These may share issuer and taxpayer but have different periods, payment obligations, and legal roles. The product must make that distinction visible and traceable.
 
@@ -37,12 +39,13 @@ Users receive documents that form a sequence rather than isolated invoices. A Sw
 |----|----------|-----------|
 | D1 | The first interaction is a fixed **Document brief**, not a chat input. | It constrains model output and retrieval scope, lowers UI/state complexity, and establishes reusable evidence infrastructure before broad questions are accepted. |
 | D2 | A brief is generated after successful document processing and shown as a **draft explanation**. | Users receive value immediately; facts derived from an unreviewed extraction are visibly unverified. |
-| D3 | OCR markdown is persisted as derived evidence, separate from Langfuse. | Langfuse is observability, not the user's durable, private source record. Citable retrieval requires app-owned text. |
+| D3 | OCR markdown is persisted as a searchable, citable text record derived from the stored OCR response, separate from Langfuse, and kept **whenever OCR succeeded**, even if invoice extraction fails. Existing successful extractions are backfilled. | Langfuse is observability, not the user's durable, private source record. Citable retrieval requires app-owned text; non-invoice correspondence must not lose its text because it has no payable amount. |
 | D4 | Relationships are stored in PostgreSQL tables, with a user-owned matter as the main grouping abstraction. | Referential integrity, ownership filtering, timeline queries, and auditability fit relational storage. A graph database is unnecessary. |
 | D5 | Retrieval is hybrid but deterministic-first: exact identifiers, structured fields, confirmed links, then PostgreSQL FTS. | Financial correspondence contains high-signal identifiers and dates; this is more explainable than semantic similarity alone. |
 | D6 | The explainer returns structured output with mandatory citations and explicit unknowns. | The UI can render only evidence-backed assertions and distinguish confirmed facts from inference. |
 | D7 | Vectors are deferred. If required, use `pgvector` in the existing PostgreSQL database for text chunks. | One authorization, backup, and foreign-key boundary; vectors improve recall but never replace identifiers, FTS, or citations. |
 | D8 | “Different user” means a different document subject within the signed-in user's own archive. | Current data access is per application user. The feature can label an obligation's person/entity without expanding authorization. |
+| D9 | Interpretation, relationship suggestions, and brief generation run in their own Oban worker and queue, enqueued in the extraction's terminal transaction, not inside the OCR job. | A brief is optional, slow, and LLM-bound. It must never delay, retry, or fail invoice processing. This follows the TypeSafe shadow-verification pattern already in `Worker`. |
 
 ## 4. User stories and acceptance scenarios
 
@@ -56,6 +59,8 @@ As a user, I want to open a processed document and understand what it appears to
 2. The brief includes document type, issuer, subject label when found, tax/service period when found, payment obligations, and explicit unknowns.
 3. A document without sufficient source evidence renders “I could not determine this from the uploaded document” rather than a plausible answer.
 4. The brief never changes an accounting, review, payment, or tax-claim record.
+5. Given a letter that OCR reads but invoice extraction rejects (no payable amount), its document page still offers an interpretation and brief; the invoice review shows the existing failed state.
+6. A brief that is still generating or has failed shows that state, and the rest of the document page and invoice review keep working.
 
 ### US2 — Trace the explanation to evidence (P1)
 
@@ -172,10 +177,12 @@ The vocabulary is deliberately descriptive. It is not legal or tax advice, and a
 
 ## 9. Delivery sequence
 
-1. Evidence foundation: persist OCR text, excerpts, PostgreSQL FTS, and structured interpretation.
+1. Evidence foundation: persist OCR text (including for failed extractions, plus a backfill), excerpts, PostgreSQL FTS, and structured interpretation.
 2. Matters and relationships: durable grouping, suggestions, user confirmation, timeline.
 3. Document brief: bounded retrieval, explainer role, structured cited output, document/matter UI.
 4. Evaluation and hardening: fixture corpus, negative tests, telemetry, feedback workflow.
 5. Optional semantic retrieval: only after retrieval metrics justify `pgvector`.
 
 Detailed implementation work is in `plan.md` and `tasks.md`; entity contracts are in `data-model.md`.
+
+When each phase ships, the lasting design moves to `docs/` (contexts and tables in `architecture.md` §5 and §8, the new job and queue in §6, decisions in §9, env vars in `configuration.md`, backfill and retry runbooks in `operations.md`). From then on, this spec is historical, like the other folders in `specs/`.

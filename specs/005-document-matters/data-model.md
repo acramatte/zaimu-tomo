@@ -18,15 +18,16 @@ The feature adds interpretation and explanatory evidence alongside this chain. I
 
 ### 2.1 `document_texts`
 
-App-owned OCR evidence produced from a successful extraction.
+App-owned OCR evidence for one processing attempt. Written whenever OCR succeeded, whether the invoice extraction on that `extracted_content` row is `success` or `failed`. The body is derived with `DocumentOCR.extract_markdown/1`, the same function the TypeSafe worker uses on `raw_llm_response`, so live writes and the backfill produce identical text.
 
 | Field | Type | Constraints / purpose |
 |---|---|---|
 | `id` | integer | primary key |
-| `document_id` | FK `documents` | `null: false`, `on_delete: :delete_all`, unique: one active OCR body per extraction version design below |
+| `document_id` | FK `documents` | `null: false`, `on_delete: :delete_all`; **not unique**, because a document has one `extracted_content` row per attempt. The effective text is the one on the document's latest extraction that has text. |
 | `extracted_content_id` | FK `extracted_content` | `null: false`, `on_delete: :delete_all`, unique |
 | `user_id` | FK `users` | `null: false`, scope filter copied from document/extraction |
-| `body` | `:text` | `null: false`, original OCR markdown; never created from LLM output |
+| `body` | `:text` | `null: false`, original OCR markdown with pages joined as in `extract_markdown/1`; never created from LLM output |
+| `page_offsets` | `{:array, :integer}` | `null: false`; start offset of each OCR page in `body`, so excerpts can report a page number |
 | `checksum` | string | `null: false`, SHA-256 of normalized body for idempotency |
 | `language` | string | nullable; optional future search hint |
 | timestamps | UTC | standard |
@@ -37,7 +38,7 @@ Indexes:
 - `[:user_id, :document_id]`
 - GIN FTS index on the generated/current `search_vector` described below
 
-**FTS implementation decision**: Use a migration-managed `tsvector` column populated from `body` and a GIN index. The trigger/generated-column exact syntax is an implementation choice, but it must be migration-owned, re-indexable, and tested with unaccented/lowercase query normalization. Do not try to query raw OCR markdown with `%ILIKE%` at archive scale.
+**FTS implementation decision**: Use a migration-owned stored generated `tsvector` column with the language-neutral `simple` configuration (documents are mixed German/French/Italian/English) and a GIN index. `to_tsvector('simple', body)` is immutable and works in a generated column; `unaccent()` is not, so accent-insensitive search needs an `IMMUTABLE` SQL wrapper around `unaccent` created in the same migration (the `unaccent` extension must be enabled there too). Queries use `websearch_to_tsquery('simple', …)` with the same normalization. Do not try to query raw OCR markdown with `%ILIKE%` at archive scale.
 
 ### 2.2 `document_text_excerpts`
 
@@ -48,6 +49,7 @@ Stable, bounded excerpts used for citation and prompt construction.
 | `id` | integer | primary key |
 | `document_text_id` | FK `document_texts` | `null: false`, `on_delete: :delete_all` |
 | `position` | integer | `null: false`, zero-based ordering |
+| `page_number` | integer | `null: false`, one-based OCR page; an excerpt never spans a page boundary |
 | `start_offset`, `end_offset` | integer | `null: false`; source-text byte/character offsets with one documented convention |
 | `body` | `:text` | `null: false`; exact excerpt copied from `document_texts.body` |
 | `token_estimate` | integer | `null: false`; prompt budget accounting |
@@ -76,9 +78,9 @@ A versioned, structured reading of one document. Machine and user interpretation
 | `document_role` | string | nullable until known; constrained vocabulary from spec |
 | `issuer` | string | nullable |
 | `subject_label` | string | nullable; person/entity named in document, not an application user foreign key |
-| `reference_numbers` | `:map` | `null: false`, default empty array/map contract documented in schema |
-| `periods` | `:map` | `null: false`, list of normalized period maps |
-| `obligations` | `:map` | `null: false`, list of currency/amount/deadline/reference maps |
+| `reference_numbers` | `embeds_many` (jsonb, migration type `:map`) | `null: false`, default `[]`; `%{kind, value, normalized}` |
+| `periods` | `embeds_many` (jsonb) | `null: false`, default `[]`; normalized `%{kind, start_date, end_date, label}` |
+| `obligations` | `embeds_many` (jsonb) | `null: false`, default `[]`; `%{amount_cents, currency, due_date, reference}`, using `ZaimuTomo.Currency` validation like `ExtractedData` |
 | `confidence` | decimal/float | nullable; only represents model confidence, never source truth |
 | `error_details` | `:map` | nullable; durable processing failure details |
 | `model_metadata` | `:map` | nullable; prompt/model version and source excerpt IDs, never hidden reasoning |
@@ -206,8 +208,8 @@ A brief becomes `stale` when its source text, effective interpretation, confirme
 5. **Deletions cannot create dangling citations.** Cascading source deletion removes derived text/links/briefs, or a context marks them stale before render. Tests must prove no orphan source ID is exposed.
 6. **No arbitrary subject access.** `subject_label` is text attached to a user's archive; it is not an account/user lookup.
 
-## 4. Relationship to in-flight work
+## 4. Relationship to existing and in-flight work
 
-- The duplicate-invoice-detection branch should map a reviewed duplicate decision to `document_relationships.relationship_type = "duplicate_of"` only after its domain rules land. Do not reimplement fuzzy duplicate matching in this feature.
-- The tax-claim-lifecycle branch owns claim-state transitions. This feature may cite a tax claim as contextual evidence only after deciding how its branch is integrated; it cannot make an authority/lifecycle decision.
-- Before implementation, rebase this work on the current `origin/main` and inspect which of those branches have merged. Do not couple migrations to an unmerged schema without an explicit stacked-PR decision.
+- **Duplicate detection has shipped** (`Accounting.duplicate_check/3`, `duplicate_candidates/2`; architecture §9 D10 and D11). It compares a review decision with posted journal entries, not documents with documents. The relationship generator may turn its matches (journal entry → review decision → extracted content → document) into `duplicate_of` relationships with `source = "machine"` and `status = "suggested"`. It must not reimplement the matching rules, and it must not treat `source_file_reuse_confirmed` as a duplicate: that flag records that the reviewer confirmed a legitimate reuse.
+- **The tax-claim lifecycle (`feat/tax-claim-lifecycle`) is unmerged.** This feature may read `TaxDeductionClaim` as contextual evidence; it cannot make an authority or lifecycle decision, and its migrations must not depend on that branch without an explicit stacked-PR decision.
+- **TypeSafe shadow verification** is the template for the new background job: a self-contained Oban command enqueued inside the terminal extraction transaction, carrying only IDs and reading persisted text from the database, fail-open.

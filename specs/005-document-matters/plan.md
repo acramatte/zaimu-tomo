@@ -8,10 +8,10 @@
 
 **Goal:** Begin implementation from a known current base without duplicating active feature work.
 
-1. Fetch `origin` and inspect whether `feat/duplicate-invoice-detection` and `feat/tax-claim-lifecycle` have merged.
-2. If either remains unmerged, keep this implementation independent of its migrations and contexts. Do not stack or import them without an explicit dependency decision.
+1. Fetch `origin` and check whether `feat/tax-claim-lifecycle` has merged (it had not when this spec was written; duplicate-invoice detection had, see `data-model.md` §4).
+2. If it remains unmerged, keep this implementation independent of its migrations and contexts. Do not stack or import it without an explicit dependency decision.
 3. Create a dedicated implementation worktree from explicit `origin/main` and a branch such as `feat/document-matters-foundation`.
-4. Read the current versions of `Documents`, `DocumentProcessing.Worker`, `LLMClient`, `Langfuse`, `Review`, `Accounting`, private document preview controller, router, and sibling LiveViews before editing.
+4. Read the current versions of `Documents`, `DocumentProcessing.OCRJob`, `DocumentProcessing.Worker`, `TypeSafeVerification.Worker`, `LLMClient`, `Langfuse`, `Review`, `Accounting`, private document preview controller, router, and sibling LiveViews before editing.
 5. Establish test configuration helpers that pin Langfuse disabled and inject LLM/prompt functions. No default test may call OCR, Langfuse, object storage, or an LLM provider.
 
 **Verify:** clean worktree; `mix compile --warnings-as-errors`; targeted baseline tests pass.
@@ -22,15 +22,18 @@
 
 1. Generate migrations using Mix generators for `document_texts` and `document_text_excerpts`.
 2. Add schemas, changesets, and a scoped `DocumentEvidence` context. The public context takes `%Scope{}` as its first argument for every document lookup/list/query.
-3. Update `DocumentProcessing.Worker.persist_and_emit_success/5` so successful OCR creates the extraction plus an app-owned text record from the OCR markdown in one deliberate orchestration flow. Preserve the worker's existing temporary-file cleanup and processing failure behavior.
-4. Build deterministic excerpts after persisting the OCR text. Record a documented offset convention and a strict source/excerpt size limit.
-5. Add the PostgreSQL FTS migration/index and scoped query functions for exact text/phrase retrieval.
-6. Keep source text separate from `raw_llm_response`, `analysis`, and Langfuse traces. Do not retrofit OCR text into raw LLM maps.
+3. Write the text record inside the existing terminal transactions in `DocumentProcessing.Worker`: `persist_and_emit_success` writes it beside the extraction row, and `persist_and_emit_failure` writes it when OCR succeeded but extraction or verification failed. That means carrying the OCR response on the error returned by `run/1` after OCR succeeds, so `OCRJob` can hand it to the failure write. Preserve temporary-file cleanup, retry classification, and the per-document lock.
+4. Add an idempotent, resumable backfill (a mix task plus a context function, like `FingerprintBackfill`) that creates text for existing successful extractions from `raw_llm_response` via `DocumentOCR.extract_markdown/1`. Never run it from a migration. Document it in `docs/operations.md`.
+5. Build deterministic, page-bounded excerpts after persisting the OCR text. Record a documented offset convention and a strict source/excerpt size limit.
+6. Add the PostgreSQL FTS generated column and index (`simple` configuration, see `data-model.md` §2.1) and scoped query functions for exact text/phrase retrieval.
+7. Keep `raw_llm_response` unchanged; the text table is derived from it, not a replacement. Langfuse traces are never a source.
 
 **Verify:**
 
 - focused context/worker tests prove a successful OCR result persists text and deterministic excerpts;
-- failed OCR persists no fake source text;
+- OCR success followed by an extraction validation failure (a letter with no amount) persists a failed extraction row **with** source text;
+- failed OCR persists no source text;
+- the backfill is idempotent and yields the same body as a live write for the same OCR response;
 - FTS finds a scoped source and cannot find an identical foreign user's source;
 - `mix compile --warnings-as-errors` and focused tests pass.
 
@@ -40,9 +43,9 @@
 
 1. Generate the `document_interpretations` migration and schema per `data-model.md`.
 2. Add a `DocumentIntelligence` context that exposes effective interpretation, machine interpretation persistence, and user correction persistence. It owns precedence rules rather than leaving them to templates.
-3. Add a distinct `:interpreter` LLM role to `LLMClient` configuration. It returns a validated structured payload for document role, issuer, subject label, references, periods, and obligations.
+3. Add a distinct `:interpreter` LLM role to `LLMClient` and the `:ai_workflow` config (`AI_INTERPRETER_BACKEND`, `AI_INTERPRETER_MODEL`; document in `docs/configuration.md`, `docs/local-ai.md`, and `config/deploy.yml`). It returns a validated structured payload for document role, issuer, subject label, references, periods, and obligations.
 4. Add a new local/Langfuse-managed `interpret-document` prompt. Include only the source document OCR text; it does not need archive retrieval in this phase.
-5. Extend the successful document-processing orchestration to create the interpretation after OCR text persistence. Processing failures become durable interpretation/brief-eligible failure state, not an endlessly pending UI.
+5. Add a `DocumentIntelligence.Worker` Oban job on a new bounded `:intelligence` queue (`OBAN_INTELLIGENCE_CONCURRENCY`, default 1 so a single local NPU is not oversubscribed). The terminal extraction transaction enqueues it whenever it wrote source text, savepoint-isolated like the TypeSafe shadow job. Its args are IDs only. It is fail-open: provider or validation failures become a durable `failed` interpretation, never an OCR retry or a changed extraction/review state. Update `docs/architecture.md` §6 and §8.
 6. Add a compact interpretation section to `DocumentLive.Show`, with an explicit draft/unverified label and a correction entry point. Do not add the full brief yet.
 
 **Verify:**
@@ -61,7 +64,7 @@
 3. Implement conservative candidate generation in a `DocumentIntelligence.Relationships` module: confirmed links first, exact reference numbers, then issuer/subject/period compatibility. It produces suggestions only and records rationale/evidence excerpt IDs.
 4. Add `/matters` and `/matters/:id` inside the existing authenticated live session. The matter show page renders a timeline of linked documents, their role/period, and suggestion state.
 5. Add document-page actions to create/link a matter, confirm/reject suggestions, and manually connect documents. Keep all destructive/corrective controls outside stream-item click traps; use conventional links/buttons with unambiguous events.
-6. Integrate a confirmed duplicate relation with the duplicate-invoice feature only after its branch is on the base. Do not create a second fuzzy duplicate algorithm.
+6. Seed `duplicate_of` **suggestions** from `Accounting.duplicate_check/3` matches (already on `main`); only the user confirms them. Do not create a second duplicate algorithm.
 
 **Verify:**
 
@@ -76,9 +79,9 @@
 
 1. Generate `document_briefs` migration/schema and add an orchestration context, for example `DocumentIntelligence.Briefs`.
 2. Implement bounded candidate retrieval using only scoped evidence: confirmed matter/relationship links, exact identifiers, structured matches, then FTS excerpts. Return a typed evidence pack with documented candidate/excerpt/token limits.
-3. Add an `:explainer` LLM role and `explain-document` prompt. Pass the evidence pack, not direct DB access and not whole documents beyond selected excerpts.
+3. Add an `:explainer` LLM role (`AI_EXPLAINER_BACKEND`, `AI_EXPLAINER_MODEL`, optional `AI_EXPLAINER_MAX_TOKENS` like the verifier) and `explain-document` prompt. Pass the evidence pack, not direct DB access and not whole documents beyond selected excerpts.
 4. Validate the structured brief contract and citation IDs against the retrieval snapshot before persistence. Invalid output creates a durable failed brief with safe user-facing wording.
-5. Mark a brief stale when its effective interpretation, source text, relationship status, or matter membership changes; regenerate asynchronously/on demand according to the final worker strategy.
+5. Mark a brief stale when its effective interpretation, source text, relationship status, or matter membership changes; regenerate by enqueueing the same `:intelligence` queue job (unique per document while pending, so bursts of user edits collapse into one run).
 6. Add a **Draft explanation** card on `DocumentLive.Show`: summary, current obligation, relation section, explicit unknowns, and evidence links. Existing preview/download controller routes remain the only original-document delivery path.
 7. Add an entry from the matter timeline to the selected document's brief. The first release does not include free-form chat.
 
@@ -98,7 +101,7 @@
 2. Trace the interpreter and explainer with Langfuse using prompt/version and result metadata. Record retrieval IDs and evaluation-friendly result status; do not record chain-of-thought.
 3. Add a simple user feedback control such as “This explanation helped / did not help,” using the existing scoped feedback and Langfuse score pattern where appropriate.
 4. Review retrieval/citation metrics and user correction rates after a real sample of documents.
-5. Document the operational privacy/retention model and how to retry an interpretation/brief failure.
+5. Move the lasting design into `docs/`: `architecture.md` §5, §6, §8, a dated §9 decision row, and §11 risks; `operations.md` for the backfill and retrying an interpretation/brief failure; `configuration.md` for the new env vars. Add a row for this spec in `specs/README.md` with its outcome.
 
 **Verify:** full relevant suite plus `mix precommit`; no unrelated formatting diff remains. Record exact test commands in the PR description and commit body.
 
