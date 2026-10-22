@@ -59,3 +59,6 @@ config :phoenix,
 # database set an explicit lower `max_runs:` regardless, to bound CI time.
 config :stream_data,
   max_runs: if(System.get_env("CI"), do: 200, else: 50)
+
+# Show re-reads durable processing state on this interval; keep it short in tests.
+config :zaimu_tomo, :processing_refresh_interval_ms, 20

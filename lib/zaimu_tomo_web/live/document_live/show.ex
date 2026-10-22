@@ -12,13 +12,16 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     end
 
     document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
+    processing_state = DocumentProcessing.processing_state(document)
+
+    if connected?(socket), do: schedule_refresh(processing_state)
 
     {:ok,
      socket
      |> assign(:page_title, document.filename)
      |> assign(:current_path, "/documents")
      |> assign(:document, document)
-     |> assign(:processing_state, DocumentProcessing.processing_state(document))}
+     |> assign(:processing_state, processing_state)}
   end
 
   @impl true
@@ -122,6 +125,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
     case DocumentProcessing.retry_document(scope, document) do
       {:ok, _job} ->
+        schedule_refresh(:processing)
+
         {:noreply,
          socket
          |> assign(:processing_state, :processing)
@@ -169,6 +174,12 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     {:noreply, socket}
   end
 
+  def handle_info(:refresh_processing, %{assigns: %{document: %{id: id}}} = socket) do
+    socket = reload_document(socket, id)
+    schedule_refresh(socket.assigns.processing_state)
+    {:noreply, socket}
+  end
+
   defp reload_document(socket, id) do
     document = Documents.get_document_with_content!(socket.assigns.current_scope, id)
 
@@ -176,6 +187,16 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     |> assign(:document, document)
     |> assign(:processing_state, DocumentProcessing.processing_state(document))
   end
+
+  # The worker broadcasts before Oban acknowledges the job, and cancelled or
+  # discarded jobs never broadcast, so a broadcast alone can leave a stale
+  # "Processing" pill. While a run is live, re-read the durable state.
+  defp schedule_refresh(:processing) do
+    interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
+    Process.send_after(self(), :refresh_processing, interval)
+  end
+
+  defp schedule_refresh(_state), do: :ok
 
   # A stuck document has no live run to report on; the pill must not keep
   # pulsing "Processing" forever. While a run is live the pill reports the
