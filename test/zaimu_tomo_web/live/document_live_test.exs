@@ -454,6 +454,130 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     end
   end
 
+  describe "Show refreshes durable terminal state" do
+    alias ZaimuTomo.DocumentProcessing.Worker
+
+    @extracted %{
+      "amount_to_pay_cents" => 4200,
+      "invoice_date" => "2026-05-08",
+      "invoice_number" => "INV-1",
+      "currency" => "CHF",
+      "reason_for_payment" => "Office supplies",
+      "issuer" => "ACME Corp"
+    }
+
+    # A document whose OCR job is executing, as when the worker is mid-attempt.
+    defp executing_document(scope) do
+      {:ok, doc} =
+        Documents.create_document(scope, %{filename: "a.pdf", object_key: "documents/a.pdf"})
+
+      set_job_state(doc, "executing")
+      doc
+    end
+
+    defp set_job_state(doc, state) do
+      import Ecto.Query
+
+      {1, _} =
+        from(j in Oban.Job, where: j.worker == "ZaimuTomo.DocumentProcessing.OCRJob")
+        |> where([j], fragment("?->>'document_id' = ?", j.args, ^to_string(doc.id)))
+        |> Repo.update_all(set: [state: state])
+    end
+
+    # The view polls durable state while processing; wait for a pill to appear.
+    defp await_pill(view, selector, attempts \\ 40) do
+      cond do
+        has_element?(view, selector) -> :ok
+        attempts == 0 -> flunk("expected #{selector}, got: #{render(view)}")
+        true -> Process.sleep(25) && await_pill(view, selector, attempts - 1)
+      end
+    end
+
+    test "success broadcast before the job is acknowledged ends in Needs review", %{
+      conn: conn,
+      scope: scope
+    } do
+      doc = executing_document(scope)
+      {:ok, view, _html} = live(conn, ~p"/documents/#{doc}")
+      assert has_element?(view, "span.pill.processing")
+
+      # Worker order: persist + broadcast first, Oban acknowledges afterwards.
+      {:ok, _content} = Worker.persist_and_emit_success(doc, @extracted, %{}, %{}, nil, "CHF")
+      _ = render(view)
+      assert has_element?(view, "span.pill.processing")
+
+      set_job_state(doc, "completed")
+
+      await_pill(view, "span.pill.review")
+      refute has_element?(view, "span.pill.processing")
+    end
+
+    test "failure broadcast before the job is acknowledged ends in Failed", %{
+      conn: conn,
+      scope: scope
+    } do
+      doc = executing_document(scope)
+      {:ok, view, _html} = live(conn, ~p"/documents/#{doc}")
+
+      {:ok, _content} = Worker.persist_and_emit_failure(doc, {:ocr_error, "boom"})
+      _ = render(view)
+      assert has_element?(view, "span.pill.processing")
+
+      set_job_state(doc, "completed")
+
+      await_pill(view, "span.pill.failed")
+      assert has_element?(view, "button[phx-click=retry_processing]")
+    end
+
+    test "a cancelled job (failure_not_recorded) leaves the view stalled, not processing", %{
+      conn: conn,
+      scope: scope
+    } do
+      doc = executing_document(scope)
+      {:ok, view, _html} = live(conn, ~p"/documents/#{doc}")
+      assert has_element?(view, "span.pill.processing")
+
+      set_job_state(doc, "cancelled")
+
+      await_pill(view, "span.pill:not(.processing)")
+      refute has_element?(view, "span.pill.processing")
+      assert render(view) =~ "Processing stalled"
+      assert has_element?(view, "button[phx-click=retry_processing]")
+    end
+
+    test "a discarded job leaves the view stalled, not processing", %{conn: conn, scope: scope} do
+      doc = executing_document(scope)
+      {:ok, view, _html} = live(conn, ~p"/documents/#{doc}")
+
+      set_job_state(doc, "discarded")
+
+      await_pill(view, "span.pill:not(.processing)")
+      assert render(view) =~ "Processing stalled"
+      assert has_element?(view, "button[phx-click=retry_processing]")
+    end
+
+    test "a failed row stays visible as history once a retry is processing", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+      extracted_content_fixture(doc, user, %{status: "failed"})
+      {:ok, view, _html} = live(conn, ~p"/documents/#{doc}")
+      view |> element("button[phx-click=retry_processing]") |> render_click()
+      assert has_element?(view, "span.pill.processing")
+
+      set_job_state(doc, "executing")
+      Process.sleep(100)
+      assert has_element?(view, "span.pill.processing")
+
+      assert Repo.aggregate(
+               ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent,
+               :count
+             ) == 1
+    end
+  end
+
   # The flash group lives in the root layout, which `render/1` does not include,
   # so assert flashes through the LiveView's socket assigns.
   defp live_flash(view) do
