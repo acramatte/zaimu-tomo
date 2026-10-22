@@ -2,11 +2,13 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
   use ZaimuTomoWeb.ConnCase
   use Oban.Testing, repo: ZaimuTomo.Repo
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
   import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
   import ZaimuTomo.DocumentsFixtures
   import ZaimuTomo.ReviewFixtures
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
@@ -575,6 +577,118 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
                ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent,
                :count
              ) == 1
+    end
+  end
+
+  describe "durable processing state on Index and the processing hero" do
+    defp live_ocr_job(doc),
+      do: doc |> DocumentProcessing.ocr_job("CHF", nil) |> Oban.insert!()
+
+    test "a failed document with a live re-run shows Processing and keeps the failure",
+         %{conn: conn, scope: scope, user: user} do
+      doc = document_fixture(scope)
+
+      extracted_content_fixture(doc, user, %{
+        status: "failed",
+        error_details: %{"message" => "OCR provider timed out"}
+      })
+
+      live_ocr_job(doc)
+
+      {:ok, live, _html} = live(conn, ~p"/documents")
+      row = live |> element("#documents-#{doc.id}") |> render()
+
+      assert row =~ "pill processing"
+      refute row =~ "pill failed"
+      assert row =~ "OCR provider timed out"
+    end
+
+    test "a document without a live job and without an extraction shows as stalled",
+         %{conn: conn, scope: scope} do
+      doc = document_fixture(scope)
+
+      {:ok, live, _html} = live(conn, ~p"/documents")
+      row = live |> element("#documents-#{doc.id}") |> render()
+
+      assert row =~ "Processing stalled"
+      refute row =~ "pill processing"
+      refute has_element?(live, ".processing-hero")
+    end
+
+    test "a successful extraction is not shown as processing", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+      ec = extracted_content_fixture(doc, user)
+      pending_review_fixture(ec)
+
+      {:ok, live, _html} = live(conn, ~p"/documents")
+
+      assert live |> element("#documents-#{doc.id}") |> render() =~ "Needs review"
+      refute has_element?(live, ".processing-hero")
+    end
+
+    test "the Index row and hero update after a Retry from Show without a reload", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+      extracted_content_fixture(doc, user, %{status: "failed"})
+
+      {:ok, index_live, _html} = live(conn, ~p"/documents")
+      assert index_live |> element("#documents-#{doc.id}") |> render() =~ "pill failed"
+      refute has_element?(index_live, ".processing-hero")
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+      show_live |> element("button[phx-click=retry_processing]") |> render_click()
+
+      assert render(index_live) =~ "pill processing"
+      row = index_live |> element("#documents-#{doc.id}") |> render()
+      assert row =~ "pill processing"
+      refute row =~ "pill failed"
+      assert has_element?(index_live, ".processing-hero")
+    end
+
+    test "the hero follows live jobs, not the upload age", %{conn: conn, scope: scope, user: user} do
+      running = document_fixture(scope, %{filename: "running.pdf"})
+      live_ocr_job(running)
+
+      Repo.update_all(from(d in Document, where: d.id == ^running.id),
+        set: [inserted_at: ~U[2026-01-01 00:00:00Z]]
+      )
+
+      lost = document_fixture(scope, %{filename: "lost.pdf"})
+
+      failed = document_fixture(scope, %{filename: "failed.pdf"})
+      extracted_content_fixture(failed, user, %{status: "failed"})
+
+      {:ok, hero, html} = live_isolated(conn, ZaimuTomoWeb.ProcessingHeroLive)
+
+      assert has_element?(hero, ".processing-hero")
+      assert html =~ "running.pdf"
+      refute html =~ lost.filename
+      refute html =~ "failed.pdf"
+    end
+
+    test "the hero shows a failed document again while its retry is live", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope, %{filename: "again.pdf"})
+      extracted_content_fixture(doc, user, %{status: "failed"})
+
+      {:ok, hero, _html} = live_isolated(conn, ZaimuTomoWeb.ProcessingHeroLive)
+      refute has_element?(hero, ".processing-hero")
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+      show_live |> element("button[phx-click=retry_processing]") |> render_click()
+
+      assert render(hero) =~ "again.pdf"
+      assert has_element?(hero, ".processing-hero")
     end
   end
 

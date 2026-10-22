@@ -203,7 +203,8 @@ sequenceDiagram
 - **Permanent error**, or a transient error on the final attempt (5): the job appends one `failed` `extracted_content` row and a `failed` review decision, broadcasts `user:<id>:document_processing:failed`, and completes.
 - **Concurrency safety:** every terminal write locks the document row and checks that the latest extraction is still the one expected when the job was enqueued. Otherwise it cancels with `:already_processed`.
 - **Crash or deploy mid-run:** `Oban.Lifeline` moves `executing` jobs back after 30 minutes.
-- **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history.
+- **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history. A successful enqueue broadcasts `user:<id>:document_processing:retried` so open views refresh.
+- **UI state:** the documents Index and the processing hero derive each row's state from `DocumentProcessing.processing_states/1` (live job + latest extraction, two batched queries), the same semantics as `processing_state/1` on Show. A failed row with a live re-run shows "Processing" and keeps the failure note.
 - **Operator recovery:** `bin/recover_stuck_documents` (see [operations.md](operations.md#stuck-documents)).
 
 ```mermaid
@@ -336,7 +337,7 @@ otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.m
 
 ### Real-time UI
 
-PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed`,
+PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried`,
 `invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
 subscribe in `mount/3` when connected.
 
