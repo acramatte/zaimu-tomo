@@ -70,9 +70,9 @@ defmodule ZaimuTomo.MixProject do
       {:phoenix_live_view, "~> 1.2.12"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:testcontainers, "~> 2.4", only: :test},
-      # Avoid the four Hackney 1.x CVEs until Testcontainers releases its
-      # upstream Hackney 4 support; Tesla 1.21.2 already supports this line.
-      {:hackney, "~> 4.8", only: :test, override: true},
+      # Keep Testcontainers on patched Hackney until it releases upstream
+      # Hackney 4 support; Tesla 1.21.2 already supports this line.
+      {:hackney, "~> 4.9", only: :test, override: true},
       {:stream_data, "~> 1.2", only: :test},
       {:phoenix_live_dashboard, "~> 0.9.1"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
@@ -87,7 +87,7 @@ defmodule ZaimuTomo.MixProject do
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
       {:aws_signature, "~> 0.4"},
-      {:req_llm, "~> 1.24"},
+      {:req_llm, "~> 1.29"},
       # Durable job queue for document processing (OSS edition). Enqueue is
       # atomic with the triggering row so an upload can never lose its job.
       {:oban, "~> 2.24"},
@@ -102,7 +102,7 @@ defmodule ZaimuTomo.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.3.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.14"}
     ]
   end
 
