@@ -1611,3 +1611,71 @@ body:has(.doc-modal) { overflow: hidden; }
   gap: 12px;
   text-align: center;
 }
+
+/* ============================
+   Review: source document viewer
+   ============================ */
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 11fr) minmax(0, 9fr);
+  gap: var(--gap-grid);
+  align-items: start;
+  margin-top: 16px;
+}
+.review-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-grid);
+  min-width: 0;
+}
+.review-doc {
+  position: sticky;
+  top: 72px;
+  /* Fits below the page title on load; stays fully visible once stuck */
+  height: max(480px, calc(100vh - 200px));
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.review-doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+.review-doc-toolbar .ico { width: 16px; height: 16px; flex-shrink: 0; }
+.review-doc-toolbar .review-doc-name { flex: 1; }
+.review-doc-toolbar .btn { flex-shrink: 0; }
+.review-doc-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review-doc-body {
+  min-height: 0;
+  display: grid;
+  background: var(--panel-2);
+}
+.review-doc-body iframe { width: 100%; height: 100%; border: 0; }
+.review-doc-card { display: none; }
+.review-doc-card-body { display: flex; gap: 14px; align-items: flex-start; }
+.review-doc-card-icon {
+  width: 48px;
+  height: 60px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+@media (max-width: 1024px) {
+  .review-layout { grid-template-columns: minmax(0, 1fr); }
+  .review-doc { display: none; }
+  .review-doc-card { display: block; }
+}

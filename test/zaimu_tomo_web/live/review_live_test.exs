@@ -58,6 +58,35 @@ defmodule ZaimuTomoWeb.ReviewLiveTest do
     refute show_html =~ "€123.45"
   end
 
+  test "shows the source document so it can be checked against the extracted data", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    pdf = document_fixture(scope, %{filename: "acme-invoice.pdf"})
+    pdf_review = pdf |> extracted_content_fixture(user) |> pending_review_fixture()
+
+    {:ok, live, _html} = live(conn, ~p"/reviews/#{pdf_review}")
+    preview = ~p"/documents/#{pdf}/preview"
+
+    assert has_element?(live, ~s(#review-document-viewer iframe[data-src^="#{preview}#"]))
+    assert has_element?(live, ~s(#review-document-card a[href="#{preview}"][target="_blank"]))
+
+    assert has_element?(
+             live,
+             ~s(#review-document-card a[href="#{~p"/documents/#{pdf}/download"}"])
+           )
+
+    docx = document_fixture(scope, %{filename: "notes.docx"})
+    docx_review = docx |> extracted_content_fixture(user) |> pending_review_fixture()
+
+    {:ok, live, _html} = live(conn, ~p"/reviews/#{docx_review}")
+
+    refute has_element?(live, "#review-document-viewer iframe")
+    refute has_element?(live, ~s(a[href="#{~p"/documents/#{docx}/preview"}"]))
+    assert has_element?(live, "#review-document-card", "Preview not available")
+  end
+
   test "shows verifier concerns for a rejected extraction", %{
     conn: conn,
     scope: scope,

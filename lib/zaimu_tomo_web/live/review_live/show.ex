@@ -3,6 +3,8 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.Documents
+  alias ZaimuTomo.MediaPreview
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomoWeb.ReviewLive.Duplicates
@@ -10,14 +12,18 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     case socket.assigns.current_scope do
-      %Scope{user: user} ->
+      %Scope{user: user} = scope ->
         case Review.get_review_decision(id, user.id) do
           {:ok, %ReviewDecision{} = rd} ->
+            {:ok, document} = Documents.fetch_document(scope, rd.extracted_content.document_id)
+
             {:ok,
              socket
              |> assign(:page_title, review_title(rd))
              |> assign(:current_path, "/reviews")
              |> assign(:review_decision, rd)
+             |> assign(:document, document)
+             |> assign(:preview_kind, preview_kind(document))
              |> assign(:verification, verifier_feedback(rd))
              |> assign(:typesafe_shadow, typesafe_shadow(rd))
              |> assign(:rejection_form, to_form(ReviewDecision.changeset_for_update(rd, %{})))
@@ -45,270 +51,380 @@ defmodule ZaimuTomoWeb.ReviewLive.Show do
     </div>
     <h1 class="view-title" style="margin-top:8px">{@page_title}</h1>
 
-    <section :if={@verification} class="card" style="margin:16px 0;border-color:var(--warn)">
-      <div class="card-head" style="margin-bottom:10px">
-        <div class="card-title">Verifier flagged this extraction</div>
-        <.status_pill status="review" />
-      </div>
-      <div class="detail-row">
-        <div class="name muted">Verifier result</div>
-        <div>{verification_status_label(@verification["status"])}</div>
-      </div>
-      <div :if={@verification["field_issues"]} class="detail-row">
-        <div class="name muted">Flagged fields</div>
-        <div class="mono dim">{@verification["field_issues"]}</div>
-      </div>
-      <div class="detail-row">
-        <div class="name muted">Reason</div>
-        <div>{@verification["reason"]}</div>
-      </div>
-    </section>
-
-    <section :if={@typesafe_shadow} class="card" style="margin:16px 0">
-      <div class="card-head" style="margin-bottom:10px">
-        <div class="card-title">Quality checks</div>
-        <.status_pill status={typesafe_pill_status(@typesafe_shadow["status"])} />
-      </div>
-      <p class="muted" style="margin:0;font-size:12px">
-        Independent check: {typesafe_status_label(@typesafe_shadow["status"])}. It does not change posting.
-      </p>
-      <details class="quality-check-details" style="margin-top:10px">
-        <summary>View independent check</summary>
-        <div class="detail-row" style="margin-top:10px">
-          <div class="name muted">Jev result</div>
-          <div>{typesafe_status_label(@typesafe_shadow["status"])}</div>
-        </div>
-        <div :if={@typesafe_shadow["model"]} class="detail-row">
-          <div class="name muted">Model</div>
-          <div class="mono dim">{@typesafe_shadow["model"]}</div>
-        </div>
-        <div :if={@typesafe_shadow["max_error_probability"]} class="detail-row">
-          <div class="name muted">Highest error probability</div>
-          <div class="mono dim">{format_probability(@typesafe_shadow["max_error_probability"])}</div>
-        </div>
-        <div :if={@typesafe_shadow["review_threshold"]} class="detail-row">
-          <div class="name muted">Review threshold</div>
-          <div class="mono dim">{format_probability(@typesafe_shadow["review_threshold"])}</div>
-        </div>
-        <div :if={@typesafe_shadow["field_issues"]} class="detail-row">
-          <div class="name muted">Flagged fields</div>
-          <div class="mono dim">{@typesafe_shadow["field_issues"]}</div>
-        </div>
-        <div :if={@typesafe_shadow["error"]} class="detail-row">
-          <div class="name muted">Error</div>
-          <div class="mono dim">{@typesafe_shadow["error"]}</div>
-        </div>
-        <div :if={typesafe_field_probabilities(@typesafe_shadow) != []} class="detail-row">
-          <div class="name muted">Field probabilities</div>
-          <div class="mono dim">
-            {typesafe_field_probabilities(@typesafe_shadow)
-            |> Enum.map_join(" · ", fn {field, probability} ->
-              "#{field} #{format_probability(probability)}"
-            end)}
-          </div>
-        </div>
-      </details>
-    </section>
-
-    <div class="grid grid-12">
-      <div class="card span-7">
-        <div class="card-head">
-          <div class="card-title">Invoice data</div>
-          <div :if={@review_decision.review_status == "pending"} class="card-meta">
-            <a class="btn sm" href={~p"/reviews/#{@review_decision}/edit"}>Amend</a>
-          </div>
+    <div class="review-layout">
+      <aside class="card review-doc" id="review-document-viewer">
+        <div class="review-doc-toolbar">
+          <.icon name="hero-document" class="ico muted" />
+          <span class="review-doc-name" title={@document.filename}>{@document.filename}</span>
+          <.document_actions document={@document} preview_kind={@preview_kind} />
         </div>
         <div
-          class="detail-row"
-          style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px"
+          class="review-doc-body"
+          id="review-document-body"
+          phx-hook=".DesktopPreview"
+          phx-update="ignore"
         >
-          <div class="name muted">Amount</div>
-          <div class="num" style="font-size:20px;font-weight:600">
-            {if @effective_data.amount_to_pay_cents && @effective_data.currency,
-              do: fmt_cents(@effective_data.amount_to_pay_cents, @effective_data.currency),
-              else: "—"}
-          </div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Issuer</div>
-          <div>{@effective_data.issuer || "—"}</div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Date</div>
-          <div>{@effective_data.invoice_date || "—"}</div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Invoice #</div>
-          <div class="mono dim">{@effective_data.invoice_number || "—"}</div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Currency</div>
-          <div>{@effective_data.currency || "—"}</div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Reason</div>
-          <div>{@effective_data.reason_for_payment || "—"}</div>
-        </div>
-        <div
-          :if={@review_decision.review_notes}
-          class="detail-row"
-          style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:10px"
-        >
-          <div class="name muted">Notes</div>
-          <div>{@review_decision.review_notes}</div>
-        </div>
-      </div>
-
-      <div class="card span-5">
-        <div class="card-head">
-          <div class="card-title">Decision</div>
-        </div>
-        <div class="detail-row">
-          <div class="name muted">Submitted</div>
-          <div>
-            {ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@review_decision.inserted_at))}
-          </div>
-        </div>
-        <div :if={@review_decision.rejection_reason} class="detail-row">
-          <div class="name muted">Rejection reason</div>
-          <div>{@review_decision.rejection_reason}</div>
-        </div>
-        <div
-          :if={@duplicate_error or @duplicates.candidates != []}
-          id="duplicate-panel"
-          style="margin-top:16px;border:1px solid var(--warn);border-radius:8px;padding:14px"
-        >
-          <div style="font-weight:600;margin-bottom:6px">
-            {Duplicates.title(@duplicates.verdict)}
-          </div>
-          <div class="muted" style="font-size:14px;margin-bottom:10px">
-            <%= case @duplicates.verdict do %>
-              <% :same_file_blocked -> %>
-                This is the same uploaded file as a recorded entry, and the invoice details match it. Reject this duplicate review.
-              <% :file_reuse -> %>
-                Same file as the entry posted on {Duplicates.file_match_posted_on(@duplicates)}. Is this a reused bill for a new period?
-              <% :invoice_number -> %>
-                This invoice number is already recorded for this issuer. Amend the data or reject the document.
-              <% _ -> %>
-                An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
-            <% end %>
-          </div>
-          <.duplicate_candidate
-            :for={%{entry: entry, reason: reason} <- @duplicates.candidates}
-            candidate={entry}
-            reason={reason}
-          />
-          <button
-            :if={@review_decision.review_status == "pending" and @duplicates.verdict == :possible}
-            class="btn sm primary"
-            type="button"
-            phx-click="approve"
-            phx-value-confirmed="true"
-            phx-disable-with="Posting…"
-          >
-            Post anyway
-          </button>
-          <button
-            :if={@review_decision.review_status == "pending" and @duplicates.verdict == :file_reuse}
-            id="confirm-file-reuse"
-            class="btn sm primary"
-            type="button"
-            phx-click="approve"
-            phx-value-confirm_file_reuse="true"
-            phx-disable-with="Posting…"
-          >
-            Yes, post as a reused bill
-          </button>
-        </div>
-        <%= if @review_decision.review_status == "pending" do %>
-          <%= if @show_rejection_form do %>
-            <.form
-              for={@rejection_form}
-              phx-submit="reject"
-              id="rejection_form"
-              style="margin-top:16px"
-            >
-              <.input
-                field={@rejection_form[:rejection_reason]}
-                label="Why are you rejecting this invoice?"
-                type="textarea"
-                placeholder="For example: duplicate invoice or incorrect extraction"
-                required
-              />
-              <div style="display:flex;gap:8px">
-                <.button type="submit" phx-disable-with="Rejecting…">Reject invoice</.button>
-                <button class="btn sm" type="button" phx-click="hide_rejection_form">Cancel</button>
+          <%= case @preview_kind do %>
+            <% :pdf -> %>
+              <iframe
+                data-src={~p"/documents/#{@document}/preview" <> "#navpanes=0&view=FitH"}
+                title={"Preview of #{@document.filename}"}
+              ></iframe>
+            <% :image -> %>
+              <div class="doc-modal-image">
+                <img data-src={~p"/documents/#{@document}/preview"} alt={@document.filename} />
               </div>
-            </.form>
-          <% else %>
-            <div style="margin-top:16px;display:flex;gap:8px">
-              <button
-                :if={@duplicates.candidates == []}
-                class="btn sm primary"
-                type="button"
-                phx-click="approve"
-                phx-disable-with="Approving…"
-              >
-                Approve &amp; post
-              </button>
-              <button class="btn sm" type="button" phx-click="show_rejection_form">Reject</button>
-            </div>
+            <% nil -> %>
+              <div class="doc-modal-empty">
+                <div class="view-sub">Inline preview not available for this file type.</div>
+              </div>
           <% end %>
-        <% end %>
-      </div>
-
-      <div :if={@feedback.available?} class="card span-12" style="margin-top:16px">
-        <div class="card-head">
-          <div class="card-title">Extraction feedback</div>
-          <div class="card-meta">Sent to Langfuse as a score on this document's trace</div>
         </div>
-        <p class="muted" style="margin-bottom:12px">
-          Did the extracted data match the document? Your feedback helps improve the extraction
-          pipeline.
-        </p>
-        <%= if @feedback.submitted do %>
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".DesktopPreview">
+          // The viewer is hidden below 1025px (see .review-doc in zaimutomo.css),
+          // where the Source document card links out instead. Browsers still fetch
+          // hidden iframes, so only set src once the viewer can actually show.
+          export default {
+            mounted() {
+              this.media = window.matchMedia("(min-width: 1025px)")
+              this.load = () => {
+                if (!this.media.matches) return
+                this.el.querySelectorAll("[data-src]").forEach((el) => {
+                  el.src = el.dataset.src
+                  el.removeAttribute("data-src")
+                })
+              }
+              this.load()
+              this.media.addEventListener("change", this.load)
+            },
+            destroyed() {
+              this.media.removeEventListener("change", this.load)
+            }
+          }
+        </script>
+      </aside>
+
+      <div class="review-main">
+        <section :if={@verification} class="card" style="border-color:var(--warn)">
+          <div class="card-head" style="margin-bottom:10px">
+            <div class="card-title">Verifier flagged this extraction</div>
+            <.status_pill status="review" />
+          </div>
           <div class="detail-row">
-            <div class="name muted">Thanks!</div>
-            <div>Your feedback has been recorded.</div>
+            <div class="name muted">Verifier result</div>
+            <div>{verification_status_label(@verification["status"])}</div>
           </div>
-        <% else %>
-          <%= if @feedback.value do %>
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <span class="muted" style="font-size:14px">
-                {if @feedback.value == 1, do: "👍 Correct", else: "👎 Incorrect"}
-              </span>
-              <button class="btn sm" type="button" phx-click="clear_feedback">Change</button>
+          <div :if={@verification["field_issues"]} class="detail-row">
+            <div class="name muted">Flagged fields</div>
+            <div class="mono dim">{@verification["field_issues"]}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Reason</div>
+            <div>{@verification["reason"]}</div>
+          </div>
+        </section>
+
+        <section :if={@typesafe_shadow} class="card">
+          <div class="card-head" style="margin-bottom:10px">
+            <div class="card-title">Quality checks</div>
+            <.status_pill status={typesafe_pill_status(@typesafe_shadow["status"])} />
+          </div>
+          <p class="muted" style="margin:0;font-size:12px">
+            Independent check: {typesafe_status_label(@typesafe_shadow["status"])}. It does not change posting.
+          </p>
+          <details class="quality-check-details" style="margin-top:10px">
+            <summary>View independent check</summary>
+            <div class="detail-row" style="margin-top:10px">
+              <div class="name muted">Jev result</div>
+              <div>{typesafe_status_label(@typesafe_shadow["status"])}</div>
             </div>
-            <.form for={@feedback.form} phx-submit="submit_feedback" id="feedback_form">
-              <.input
-                field={@feedback.form[:comment]}
-                label="Optional comment"
-                type="textarea"
-                placeholder={
-                  if @feedback.value == 1,
-                    do: "Anything that was extracted especially well?",
-                    else: "For example: the amount was parsed incorrectly"
-                }
-              />
-              <div style="display:flex;gap:8px">
-                <.button type="submit" phx-disable-with="Sending…">Send feedback</.button>
-                <button class="btn sm" type="button" phx-click="clear_feedback">Cancel</button>
+            <div :if={@typesafe_shadow["model"]} class="detail-row">
+              <div class="name muted">Model</div>
+              <div class="mono dim">{@typesafe_shadow["model"]}</div>
+            </div>
+            <div :if={@typesafe_shadow["max_error_probability"]} class="detail-row">
+              <div class="name muted">Highest error probability</div>
+              <div class="mono dim">
+                {format_probability(@typesafe_shadow["max_error_probability"])}
               </div>
-            </.form>
-          <% else %>
-            <div style="display:flex;gap:8px">
-              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="1">
-                👍 Correct
-              </button>
-              <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="0">
-                👎 Incorrect
-              </button>
             </div>
+            <div :if={@typesafe_shadow["review_threshold"]} class="detail-row">
+              <div class="name muted">Review threshold</div>
+              <div class="mono dim">{format_probability(@typesafe_shadow["review_threshold"])}</div>
+            </div>
+            <div :if={@typesafe_shadow["field_issues"]} class="detail-row">
+              <div class="name muted">Flagged fields</div>
+              <div class="mono dim">{@typesafe_shadow["field_issues"]}</div>
+            </div>
+            <div :if={@typesafe_shadow["error"]} class="detail-row">
+              <div class="name muted">Error</div>
+              <div class="mono dim">{@typesafe_shadow["error"]}</div>
+            </div>
+            <div :if={typesafe_field_probabilities(@typesafe_shadow) != []} class="detail-row">
+              <div class="name muted">Field probabilities</div>
+              <div class="mono dim">
+                {typesafe_field_probabilities(@typesafe_shadow)
+                |> Enum.map_join(" · ", fn {field, probability} ->
+                  "#{field} #{format_probability(probability)}"
+                end)}
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Invoice data</div>
+            <div :if={@review_decision.review_status == "pending"} class="card-meta">
+              <a class="btn sm" href={~p"/reviews/#{@review_decision}/edit"}>Amend</a>
+            </div>
+          </div>
+          <div
+            class="detail-row"
+            style="border-bottom:1px solid var(--hairline);padding-bottom:10px;margin-bottom:10px"
+          >
+            <div class="name muted">Amount</div>
+            <div class="num" style="font-size:20px;font-weight:600">
+              {if @effective_data.amount_to_pay_cents && @effective_data.currency,
+                do: fmt_cents(@effective_data.amount_to_pay_cents, @effective_data.currency),
+                else: "—"}
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Issuer</div>
+            <div>{@effective_data.issuer || "—"}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Date</div>
+            <div>{@effective_data.invoice_date || "—"}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Invoice #</div>
+            <div class="mono dim">{@effective_data.invoice_number || "—"}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Currency</div>
+            <div>{@effective_data.currency || "—"}</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Reason</div>
+            <div>{@effective_data.reason_for_payment || "—"}</div>
+          </div>
+          <div
+            :if={@review_decision.review_notes}
+            class="detail-row"
+            style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:10px"
+          >
+            <div class="name muted">Notes</div>
+            <div>{@review_decision.review_notes}</div>
+          </div>
+        </div>
+
+        <section class="card review-doc-card" id="review-document-card">
+          <div class="card-head">
+            <div class="card-title">Source document</div>
+          </div>
+          <div class="review-doc-card-body">
+            <div class="review-doc-card-icon">
+              <.icon name="hero-document-text" class="w-6 h-6" />
+            </div>
+            <div style="min-width:0">
+              <div class="review-doc-name" title={@document.filename}>{@document.filename}</div>
+              <div class="muted" style="font-size:12px;margin-top:2px">
+                {file_type_label(@document)}{if !@preview_kind, do: " · Preview not available"}
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+                <.document_actions document={@document} preview_kind={@preview_kind} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Decision</div>
+          </div>
+          <div class="detail-row">
+            <div class="name muted">Submitted</div>
+            <div>
+              {ZaimuTomoWeb.Layouts.rel_time(DateTime.to_iso8601(@review_decision.inserted_at))}
+            </div>
+          </div>
+          <div :if={@review_decision.rejection_reason} class="detail-row">
+            <div class="name muted">Rejection reason</div>
+            <div>{@review_decision.rejection_reason}</div>
+          </div>
+          <div
+            :if={@duplicate_error or @duplicates.candidates != []}
+            id="duplicate-panel"
+            style="margin-top:16px;border:1px solid var(--warn);border-radius:8px;padding:14px"
+          >
+            <div style="font-weight:600;margin-bottom:6px">
+              {Duplicates.title(@duplicates.verdict)}
+            </div>
+            <div class="muted" style="font-size:14px;margin-bottom:10px">
+              <%= case @duplicates.verdict do %>
+                <% :same_file_blocked -> %>
+                  This is the same uploaded file as a recorded entry, and the invoice details match it. Reject this duplicate review.
+                <% :file_reuse -> %>
+                  Same file as the entry posted on {Duplicates.file_match_posted_on(@duplicates)}. Is this a reused bill for a new period?
+                <% :invoice_number -> %>
+                  This invoice number is already recorded for this issuer. Amend the data or reject the document.
+                <% _ -> %>
+                  An invoice with the same issuer, date, amount, and currency was already recorded. Verify the document before posting.
+              <% end %>
+            </div>
+            <.duplicate_candidate
+              :for={%{entry: entry, reason: reason} <- @duplicates.candidates}
+              candidate={entry}
+              reason={reason}
+            />
+            <button
+              :if={@review_decision.review_status == "pending" and @duplicates.verdict == :possible}
+              class="btn sm primary"
+              type="button"
+              phx-click="approve"
+              phx-value-confirmed="true"
+              phx-disable-with="Posting…"
+            >
+              Post anyway
+            </button>
+            <button
+              :if={@review_decision.review_status == "pending" and @duplicates.verdict == :file_reuse}
+              id="confirm-file-reuse"
+              class="btn sm primary"
+              type="button"
+              phx-click="approve"
+              phx-value-confirm_file_reuse="true"
+              phx-disable-with="Posting…"
+            >
+              Yes, post as a reused bill
+            </button>
+          </div>
+          <%= if @review_decision.review_status == "pending" do %>
+            <%= if @show_rejection_form do %>
+              <.form
+                for={@rejection_form}
+                phx-submit="reject"
+                id="rejection_form"
+                style="margin-top:16px"
+              >
+                <.input
+                  field={@rejection_form[:rejection_reason]}
+                  label="Why are you rejecting this invoice?"
+                  type="textarea"
+                  placeholder="For example: duplicate invoice or incorrect extraction"
+                  required
+                />
+                <div style="display:flex;gap:8px">
+                  <.button type="submit" phx-disable-with="Rejecting…">Reject invoice</.button>
+                  <button class="btn sm" type="button" phx-click="hide_rejection_form">Cancel</button>
+                </div>
+              </.form>
+            <% else %>
+              <div style="margin-top:16px;display:flex;gap:8px">
+                <button
+                  :if={@duplicates.candidates == []}
+                  class="btn sm primary"
+                  type="button"
+                  phx-click="approve"
+                  phx-disable-with="Approving…"
+                >
+                  Approve &amp; post
+                </button>
+                <button class="btn sm" type="button" phx-click="show_rejection_form">Reject</button>
+              </div>
+            <% end %>
           <% end %>
-        <% end %>
+        </div>
+
+        <div :if={@feedback.available?} class="card">
+          <div class="card-head">
+            <div class="card-title">Extraction feedback</div>
+            <div class="card-meta">Sent to Langfuse as a score on this document's trace</div>
+          </div>
+          <p class="muted" style="margin-bottom:12px">
+            Did the extracted data match the document? Your feedback helps improve the extraction
+            pipeline.
+          </p>
+          <%= if @feedback.submitted do %>
+            <div class="detail-row">
+              <div class="name muted">Thanks!</div>
+              <div>Your feedback has been recorded.</div>
+            </div>
+          <% else %>
+            <%= if @feedback.value do %>
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                <span class="muted" style="font-size:14px">
+                  {if @feedback.value == 1, do: "👍 Correct", else: "👎 Incorrect"}
+                </span>
+                <button class="btn sm" type="button" phx-click="clear_feedback">Change</button>
+              </div>
+              <.form for={@feedback.form} phx-submit="submit_feedback" id="feedback_form">
+                <.input
+                  field={@feedback.form[:comment]}
+                  label="Optional comment"
+                  type="textarea"
+                  placeholder={
+                    if @feedback.value == 1,
+                      do: "Anything that was extracted especially well?",
+                      else: "For example: the amount was parsed incorrectly"
+                  }
+                />
+                <div style="display:flex;gap:8px">
+                  <.button type="submit" phx-disable-with="Sending…">Send feedback</.button>
+                  <button class="btn sm" type="button" phx-click="clear_feedback">Cancel</button>
+                </div>
+              </.form>
+            <% else %>
+              <div style="display:flex;gap:8px">
+                <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="1">
+                  👍 Correct
+                </button>
+                <button class="btn sm" phx-click="select_feedback" phx-value-thumbs="0">
+                  👎 Incorrect
+                </button>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
       </div>
     </div>
     """
+  end
+
+  attr :document, :map, required: true
+  attr :preview_kind, :atom, required: true
+
+  defp document_actions(assigns) do
+    ~H"""
+    <a
+      :if={@preview_kind}
+      class="btn sm"
+      href={~p"/documents/#{@document}/preview"}
+      target="_blank"
+      rel="noopener"
+    >
+      <.icon name="hero-arrow-top-right-on-square" class="ico" /> Open
+    </a>
+    <a class="btn sm" href={~p"/documents/#{@document}/download"}>
+      <.icon name="hero-arrow-down-tray" class="ico" /> Download
+    </a>
+    """
+  end
+
+  defp preview_kind(document) do
+    case MediaPreview.previewable?(
+           MIME.from_path(document.filename),
+           Path.extname(document.filename)
+         ) do
+      {:ok, kind} -> kind
+      {:error, :not_previewable} -> nil
+    end
+  end
+
+  defp file_type_label(document) do
+    document.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase()
   end
 
   @impl true
