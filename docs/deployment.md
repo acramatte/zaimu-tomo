@@ -119,3 +119,8 @@ check: Dialyzer's whole-program success typing is a complementary, slower
 check that doesn't gate pushes. Known tool/stdlib false positives are
 suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
 benign — re-verify them after any Ecto, Elixir, or OTP upgrade.
+
+All jobs in all three workflows pin `runs-on: ubuntu-26.04` rather than
+`ubuntu-latest`, so a GitHub image migration can't silently change the toolchain
+under a green build. Bump the label deliberately, in one commit, when a newer
+image is worth adopting.

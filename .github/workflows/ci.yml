@@ -13,7 +13,7 @@ env:
 jobs:
   lint:
     name: Format, Credo, unused deps
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -47,7 +47,7 @@ jobs:
 
   test:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     services:
       postgres:
@@ -96,7 +96,7 @@ jobs:
 
   security-audit:
     name: Dependency security audit (advisory, non-blocking)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Visible on every push/PR as a quick signal, but never a required status
     # check: a new CVE disclosed in an unrelated dependency, with zero code
     # changes, shouldn't block unrelated work. The nightly-audit workflow is
