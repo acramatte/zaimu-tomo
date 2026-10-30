@@ -425,6 +425,29 @@ defmodule ZaimuTomo.Accounting do
     }
   end
 
+  @doc """
+  Returns the distinct categories the scoped user has already assigned, sorted
+  alphabetically, for autocompleting the posting form.
+
+  Categories differing only in case or surrounding whitespace collapse into
+  one suggestion spelled as most recently used. Other users' categories are
+  never returned.
+  """
+  @spec list_categories(Scope.t()) :: [String.t()]
+  def list_categories(%Scope{user: user}) do
+    from(je in JournalEntry,
+      where:
+        je.user_id == ^user.id and
+          not is_nil(je.category) and
+          fragment("btrim(?) <> ''", je.category),
+      distinct: fragment("lower(btrim(?))", je.category),
+      # DISTINCT ON keeps the first row per key, so newest first picks the latest spelling.
+      order_by: [desc: je.updated_at, desc: je.id],
+      select: fragment("btrim(?)", je.category)
+    )
+    |> Repo.all()
+  end
+
   @spec list_journal_entries(integer()) :: [JournalEntry.t()]
   def list_journal_entries(user_id) do
     from(je in JournalEntry,

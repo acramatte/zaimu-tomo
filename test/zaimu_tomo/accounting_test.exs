@@ -299,6 +299,26 @@ defmodule ZaimuTomo.AccountingTest do
     )
   end
 
+  describe "list_categories/1" do
+    test "returns only the scoped user's categories, deduplicated with the latest spelling" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      other_scope = user_scope_fixture()
+
+      older = create_entry(scope, user, ~D[2026-06-01], 100, "CHF", "groceries")
+      set_timestamps(older, updated_at: ~U[2026-06-01 10:00:00Z])
+      create_entry(scope, user, ~D[2026-06-02], 100, "CHF", " Groceries ")
+      create_entry(scope, user, ~D[2026-06-03], 100, "CHF", "Software")
+      create_entry(scope, user, ~D[2026-06-04], 100, "CHF", nil)
+      create_entry(other_scope, other_scope.user, ~D[2026-06-05], 100, "CHF", "Secret hobby")
+      create_entry(other_scope, other_scope.user, ~D[2026-06-05], 100, "CHF", "Software")
+
+      assert Accounting.list_categories(scope) == ["Groceries", "Software"]
+      assert Accounting.list_categories(other_scope) == ["Secret hobby", "Software"]
+      assert Accounting.list_categories(user_scope_fixture()) == []
+    end
+  end
+
   describe "list_journal_entries/1" do
     test "sorts entries with newer updated_at above older ones" do
       user = user_fixture()

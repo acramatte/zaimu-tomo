@@ -45,6 +45,26 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       assert render(live) =~ "Need"
     end
 
+    test "suggests only the current user's existing categories", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      {:ok, _} = Accounting.post_entry(create_entry(scope, user), user.id, "Software", "need")
+
+      other = ZaimuTomo.AccountsFixtures.user_fixture()
+      other_scope = ZaimuTomo.AccountsFixtures.user_scope_fixture(other)
+
+      {:ok, _} =
+        Accounting.post_entry(create_entry(other_scope, other), other.id, "Secret", "want")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{create_entry(scope, user)}")
+
+      assert has_element?(live, "#posting_category[list=posting-category-suggestions]")
+      assert has_element?(live, "#posting-category-suggestions option[value=Software]")
+      refute has_element?(live, "#posting-category-suggestions option[value=Secret]")
+    end
+
     test "requires need or want before posting", %{conn: conn, scope: scope} do
       entry = create_entry(scope, scope.user)
 

@@ -17,6 +17,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
              |> assign(:page_title, entry_title(entry))
              |> assign(:current_path, "/journal_entries")
              |> assign(:entry, entry)
+             |> assign(:categories, Accounting.list_categories(socket.assigns.current_scope))
              |> assign_posting_form(entry)}
 
           {:error, reason} ->
@@ -105,8 +106,13 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
                 field={@form[:category]}
                 label="Budget category"
                 placeholder="e.g. Software, Travel, Office"
+                list="posting-category-suggestions"
+                autocomplete="off"
                 required
               />
+              <datalist id="posting-category-suggestions">
+                <option :for={category <- @categories} value={category} />
+              </datalist>
               <.input
                 field={@form[:need_or_want]}
                 label="Need / Want"
