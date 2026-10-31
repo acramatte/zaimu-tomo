@@ -76,7 +76,7 @@ defmodule ZaimuTomo.LLMClient do
          end) do
       {:ok, response} ->
         response
-        |> ReqLLM.Response.object()
+        |> structured_object()
         |> parse_extracted_data(config)
 
       {:error, reason} ->
@@ -90,9 +90,9 @@ defmodule ZaimuTomo.LLMClient do
     end
   end
 
-  @spec parse_extracted_data(term(), backend_config()) ::
+  @spec parse_extracted_data({:ok, map()} | {:error, :no_structured_output}, backend_config()) ::
           {:ok, ExtractedData.t()} | {:error, term()}
-  defp parse_extracted_data(data, config) when is_map(data) do
+  defp parse_extracted_data({:ok, data}, config) do
     case ExtractedData.changeset(data)
          |> Ecto.Changeset.apply_action(:parse) do
       {:ok, extracted_data} ->
@@ -113,7 +113,7 @@ defmodule ZaimuTomo.LLMClient do
     end
   end
 
-  defp parse_extracted_data(_data, config) do
+  defp parse_extracted_data({:error, :no_structured_output}, config) do
     Logger.error(
       "[LLM] Invoice extraction response missing structured object with #{backend_summary(:extractor, config)}"
     )
@@ -233,10 +233,21 @@ defmodule ZaimuTomo.LLMClient do
   @doc false
   @spec extract_verifier_object(ReqLLM.Response.t()) :: {:ok, map()} | {:error, term()}
   def extract_verifier_object(response) do
+    case structured_object(response) do
+      {:ok, object} -> {:ok, object}
+      {:error, :no_structured_output} -> prose_object_from_response(response)
+    end
+  end
+
+  # ReqLLM's :openai provider (used by nousresearch) forces a structured_output
+  # tool call and leaves `object` nil when the model answers with JSON message
+  # text instead, as granite-4.2-8b sometimes does. Both roles recover it here;
+  # callers still validate the map against their own contract before trusting it.
+  defp structured_object(response) do
     with {:error, :no_object} <- object_from_response(response),
          {:error, :no_unwrapped_object} <- unwrapped_object_from_response(response),
          {:error, :no_structured_output} <- structured_output_from_tool_calls(response) do
-      prose_object_from_response(response)
+      {:error, :no_structured_output}
     else
       %{} = object -> {:ok, object}
     end
@@ -287,8 +298,8 @@ defmodule ZaimuTomo.LLMClient do
     # ```json ... ``` markdown fence. unwrap_object/2 routes that through
     # ReqLLM.JSON.decode (repair on), which strips the fence, extracts the
     # JSON payload, and tolerates trailing commas / smart quotes. The
-    # repaired map is still validated against the verifier contract by the
-    # caller before it is trusted.
+    # repaired map is still validated against the extractor or verifier
+    # contract by the caller before it is trusted.
     case ReqLLM.Response.unwrap_object(response, json_repair: true) do
       {:ok, %{} = object} -> object
       _ -> {:error, :no_unwrapped_object}

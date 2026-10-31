@@ -15,17 +15,31 @@ defmodule ZaimuTomo.LLMClientTest do
       request = Jason.decode!(body)
       send(test_pid, {:ollama_request, conn.request_path, conn.req_headers, request})
 
-      object =
-        if request["model"] == "extractor" do
-          %{
-            amount_to_pay_cents: 1200,
-            invoice_date: "2026-01-01",
-            currency: "CHF",
-            reason_for_payment: "Services",
-            issuer: "Example Ltd"
-          }
-        else
-          %{status: "verified", reason: "All fields match."}
+      content =
+        case request["model"] do
+          "extractor" ->
+            Jason.encode!(%{
+              amount_to_pay_cents: 1200,
+              invoice_date: "2026-01-01",
+              currency: "CHF",
+              reason_for_payment: "Services",
+              issuer: "Example Ltd"
+            })
+
+          # Production EWZ response from granite-4.2-8b: it ignored the forced
+          # structured_output tool call and answered with JSON message text.
+          "extractor-text-only" ->
+            Jason.encode!(%{
+              amount_to_pay_cents: 6995,
+              invoice_date: "2026-09-25",
+              invoice_number: "14 000 269 053",
+              currency: "CHF",
+              reason_for_payment: "Electricity bill payment",
+              issuer: "Elektrizitätswerk der Stadt Zürich"
+            })
+
+          _verifier ->
+            Jason.encode!(%{status: "verified", reason: "All fields match."})
         end
 
       response = %{
@@ -34,7 +48,7 @@ defmodule ZaimuTomo.LLMClientTest do
         choices: [
           %{
             index: 0,
-            message: %{role: "assistant", content: Jason.encode!(object)},
+            message: %{role: "assistant", content: content},
             finish_reason: "stop"
           }
         ],
@@ -469,6 +483,42 @@ defmodule ZaimuTomo.LLMClientTest do
         assert body["response_format"]["type"] == "json_schema"
         assert is_map(body["response_format"]["json_schema"]["schema"]["properties"])
       end
+    end
+
+    test "extracts an invoice an OpenAI-compatible model returned as text instead of a tool call" do
+      original_config = Application.fetch_env!(:zaimu_tomo, :nousresearch)
+      original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
+
+      on_exit(fn ->
+        Application.put_env(:zaimu_tomo, :nousresearch, original_config)
+        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+      end)
+
+      server =
+        start_supervised!({Bandit, plug: {OllamaStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
+
+      Application.put_env(:zaimu_tomo, :nousresearch,
+        provider: :openai,
+        base_url: "http://127.0.0.1:#{port}/v1",
+        api_key: "test-key"
+      )
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :nousresearch, model: "extractor-text-only"],
+        verifier: [backend: :nousresearch, model: "verifier"]
+      )
+
+      assert {:ok, extracted} = LLMClient.extract_invoice("EWZ invoice", "CHF")
+
+      assert extracted.amount_to_pay_cents == 6995
+      assert extracted.invoice_date == "2026-09-25"
+      assert extracted.invoice_number == "14 000 269 053"
+      assert extracted.issuer == "Elektrizitätswerk der Stadt Zürich"
+      assert_receive {:ollama_request, "/v1/chat/completions", _headers, body}
+      assert body["tool_choice"]["function"]["name"] == "structured_output"
     end
   end
 
