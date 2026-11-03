@@ -1,11 +1,11 @@
 defmodule ZaimuTomoWeb.UserLive.Settings do
   use ZaimuTomoWeb, :live_view
 
-  on_mount {ZaimuTomoWeb.UserAuth, :require_sudo_mode}
-
   alias ZaimuTomo.Accounts
   alias ZaimuTomo.Accounts.Scope
 
+  # Settings always opens; email and password changes, as sensitive actions,
+  # stay locked until a recent login (sudo mode).
   @impl true
   def render(assigns) do
     ~H"""
@@ -73,11 +73,22 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
             type="email"
             label="Email"
             autocomplete="username"
+            readonly={!@sudo_mode?}
             required
           />
 
           <div class="mt-4">
-            <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+            <.button
+              :if={@sudo_mode?}
+              id="email-submit"
+              variant="primary"
+              phx-disable-with="Changing..."
+            >
+              Change Email
+            </.button>
+            <.button :if={!@sudo_mode?} id="email-reauth" href={~p"/users/log-in"}>
+              <.icon name="hero-lock-closed" class="size-4" /> Log in again to change
+            </.button>
           </div>
         </.form>
       </section>
@@ -91,7 +102,19 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
           </div>
         </div>
 
+        <div :if={!@sudo_mode?} id="password-locked">
+          <p class="card-meta">
+            For your safety, changing your email or password needs a fresh login.
+          </p>
+          <div class="mt-4">
+            <.button id="password-reauth" variant="primary" href={~p"/users/log-in"}>
+              <.icon name="hero-finger-print" class="size-4" /> Confirm it's you
+            </.button>
+          </div>
+        </div>
+
         <.form
+          :if={@sudo_mode?}
           for={@password_form}
           id="password_form"
           action={~p"/users/update-password"}
@@ -157,6 +180,7 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
       |> assign(:page_title, "Account settings")
       |> assign(:current_path, "/users/settings")
       |> assign(:current_email, user.email)
+      |> assign(:sudo_mode?, Accounts.sudo_mode?(user))
       |> assign(:profile_form, to_form(profile_changeset))
       |> assign(:email_form, to_form(email_changeset))
       |> assign(:password_form, to_form(password_changeset))
@@ -212,21 +236,20 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
   def handle_event("update_email", params, socket) do
     %{"user" => user_params} = params
     user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
 
-    case Accounts.change_user_email(user, user_params) do
-      %{valid?: true} = changeset ->
-        Accounts.deliver_user_update_email_instructions(
-          Ecto.Changeset.apply_action!(changeset, :insert),
-          user.email,
-          &url(~p"/users/settings/confirm-email/#{&1}")
-        )
+    with :ok <- check_sudo_mode(user),
+         %{valid?: true} = changeset <- Accounts.change_user_email(user, user_params) do
+      Accounts.deliver_user_update_email_instructions(
+        Ecto.Changeset.apply_action!(changeset, :insert),
+        user.email,
+        &url(~p"/users/settings/confirm-email/#{&1}")
+      )
 
-        info = "A link to confirm your email change has been sent to the new address."
-        {:noreply, socket |> put_flash(:info, info)}
-
-      changeset ->
-        {:noreply, assign(socket, :email_form, to_form(changeset, action: :insert))}
+      info = "A link to confirm your email change has been sent to the new address."
+      {:noreply, socket |> put_flash(:info, info)}
+    else
+      :reauthenticate -> {:noreply, reauthenticate(socket)}
+      changeset -> {:noreply, assign(socket, :email_form, to_form(changeset, action: :insert))}
     end
   end
 
@@ -245,14 +268,25 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
   def handle_event("update_password", params, socket) do
     %{"user" => user_params} = params
     user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
 
-    case Accounts.change_user_password(user, user_params) do
-      %{valid?: true} = changeset ->
-        {:noreply, assign(socket, trigger_submit: true, password_form: to_form(changeset))}
-
-      changeset ->
-        {:noreply, assign(socket, password_form: to_form(changeset, action: :insert))}
+    with :ok <- check_sudo_mode(user),
+         %{valid?: true} = changeset <- Accounts.change_user_password(user, user_params) do
+      {:noreply, assign(socket, trigger_submit: true, password_form: to_form(changeset))}
+    else
+      :reauthenticate -> {:noreply, reauthenticate(socket)}
+      changeset -> {:noreply, assign(socket, password_form: to_form(changeset, action: :insert))}
     end
+  end
+
+  # The page can stay open past the sudo window, so check again on every sensitive submit.
+  defp check_sudo_mode(user) do
+    if Accounts.sudo_mode?(user), do: :ok, else: :reauthenticate
+  end
+
+  # The log-in page sends an already signed-in user back to settings.
+  defp reauthenticate(socket) do
+    socket
+    |> put_flash(:error, "Log in again to change your email or password.")
+    |> redirect(to: ~p"/users/log-in")
   end
 end

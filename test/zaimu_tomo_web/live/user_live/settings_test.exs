@@ -38,16 +38,27 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
       assert %{"error" => "You must log in to access this page."} = flash
     end
 
-    test "redirects if user is not in sudo mode", %{conn: conn} do
-      {:ok, conn} =
+    test "opens without sudo mode but locks email and password changes", %{conn: conn} do
+      {:ok, lv, _html} =
         conn
         |> log_in_user(user_fixture(),
-          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
+          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -21, :minute)
         )
         |> live(~p"/users/settings")
-        |> follow_redirect(conn, ~p"/users/log-in")
 
-      assert conn.resp_body =~ "You must re-authenticate to access this page."
+      assert has_element?(lv, "#email_form input[type='email'][readonly]")
+      assert has_element?(lv, "#email-reauth[href='/users/log-in']")
+      refute has_element?(lv, "#email-submit")
+      assert has_element?(lv, "#password-locked #password-reauth[href='/users/log-in']")
+      refute has_element?(lv, "#password_form")
+      assert has_element?(lv, "#profile_form")
+
+      lv
+      |> form("#email_form", %{"user" => %{"email" => unique_user_email()}})
+      |> render_submit()
+
+      assert {"/users/log-in", %{"error" => "Log in again to change your email or password."}} =
+               assert_redirect(lv)
     end
   end
 
