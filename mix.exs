@@ -65,7 +65,7 @@ defmodule ZaimuTomo.MixProject do
       # Pin postgrex below 1.0 so dependency automation never pulls the
       # 1.0.0-rc line into a production app; bump deliberately when 1.0 is stable.
       {:postgrex, "~> 0.22"},
-      {:phoenix_html, "~> 4.1"},
+      {:phoenix_html, "~> 4.4"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.2.12"},
       {:lazy_html, ">= 0.1.0", only: :test},
