@@ -31,7 +31,19 @@ defmodule ZaimuTomoWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :shell, :atom,
+    default: :auth,
+    values: [:auth, :product],
+    doc: "product pages already have navigation from the authenticated root layout"
+
   slot :inner_block, required: true
+
+  def app(%{shell: :product} = assigns) do
+    ~H"""
+    {render_slot(@inner_block)}
+    <.flash_group flash={@flash} />
+    """
+  end
 
   def app(assigns) do
     ~H"""

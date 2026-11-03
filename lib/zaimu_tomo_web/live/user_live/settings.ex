@@ -9,149 +9,196 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.flash_group flash={@flash} />
-
-    <h1 class="view-title">Account settings</h1>
-    <p class="view-sub">Manage your profile, email address and password settings</p>
-
-    <div class="grid gap-[18px]">
-      <!-- Profile -->
-      <section class="card" aria-labelledby="profile-settings-title">
-        <div class="card-head">
+    <Layouts.app flash={@flash} current_scope={@current_scope} shell={:product}>
+      <div class="settings-page">
+        <header class="settings-header">
           <div>
-            <h2 id="profile-settings-title" class="card-title">Profile</h2>
-            <div class="card-meta">How you appear in Zaimutomo and your primary currency</div>
+            <p class="settings-eyebrow">Account settings / A personal touch</p>
+            <h1>Your books. <em>Your rules.</em></h1>
+            <p class="settings-intro">The details that make this space yours.</p>
           </div>
-        </div>
-
-        <.form
-          for={@profile_form}
-          id="profile_form"
-          phx-submit="update_profile"
-          phx-change="validate_profile"
-        >
-          <.input
-            field={@profile_form[:display_name]}
-            type="text"
-            label="Display name"
-            placeholder="How you'd like to be addressed"
-            autocomplete="name"
-          />
-
-          <.input
-            field={@profile_form[:base_currency]}
-            type="text"
-            label="Base currency"
-            placeholder="EUR"
-            maxlength="3"
-            required
-          />
-
-          <div class="mt-4">
-            <.button variant="primary" phx-disable-with="Saving...">Save Profile</.button>
+          <div class="settings-identity">
+            <span class="settings-identity-label">Personal workspace</span>
+            <div>
+              <strong>{@current_scope.user.display_name || "Your account"}</strong>
+              <span>{@current_email}</span>
+            </div>
+            <div class="settings-base-currency">
+              <span>Base currency</span><strong>{@current_scope.user.base_currency}</strong>
+            </div>
           </div>
-        </.form>
-      </section>
+        </header>
 
-      <!-- Email -->
-      <section class="card" aria-labelledby="email-settings-title">
-        <div class="card-head">
-          <div>
-            <h2 id="email-settings-title" class="card-title">Email</h2>
-            <div class="card-meta">Used to sign in and receive notifications</div>
-          </div>
-        </div>
-
-        <.form
-          for={@email_form}
-          id="email_form"
-          phx-submit="update_email"
-          phx-change="validate_email"
-        >
-          <.input
-            field={@email_form[:email]}
-            type="email"
-            label="Email"
-            autocomplete="username"
-            readonly={!@sudo_mode?}
-            required
-          />
-
-          <div class="mt-4">
-            <.button
-              :if={@sudo_mode?}
-              id="email-submit"
-              variant="primary"
-              phx-disable-with="Changing..."
+        <div class="settings-sections">
+          <section class="settings-section" aria-labelledby="profile-settings-title">
+            <div class="settings-section-heading">
+              <span class="settings-section-number" aria-hidden="true">01</span>
+              <div>
+                <h2 id="profile-settings-title">Profile</h2>
+                <p>Make it <em>personal.</em></p>
+                <span class="settings-section-description">Your name. Your everyday currency.</span>
+              </div>
+            </div>
+            <.form
+              for={@profile_form}
+              id="profile_form"
+              class="settings-form"
+              phx-submit="update_profile"
+              phx-change="validate_profile"
             >
-              Change Email
-            </.button>
-            <.button :if={!@sudo_mode?} id="email-reauth" href={~p"/users/log-in"}>
-              <.icon name="hero-lock-closed" class="size-4" /> Log in again to change
-            </.button>
-          </div>
-        </.form>
-      </section>
+              <div class="settings-fields">
+                <.input
+                  field={@profile_form[:display_name]}
+                  type="text"
+                  class="settings-input"
+                  label="Display name"
+                  placeholder="How you'd like to be addressed"
+                  autocomplete="name"
+                />
+                <.input
+                  field={@profile_form[:base_currency]}
+                  type="text"
+                  class="settings-input settings-currency"
+                  label="Base currency"
+                  placeholder="EUR"
+                  maxlength="3"
+                  aria-describedby="currency-help"
+                  required
+                />
+              </div>
+              <p class="settings-help" id="currency-help">
+                Use a three-letter currency code, such as CHF, EUR or USD.
+              </p>
+              <div class="settings-actions">
+                <.button class="btn settings-save" phx-disable-with="Saving...">
+                  Save Profile <.icon name="hero-arrow-right" class="size-4" />
+                </.button>
+              </div>
+            </.form>
+          </section>
 
-      <!-- Password -->
-      <section class="card" aria-labelledby="password-settings-title">
-        <div class="card-head">
-          <div>
-            <h2 id="password-settings-title" class="card-title">Password</h2>
-            <div class="card-meta">Set or update the password used for this account</div>
-          </div>
+          <section class="settings-section" aria-labelledby="email-settings-title">
+            <div class="settings-section-heading">
+              <span class="settings-section-number" aria-hidden="true">02</span>
+              <div>
+                <h2 id="email-settings-title">Email</h2>
+                <p>Stay <em>connected.</em></p>
+                <span class="settings-section-description">Your address for signing in and notifications.</span>
+              </div>
+            </div>
+            <.form
+              for={@email_form}
+              id="email_form"
+              class="settings-form"
+              phx-submit="update_email"
+              phx-change="validate_email"
+            >
+              <.input
+                field={@email_form[:email]}
+                type="email"
+                class="settings-input"
+                label="Email"
+                autocomplete="username"
+                readonly={!@sudo_mode?}
+                aria-describedby="email-help"
+                required
+              />
+              <p class="settings-help" id="email-help">
+                We'll send a confirmation link to your new email address.
+              </p>
+              <div class="settings-actions">
+                <.button
+                  :if={@sudo_mode?}
+                  id="email-submit"
+                  class="btn settings-save"
+                  phx-disable-with="Changing..."
+                >
+                  Change Email <.icon name="hero-arrow-right" class="size-4" />
+                </.button>
+                <.button
+                  :if={!@sudo_mode?}
+                  id="email-reauth"
+                  class="btn settings-save"
+                  href={~p"/users/log-in"}
+                >
+                  <.icon name="hero-lock-closed" class="size-4" /> Log in again to change
+                </.button>
+              </div>
+            </.form>
+          </section>
+
+          <section class="settings-section" aria-labelledby="password-settings-title">
+            <div class="settings-section-heading">
+              <span class="settings-section-number" aria-hidden="true">03</span>
+              <div>
+                <h2 id="password-settings-title">Password</h2>
+                <p>Keep it <em>private.</em></p>
+                <span class="settings-section-description">Protect access to your financial workspace.</span>
+              </div>
+            </div>
+            <div :if={!@sudo_mode?} id="password-locked" class="settings-locked">
+              <.icon name="hero-shield-check" class="size-6" />
+              <h3>Confirm your identity</h3>
+              <p>For your safety, changing your email or password needs a fresh login.</p>
+              <.button
+                id="password-reauth"
+                class="btn settings-save"
+                href={~p"/users/log-in"}
+              >
+                <.icon name="hero-finger-print" class="size-4" /> Confirm it's you
+              </.button>
+            </div>
+            <.form
+              :if={@sudo_mode?}
+              for={@password_form}
+              id="password_form"
+              class="settings-form"
+              action={~p"/users/update-password"}
+              method="post"
+              phx-change="validate_password"
+              phx-submit="update_password"
+              phx-trigger-action={@trigger_submit}
+            >
+              <input
+                name={@password_form[:email].name}
+                type="hidden"
+                id="hidden_user_email"
+                autocomplete="username"
+                value={@current_email}
+              />
+              <div class="settings-fields">
+                <.input
+                  field={@password_form[:password]}
+                  type="password"
+                  class="settings-input"
+                  label="New password"
+                  autocomplete="new-password"
+                  aria-describedby="password-help"
+                  required
+                />
+                <.input
+                  field={@password_form[:password_confirmation]}
+                  type="password"
+                  class="settings-input"
+                  label="Confirm new password"
+                  autocomplete="new-password"
+                />
+              </div>
+              <p class="settings-help" id="password-help">Choose at least 12 characters.</p>
+              <div class="settings-actions">
+                <.button class="btn settings-save" phx-disable-with="Saving...">
+                  Save Password <.icon name="hero-arrow-right" class="size-4" />
+                </.button>
+              </div>
+            </.form>
+          </section>
         </div>
-
-        <div :if={!@sudo_mode?} id="password-locked">
-          <p class="card-meta">
-            For your safety, changing your email or password needs a fresh login.
-          </p>
-          <div class="mt-4">
-            <.button id="password-reauth" variant="primary" href={~p"/users/log-in"}>
-              <.icon name="hero-finger-print" class="size-4" /> Confirm it's you
-            </.button>
-          </div>
-        </div>
-
-        <.form
-          :if={@sudo_mode?}
-          for={@password_form}
-          id="password_form"
-          action={~p"/users/update-password"}
-          method="post"
-          phx-change="validate_password"
-          phx-submit="update_password"
-          phx-trigger-action={@trigger_submit}
-        >
-          <input
-            name={@password_form[:email].name}
-            type="hidden"
-            id="hidden_user_email"
-            autocomplete="username"
-            value={@current_email}
-          />
-
-          <.input
-            field={@password_form[:password]}
-            type="password"
-            label="New password"
-            autocomplete="new-password"
-            required
-          />
-
-          <.input
-            field={@password_form[:password_confirmation]}
-            type="password"
-            label="Confirm new password"
-            autocomplete="new-password"
-          />
-
-          <div class="mt-4">
-            <.button variant="primary" phx-disable-with="Saving...">Save Password</.button>
-          </div>
-        </.form>
-      </section>
-    </div>
+        <p class="settings-footnote">
+          <.icon name="hero-lock-closed" class="size-3.5" />
+          Your details stay yours. Changes are saved one section at a time.
+        </p>
+      </div>
+    </Layouts.app>
     """
   end
 

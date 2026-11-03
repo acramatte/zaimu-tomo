@@ -7,25 +7,18 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
 
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do
-      {:ok, _lv, html} =
+      {:ok, lv, html} =
         conn
         |> log_in_user(user_fixture())
         |> live(~p"/users/settings")
 
-      assert html =~ "Save Profile"
-      assert html =~ "Change Email"
-      assert html =~ "Save Password"
-      # structural expectations: concise header and section titles
-      assert html =~ "Account settings"
-      assert html =~ "Profile"
-      assert html =~ "Email"
-      assert html =~ "Password"
-
-      # structural expectations: header sits directly in the layout view (no wrapper / no extra max-width)
-      assert html =~ ~s(<h1 class="view-title">Account settings</h1>)
-      assert html =~ ~s(<div class="view" id="view">)
-      assert html =~ ~s(<div class="grid gap-[18px]">)
-      refute html =~ "settings-view"
+      assert has_element?(lv, "h1", "Your books. Your rules.")
+      assert has_element?(lv, "section[aria-labelledby='profile-settings-title'] #profile_form")
+      assert has_element?(lv, "section[aria-labelledby='email-settings-title'] #email_form")
+      assert has_element?(lv, "section[aria-labelledby='password-settings-title'] #password_form")
+      assert has_element?(lv, "#profile_form button", "Save Profile")
+      assert has_element?(lv, "#email-submit", "Change Email")
+      assert has_element?(lv, "#password_form button", "Save Password")
       refute html =~ "https://phoenixframework.org/"
       refute html =~ "Get Started"
     end

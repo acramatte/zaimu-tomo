@@ -341,6 +341,12 @@ PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|fai
 `invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
 subscribe in `mount/3` when connected.
 
+Account settings renders inside the authenticated `zaimutomo` root layout.
+Its `Layouts.app` call uses `shell: :product` to render content and LiveView
+flash messages without duplicating the standalone authentication navigation.
+Profile, email, and password remain independent forms; sensitive changes still
+require a recent login. Settings styles are scoped to avoid altering other pages.
+
 ### Testing
 
 ExUnit with the SQL sandbox. Storage uses the Memory adapter, HTTP uses
