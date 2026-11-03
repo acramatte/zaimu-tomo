@@ -96,7 +96,7 @@ defmodule ZaimuTomo.MixProject do
       {:uniq, "== 0.6.3", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:usage_rules, "~> 1.2.5", only: [:dev]},
+      {:usage_rules, "~> 1.3.0", only: [:dev]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:gettext, "~> 1.0"},
