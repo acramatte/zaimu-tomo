@@ -14,143 +14,211 @@ defmodule ZaimuTomoWeb.UserLive.Settings do
     <h1 class="view-title">Account settings</h1>
     <p class="view-sub">Manage your profile, email address and password settings</p>
 
-    <div class="grid gap-[18px]">
-      <!-- Profile -->
-      <section class="card" aria-labelledby="profile-settings-title">
-        <div class="card-head">
-          <div>
-            <h2 id="profile-settings-title" class="card-title">Profile</h2>
-            <div class="card-meta">How you appear in Zaimutomo and your primary currency</div>
-          </div>
+    <div class="settings-layout">
+      <div class="card settings-identity">
+        <div class="settings-avatar" aria-hidden="true">
+          {String.slice(@current_scope.user.email, 0, 2) |> String.upcase()}
         </div>
+        <div class="settings-identity-text">
+          <div class="name">{@current_scope.user.display_name || "Your account"}</div>
+          <div class="mail">{@current_scope.user.email}</div>
+        </div>
+        <div class="settings-currency">
+          Base currency <b>{@current_scope.user.base_currency}</b>
+        </div>
+      </div>
 
-        <.form
-          for={@profile_form}
-          id="profile_form"
-          phx-submit="update_profile"
-          phx-change="validate_profile"
+      <div class="card settings-sections">
+        <!-- Profile -->
+        <section class="settings-section" id="profile" aria-labelledby="profile-settings-title">
+          <header class="settings-section-head">
+            <span class="settings-icon" aria-hidden="true">
+              <.icon name="hero-identification" class="size-4" />
+            </span>
+            <h2 id="profile-settings-title" class="settings-section-title">Profile</h2>
+            <p class="settings-section-sub">
+              How you appear in Zaimutomo and your primary currency
+            </p>
+          </header>
+
+          <.form
+            for={@profile_form}
+            id="profile_form"
+            class="settings-form"
+            phx-submit="update_profile"
+            phx-change="validate_profile"
+          >
+            <div class="settings-fields">
+              <div class="settings-field">
+                <.input
+                  field={@profile_form[:display_name]}
+                  type="text"
+                  label="Display name"
+                  placeholder="How you'd like to be addressed"
+                  autocomplete="name"
+                  aria-describedby="display-name-hint"
+                />
+                <p class="settings-hint" id="display-name-hint">
+                  Optional. Shown in the sidebar and across your books.
+                </p>
+              </div>
+
+              <div class="settings-field">
+                <.input
+                  field={@profile_form[:base_currency]}
+                  type="text"
+                  label="Base currency"
+                  placeholder="EUR"
+                  maxlength="3"
+                  required
+                  aria-describedby="base-currency-hint"
+                />
+                <p class="settings-hint" id="base-currency-hint">
+                  Three-letter ISO 4217 code, for example CHF or EUR. Used as the default
+                  currency for amounts and reports.
+                </p>
+              </div>
+            </div>
+
+            <div class="settings-actions">
+              <.button class="btn primary" phx-disable-with="Saving...">Save Profile</.button>
+            </div>
+          </.form>
+        </section>
+
+        <!-- Email -->
+        <section class="settings-section" id="email" aria-labelledby="email-settings-title">
+          <header class="settings-section-head">
+            <span class="settings-icon" aria-hidden="true">
+              <.icon name="hero-envelope" class="size-4" />
+            </span>
+            <h2 id="email-settings-title" class="settings-section-title">Email</h2>
+            <p class="settings-section-sub">Used to sign in and receive notifications</p>
+          </header>
+
+          <.form
+            for={@email_form}
+            id="email_form"
+            class="settings-form"
+            phx-submit="update_email"
+            phx-change="validate_email"
+          >
+            <div class="settings-fields">
+              <div class="settings-field">
+                <.input
+                  field={@email_form[:email]}
+                  type="email"
+                  label="Email"
+                  autocomplete="username"
+                  readonly={!@sudo_mode?}
+                  required
+                  aria-describedby="email-hint"
+                />
+                <p class="settings-hint" id="email-hint">
+                  We'll email a confirmation link to the new address; the change applies once
+                  you confirm it.
+                </p>
+              </div>
+            </div>
+
+            <div :if={@sudo_mode?} class="settings-actions">
+              <.button id="email-submit" class="btn primary" phx-disable-with="Changing...">
+                Change Email
+              </.button>
+            </div>
+
+            <div :if={!@sudo_mode?} class="settings-locked" id="email-locked">
+              <span class="settings-locked-icon" aria-hidden="true">
+                <.icon name="hero-lock-closed" class="size-4" />
+              </span>
+              <div>
+                <div class="h">Locked for this session</div>
+                <p>For your safety, changing your email needs a fresh login.</p>
+                <.button id="email-reauth" href={~p"/users/log-in"}>
+                  <.icon name="hero-finger-print" class="size-4" /> Log in again to change
+                </.button>
+              </div>
+            </div>
+          </.form>
+        </section>
+
+        <!-- Password -->
+        <section
+          class="settings-section"
+          id="password"
+          aria-labelledby="password-settings-title"
         >
-          <.input
-            field={@profile_form[:display_name]}
-            type="text"
-            label="Display name"
-            placeholder="How you'd like to be addressed"
-            autocomplete="name"
-          />
+          <header class="settings-section-head">
+            <span class="settings-icon" aria-hidden="true">
+              <.icon name="hero-key" class="size-4" />
+            </span>
+            <h2 id="password-settings-title" class="settings-section-title">Password</h2>
+            <p class="settings-section-sub">Set or update the password used for this account</p>
+          </header>
 
-          <.input
-            field={@profile_form[:base_currency]}
-            type="text"
-            label="Base currency"
-            placeholder="EUR"
-            maxlength="3"
-            required
-          />
-
-          <div class="mt-4">
-            <.button variant="primary" phx-disable-with="Saving...">Save Profile</.button>
+          <div :if={!@sudo_mode?} class="settings-locked" id="password-locked">
+            <span class="settings-locked-icon" aria-hidden="true">
+              <.icon name="hero-lock-closed" class="size-4" />
+            </span>
+            <div>
+              <div class="h">Locked for this session</div>
+              <p>For your safety, changing your password needs a fresh login.</p>
+              <.button id="password-reauth" href={~p"/users/log-in"}>
+                <.icon name="hero-finger-print" class="size-4" /> Confirm it's you
+              </.button>
+            </div>
           </div>
-        </.form>
-      </section>
 
-      <!-- Email -->
-      <section class="card" aria-labelledby="email-settings-title">
-        <div class="card-head">
-          <div>
-            <h2 id="email-settings-title" class="card-title">Email</h2>
-            <div class="card-meta">Used to sign in and receive notifications</div>
-          </div>
-        </div>
+          <.form
+            :if={@sudo_mode?}
+            for={@password_form}
+            id="password_form"
+            class="settings-form"
+            action={~p"/users/update-password"}
+            method="post"
+            phx-change="validate_password"
+            phx-submit="update_password"
+            phx-trigger-action={@trigger_submit}
+          >
+            <input
+              name={@password_form[:email].name}
+              type="hidden"
+              id="hidden_user_email"
+              autocomplete="username"
+              value={@current_email}
+            />
 
-        <.form
-          for={@email_form}
-          id="email_form"
-          phx-submit="update_email"
-          phx-change="validate_email"
-        >
-          <.input
-            field={@email_form[:email]}
-            type="email"
-            label="Email"
-            autocomplete="username"
-            readonly={!@sudo_mode?}
-            required
-          />
+            <div class="settings-fields">
+              <div class="settings-field">
+                <.input
+                  field={@password_form[:password]}
+                  type="password"
+                  label="New password"
+                  autocomplete="new-password"
+                  required
+                  aria-describedby="new-password-hint"
+                />
+                <p class="settings-hint" id="new-password-hint">
+                  At least 12 characters. You'll stay signed in on this device.
+                </p>
+              </div>
 
-          <div class="mt-4">
-            <.button
-              :if={@sudo_mode?}
-              id="email-submit"
-              variant="primary"
-              phx-disable-with="Changing..."
-            >
-              Change Email
-            </.button>
-            <.button :if={!@sudo_mode?} id="email-reauth" href={~p"/users/log-in"}>
-              <.icon name="hero-lock-closed" class="size-4" /> Log in again to change
-            </.button>
-          </div>
-        </.form>
-      </section>
+              <div class="settings-field">
+                <.input
+                  field={@password_form[:password_confirmation]}
+                  type="password"
+                  label="Confirm new password"
+                  autocomplete="new-password"
+                />
+              </div>
+            </div>
 
-      <!-- Password -->
-      <section class="card" aria-labelledby="password-settings-title">
-        <div class="card-head">
-          <div>
-            <h2 id="password-settings-title" class="card-title">Password</h2>
-            <div class="card-meta">Set or update the password used for this account</div>
-          </div>
-        </div>
-
-        <div :if={!@sudo_mode?} id="password-locked">
-          <p class="card-meta">
-            For your safety, changing your email or password needs a fresh login.
-          </p>
-          <div class="mt-4">
-            <.button id="password-reauth" variant="primary" href={~p"/users/log-in"}>
-              <.icon name="hero-finger-print" class="size-4" /> Confirm it's you
-            </.button>
-          </div>
-        </div>
-
-        <.form
-          :if={@sudo_mode?}
-          for={@password_form}
-          id="password_form"
-          action={~p"/users/update-password"}
-          method="post"
-          phx-change="validate_password"
-          phx-submit="update_password"
-          phx-trigger-action={@trigger_submit}
-        >
-          <input
-            name={@password_form[:email].name}
-            type="hidden"
-            id="hidden_user_email"
-            autocomplete="username"
-            value={@current_email}
-          />
-
-          <.input
-            field={@password_form[:password]}
-            type="password"
-            label="New password"
-            autocomplete="new-password"
-            required
-          />
-
-          <.input
-            field={@password_form[:password_confirmation]}
-            type="password"
-            label="Confirm new password"
-            autocomplete="new-password"
-          />
-
-          <div class="mt-4">
-            <.button variant="primary" phx-disable-with="Saving...">Save Password</.button>
-          </div>
-        </.form>
-      </section>
+            <div class="settings-actions">
+              <.button class="btn primary" phx-disable-with="Saving...">Save Password</.button>
+            </div>
+          </.form>
+        </section>
+      </div>
     </div>
     """
   end

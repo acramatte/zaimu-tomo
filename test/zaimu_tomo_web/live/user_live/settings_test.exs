@@ -24,7 +24,7 @@ defmodule ZaimuTomoWeb.UserLive.SettingsTest do
       # structural expectations: header sits directly in the layout view (no wrapper / no extra max-width)
       assert html =~ ~s(<h1 class="view-title">Account settings</h1>)
       assert html =~ ~s(<div class="view" id="view">)
-      assert html =~ ~s(<div class="grid gap-[18px]">)
+      assert html =~ ~s(<div class="settings-layout">)
       refute html =~ "settings-view"
       refute html =~ "https://phoenixframework.org/"
       refute html =~ "Get Started"
