@@ -1,0 +1,21 @@
+okay
+
+---
+
+Entire.io judged Medium Slop because of this:
+
+Medium
+
+Medium for two reasons. First, the D17 record still says the invoice page replaced the document-edit and journal-entry posting screens, but both are still routed and linked, so there are two booking UIs. Second, the new backfill's precedent path posts entries without the journal_entry_posted event, which contradicts the new rule that every booking path writes it. The inbox also files legacy entries that still need booking under Posted, not Needs action.
+
+---
+
+repo private in Entire or Github ?
+
+---
+
+I don't think a github repo that is public can be made private again
+
+---
+
+okay
