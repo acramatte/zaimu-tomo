@@ -6,6 +6,12 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
   alias ZaimuTomo.Accounts.User
 
   @statuses ["undecided", "candidate", "not_deductible", "claimed", "disallowed"]
+  @zero_deduction_statuses ["not_deductible", "disallowed"]
+  # Column limits: deductible_amount_cents is a 4-byte integer, notes a varchar(255).
+  # A credit note's entry amount, and so its default deductible amount, is negative.
+  @min_amount_cents -2_147_483_648
+  @max_amount_cents 2_147_483_647
+  @notes_max_length 255
 
   @typedoc "Tax deduction claim schema struct"
   @type t :: %__MODULE__{
@@ -61,6 +67,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
       :deductible_amount_cents
     ])
     |> validate_inclusion(:status, @statuses)
+    |> validate_column_limits()
     |> foreign_key_constraint(:journal_entry_id)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint(:journal_entry_id)
@@ -73,8 +80,39 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     |> cast(attrs, [:status, :category, :deductible_amount_cents, :notes])
     |> validate_required([:status, :deductible_amount_cents])
     |> validate_inclusion(:status, @statuses)
+    |> validate_column_limits()
     |> check_constraint(:status, name: :tax_deduction_claims_status_check)
   end
+
+  defp validate_column_limits(changeset) do
+    changeset
+    |> validate_number(:deductible_amount_cents,
+      greater_than_or_equal_to: @min_amount_cents,
+      less_than_or_equal_to: @max_amount_cents
+    )
+    |> validate_length(:notes, max: @notes_max_length)
+  end
+
+  @doc "True for a status that deducts nothing, so its claim always stores 0."
+  @spec zero_deduction?(String.t() | nil) :: boolean()
+  def zero_deduction?(status), do: status in @zero_deduction_statuses
+
+  @doc """
+  The deductible amount a claim stores: 0 for a status that deducts nothing,
+  otherwise the given amount, or the entry amount when none is given.
+  """
+  @spec deductible_amount_cents(String.t() | nil, integer() | nil, integer()) :: integer()
+  def deductible_amount_cents(status, amount_cents, entry_amount_cents) do
+    cond do
+      zero_deduction?(status) -> 0
+      is_nil(amount_cents) -> entry_amount_cents
+      true -> amount_cents
+    end
+  end
+
+  @doc "Longest reason or note a claim can store."
+  @spec notes_max_length() :: pos_integer()
+  def notes_max_length, do: @notes_max_length
 
   @spec status_options() :: [{String.t(), String.t()}]
   def status_options do
@@ -83,6 +121,19 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
       {"Potentially deductible", "candidate"},
       {"Not deductible", "not_deductible"}
     ]
+  end
+
+  @doc """
+  All statuses, for revising a posted entry's claim once the tax return is
+  filed or assessed. Posting offers only `status_options/0`.
+  """
+  @spec revision_status_options() :: [{String.t(), String.t()}]
+  def revision_status_options do
+    status_options() ++
+      [
+        {"Included in tax return", "claimed"},
+        {"Not allowed", "disallowed"}
+      ]
   end
 
   @spec status_label(String.t() | nil) :: String.t()

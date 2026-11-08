@@ -6,6 +6,8 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.Scope
 
+  import ZaimuTomoWeb.TaxTreatmentComponents
+
   @impl true
   def mount(%{"id" => id} = params, _session, socket) do
     case socket.assigns.current_scope do
@@ -22,7 +24,8 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
              |> assign(:current_path, "/journal_entries")
              |> assign(:entry, entry)
              |> assign(:document_id, document_id)
-             |> assign(:from_invoice?, from_invoice?)}
+             |> assign(:from_invoice?, from_invoice?)
+             |> assign(:tax_revision_form, revision_form(entry))}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/journal_entries")}
@@ -119,9 +122,33 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
             <div class="name">Tax treatment</div>
             <div>{tax_treatment_label(@entry.tax_deduction_claim)}</div>
           </div>
+          <div
+            :if={@entry.tax_deduction_claim}
+            id="journal-entry-deductible-amount"
+            class="detail-row"
+          >
+            <div class="name">Deductible amount</div>
+            <div class="num">
+              {fmt_cents(@entry.tax_deduction_claim.deductible_amount_cents, @entry.currency)}
+            </div>
+          </div>
+          <div
+            :if={@entry.tax_deduction_claim && @entry.tax_deduction_claim.notes}
+            id="journal-entry-tax-reason"
+            class="detail-row"
+          >
+            <div class="name">Tax note</div>
+            <div>{@entry.tax_deduction_claim.notes}</div>
+          </div>
           <div class="detail-row">
             <div class="name">Notes</div>
             <div>{@entry.notes || "—"}</div>
+          </div>
+          <div style="border-top:1px solid var(--hairline);margin-top:12px;padding-top:12px">
+            <.tax_revision_form
+              form={@tax_revision_form}
+              currency={@entry.currency}
+            />
           </div>
         <% else %>
           <p class="muted" style="font-size:13px;margin-bottom:12px">
@@ -139,6 +166,32 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
       </div>
     </div>
     """
+  end
+
+  @impl true
+  def handle_event("revise_tax_treatment", %{"tax_revision" => params}, socket) do
+    with {:ok, attrs} <- revision_attrs(params),
+         {:ok, updated} <-
+           Accounting.revise_tax_deduction_claim(
+             socket.assigns.current_scope,
+             socket.assigns.entry,
+             attrs
+           ) do
+      {:noreply,
+       socket
+       |> assign(:entry, updated)
+       |> assign(:tax_revision_form, revision_form(updated))
+       |> put_flash(:info, "Tax treatment revised")}
+    else
+      :error ->
+        {:noreply, assign(socket, :tax_revision_form, revision_form(params, :invalid_amount))}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :tax_revision_form, revision_form(params, changeset))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to revise tax treatment")}
+    end
   end
 
   defp entry_title(%JournalEntry{issuer: issuer, invoice_number: number}) do
