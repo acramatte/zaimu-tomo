@@ -369,6 +369,50 @@ defmodule ZaimuTomo.Accounting do
     end
   end
 
+  @doc """
+  Revises the tax deduction claim of the scoped user's posted journal entry,
+  for example after the tax office disallows a claimed deduction.
+
+  `attrs` (string or atom keys):
+
+    * `"status"` — required; any `TaxDeductionClaim` status.
+    * `"reason"` — optional; stored as the claim's notes and in the audit event.
+    * `"deductible_amount_cents"` — optional integer with the entry amount's
+      sign (0 or less for a credit note). Defaults to the entry amount. Always 0
+      for `not_deductible` and `disallowed`.
+
+  The claim update and a `tax_deduction_claim_revised` event log entry (old
+  and new status and amount, plus the reason) commit in one transaction, so a
+  revision is never applied without its audit record. An entry posted before
+  tax claims existed has none; the revision creates it, with no old values.
+
+  Returns `{:error, :not_found}` for another user's or a missing entry, and
+  `{:error, :not_posted}` while the entry is still uncategorized.
+  """
+  @spec revise_tax_deduction_claim(Scope.t(), JournalEntry.t(), map()) ::
+          {:ok, JournalEntry.t()} | {:error, :not_found | :not_posted | Ecto.Changeset.t()}
+  def revise_tax_deduction_claim(%Scope{user: user}, %JournalEntry{id: entry_id}, attrs) do
+    attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
+
+    Multi.new()
+    |> Multi.run(:journal_entry, fn repo, _changes -> fetch_posted_entry(repo, user, entry_id) end)
+    |> Multi.run(:previous_claim, fn repo, %{journal_entry: entry} -> lock_claim(repo, entry) end)
+    |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: entry, previous_claim: claim} ->
+      save_revised_claim(repo, entry, claim, attrs)
+    end)
+    |> Multi.insert(:event_log, fn %{previous_claim: previous, tax_deduction_claim: revised} ->
+      revision_event_changeset(user, entry_id, previous, revised)
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{journal_entry: entry, tax_deduction_claim: claim}} ->
+        {:ok, %{entry | tax_deduction_claim: claim}}
+
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Queries
   # ---------------------------------------------------------------------------
@@ -497,6 +541,92 @@ defmodule ZaimuTomo.Accounting do
     end
   end
 
+  defp fetch_posted_entry(repo, user, entry_id) do
+    case repo.one(from je in JournalEntry, where: je.id == ^entry_id and je.user_id == ^user.id) do
+      nil -> {:error, :not_found}
+      %JournalEntry{status: "posted"} = entry -> {:ok, entry}
+      %JournalEntry{} -> {:error, :not_posted}
+    end
+  end
+
+  defp lock_claim(repo, %JournalEntry{id: entry_id}) do
+    {:ok,
+     repo.one(
+       from c in TaxDeductionClaim, where: c.journal_entry_id == ^entry_id, lock: "FOR UPDATE"
+     )}
+  end
+
+  # An entry posted before tax claims existed has no claim; the revision creates it.
+  defp save_revised_claim(repo, entry, nil, attrs) do
+    entry
+    |> TaxDeductionClaim.changeset_for_create(tax_revision_attrs(entry, attrs))
+    |> validate_revised_amount(entry)
+    |> repo.insert()
+  end
+
+  defp save_revised_claim(repo, entry, claim, attrs) do
+    claim
+    |> TaxDeductionClaim.changeset_for_update(tax_revision_attrs(entry, attrs))
+    |> validate_revised_amount(entry)
+    |> repo.update()
+  end
+
+  defp revision_event_changeset(user, entry_id, previous, revised) do
+    EventLog.changeset_for_create(%{
+      event_type: "tax_deduction_claim_revised",
+      invoice_id: to_string(entry_id),
+      user_id: user.id,
+      status: "completed",
+      metadata: %{
+        tax_year: revised.tax_year,
+        from_status: previous && previous.status,
+        to_status: revised.status,
+        from_deductible_amount_cents: previous && previous.deductible_amount_cents,
+        to_deductible_amount_cents: revised.deductible_amount_cents,
+        reason: revised.notes
+      }
+    })
+  end
+
+  # A revised amount keeps the entry amount's sign: what can be deducted for an
+  # invoice, or taken back for a credit note (a negative entry amount).
+  defp validate_revised_amount(changeset, %JournalEntry{amount_cents: amount}) when amount < 0 do
+    Ecto.Changeset.validate_number(changeset, :deductible_amount_cents,
+      less_than_or_equal_to: 0,
+      message: "must be 0 or negative for a credit note"
+    )
+  end
+
+  defp validate_revised_amount(changeset, _entry) do
+    Ecto.Changeset.validate_number(changeset, :deductible_amount_cents,
+      greater_than_or_equal_to: 0
+    )
+  end
+
+  defp tax_revision_attrs(%JournalEntry{} = entry, attrs) do
+    status = attrs["status"]
+
+    %{
+      status: status,
+      notes: blank_to_nil(attrs["reason"]),
+      deductible_amount_cents:
+        TaxDeductionClaim.deductible_amount_cents(
+          status,
+          attrs["deductible_amount_cents"],
+          entry.amount_cents
+        )
+    }
+  end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
+
   defp parse_date(nil), do: nil
 
   defp parse_date(str) when is_binary(str) do
@@ -522,9 +652,15 @@ defmodule ZaimuTomo.Accounting do
     attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
     status = Map.get(attrs, "status", "undecided")
 
-    Map.put_new_lazy(attrs, "deductible_amount_cents", fn ->
-      if status in ["not_deductible", "disallowed"], do: 0, else: amount_cents
-    end)
+    Map.put(
+      attrs,
+      "deductible_amount_cents",
+      TaxDeductionClaim.deductible_amount_cents(
+        status,
+        attrs["deductible_amount_cents"],
+        amount_cents
+      )
+    )
   end
 
   @doc """

@@ -113,6 +113,181 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
+  describe "revise_tax_deduction_claim/3" do
+    setup do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+
+      {:ok, posted} =
+        Accounting.post_entry(entry, user.id, "Software", "need", nil, %{"status" => "candidate"})
+
+      %{user: user, scope: scope, entry: posted}
+    end
+
+    test "disallowing a claimed deduction zeroes the amount and logs both decisions", %{
+      user: user,
+      scope: scope,
+      entry: entry
+    } do
+      assert {:ok, claimed} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 "status" => "claimed",
+                 "deductible_amount_cents" => 30_00
+               })
+
+      assert claimed.tax_deduction_claim.status == "claimed"
+      assert claimed.tax_deduction_claim.deductible_amount_cents == 30_00
+
+      assert {:ok, disallowed} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 status: "disallowed",
+                 deductible_amount_cents: 30_00,
+                 reason: "  Private use, per 2027 assessment  "
+               })
+
+      assert {:ok, reloaded} = Accounting.get_journal_entry(entry.id, user.id)
+      assert reloaded.tax_deduction_claim.status == "disallowed"
+      assert reloaded.tax_deduction_claim.deductible_amount_cents == 0
+      assert reloaded.tax_deduction_claim.notes == "Private use, per 2027 assessment"
+      assert disallowed.tax_deduction_claim.id == entry.tax_deduction_claim.id
+
+      revisions =
+        Repo.all(
+          from e in EventLog,
+            where:
+              e.event_type == "tax_deduction_claim_revised" and
+                e.invoice_id == ^to_string(entry.id) and e.user_id == ^user.id,
+            order_by: e.id
+        )
+
+      assert [
+               %{
+                 "from_status" => "candidate",
+                 "to_status" => "claimed",
+                 "from_deductible_amount_cents" => 42_00,
+                 "to_deductible_amount_cents" => 30_00,
+                 "reason" => nil,
+                 "tax_year" => 2026
+               },
+               %{
+                 "from_status" => "claimed",
+                 "to_status" => "disallowed",
+                 "from_deductible_amount_cents" => 30_00,
+                 "to_deductible_amount_cents" => 0,
+                 "reason" => "Private use, per 2027 assessment"
+               }
+             ] = Enum.map(revisions, & &1.metadata)
+    end
+
+    test "defaults the deductible amount to the entry amount", %{scope: scope, entry: entry} do
+      {:ok, _} = Accounting.revise_tax_deduction_claim(scope, entry, %{status: "not_deductible"})
+
+      assert {:ok, revised} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "claimed"})
+
+      assert revised.tax_deduction_claim.deductible_amount_cents == 42_00
+    end
+
+    test "rejects an invalid status or a negative amount without logging", %{
+      user: user,
+      scope: scope,
+      entry: entry
+    } do
+      assert {:error, changeset} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "refunded"})
+
+      assert %{status: ["is invalid"]} = errors_on(changeset)
+
+      assert {:error, changeset} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 status: "claimed",
+                 deductible_amount_cents: -1
+               })
+
+      assert %{deductible_amount_cents: [_]} = errors_on(changeset)
+
+      assert {:ok, reloaded} = Accounting.get_journal_entry(entry.id, user.id)
+      assert reloaded.tax_deduction_claim.status == "candidate"
+      refute Repo.get_by(EventLog, event_type: "tax_deduction_claim_revised")
+    end
+
+    test "refuses another user's entry and an entry that is not posted yet", %{
+      user: user,
+      scope: scope,
+      entry: entry
+    } do
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert {:error, :not_found} =
+               Accounting.revise_tax_deduction_claim(other_scope, entry, %{status: "disallowed"})
+
+      assert {:error, :not_posted} =
+               Accounting.revise_tax_deduction_claim(scope, create_entry(scope, user), %{
+                 status: "claimed"
+               })
+
+      assert {:ok, reloaded} = Accounting.get_journal_entry(entry.id, user.id)
+      assert reloaded.tax_deduction_claim.status == "candidate"
+      refute Repo.get_by(EventLog, event_type: "tax_deduction_claim_revised")
+    end
+
+    test "rejects a reason or an amount the columns cannot store, without logging", %{
+      scope: scope,
+      entry: entry
+    } do
+      assert {:error, changeset} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 status: "claimed",
+                 reason: String.duplicate("a", 256)
+               })
+
+      assert %{notes: [_]} = errors_on(changeset)
+
+      assert {:error, changeset} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 status: "claimed",
+                 deductible_amount_cents: 2_147_483_648
+               })
+
+      assert %{deductible_amount_cents: [_]} = errors_on(changeset)
+      refute Repo.get_by(EventLog, event_type: "tax_deduction_claim_revised")
+    end
+
+    test "creates the claim of an entry posted before tax claims existed", %{
+      user: user,
+      scope: scope,
+      entry: entry
+    } do
+      Repo.delete_all(
+        from c in ZaimuTomo.Accounting.TaxDeductionClaim, where: c.journal_entry_id == ^entry.id
+      )
+
+      assert {:ok, revised} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "claimed"})
+
+      assert revised.tax_deduction_claim.status == "claimed"
+      assert revised.tax_deduction_claim.deductible_amount_cents == 42_00
+
+      assert {:ok, reloaded} = Accounting.get_journal_entry(entry.id, user.id)
+      assert reloaded.tax_deduction_claim.status == "claimed"
+
+      event = Repo.get_by!(EventLog, event_type: "tax_deduction_claim_revised")
+      assert event.metadata["from_status"] == nil
+      assert event.metadata["to_status"] == "claimed"
+    end
+
+    test "posting and revising share the zero-deduction rule", %{user: user, scope: scope} do
+      {:ok, posted} =
+        Accounting.post_entry(create_entry(scope, user), user.id, "Software", "need", nil, %{
+          "status" => "not_deductible",
+          "deductible_amount_cents" => 500
+        })
+
+      assert posted.tax_deduction_claim.deductible_amount_cents == 0
+    end
+  end
+
   describe "monthly_spending/2" do
     test "aggregates posted entries by normalized category for the scoped user" do
       user = user_fixture()
