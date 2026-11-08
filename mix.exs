@@ -93,7 +93,7 @@ defmodule ZaimuTomo.MixProject do
       {:oban, "~> 2.24"},
       # Testcontainers 2.4 pins 0.6.2 for Elixir 1.15, while this application
       # already resolves UniQ 0.6.3 through ReqLLM on Elixir 1.19.
-      {:uniq, "== 0.6.3", override: true},
+      {:uniq, "== 0.7.0", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:usage_rules, "~> 1.3.0", only: [:dev]},
