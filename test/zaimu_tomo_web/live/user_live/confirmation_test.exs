@@ -17,8 +17,9 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
           Accounts.deliver_login_instructions(user, url)
         end)
 
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in/#{token}")
-      assert html =~ "Confirm and stay logged in"
+      {:ok, lv, html} = live(conn, ~p"/users/log-in/#{token}")
+      assert html =~ "Confirm and sign in"
+      assert has_element?(lv, "#confirmation_form input[type=checkbox][name='user[remember_me]']")
     end
 
     test "renders login page for confirmed user", %{conn: conn, confirmed_user: user} do
@@ -27,9 +28,10 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
           Accounts.deliver_login_instructions(user, url)
         end)
 
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in/#{token}")
-      refute html =~ "Confirm my account"
-      assert html =~ "Keep me logged in on this device"
+      {:ok, lv, html} = live(conn, ~p"/users/log-in/#{token}")
+      refute html =~ "Confirm your account"
+      assert html =~ "Keep me signed in"
+      assert has_element?(lv, "#login_form input[type=checkbox][name='user[remember_me]']")
     end
 
     test "renders login page for already logged in user", %{conn: conn, confirmed_user: user} do
@@ -40,9 +42,10 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
           Accounts.deliver_login_instructions(user, url)
         end)
 
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in/#{token}")
-      refute html =~ "Confirm my account"
+      {:ok, lv, html} = live(conn, ~p"/users/log-in/#{token}")
+      refute html =~ "Confirm your account"
       assert html =~ "Log in"
+      refute has_element?(lv, "#login_form input[type=checkbox]")
     end
 
     test "confirms the given token once", %{conn: conn, unconfirmed_user: user} do
@@ -62,8 +65,9 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
                "User confirmed successfully"
 
       assert Accounts.get_user!(user.id).confirmed_at
-      # we are logged in now
+      # we are logged in now, but only for this session
       assert get_session(conn, :user_token)
+      refute conn.resp_cookies["_zaimu_tomo_web_user_remember_me"]
       assert redirected_to(conn) == ~p"/"
 
       # log out, new conn
@@ -96,6 +100,7 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
                "Welcome back!"
 
       assert Accounts.get_user!(user.id).confirmed_at == user.confirmed_at
+      refute conn.resp_cookies["_zaimu_tomo_web_user_remember_me"]
 
       # log out, new conn
       conn = build_conn()
@@ -105,6 +110,31 @@ defmodule ZaimuTomoWeb.UserLive.ConfirmationTest do
         |> follow_redirect(conn, ~p"/users/log-in")
 
       assert html =~ "Magic link is invalid or it has expired"
+    end
+
+    test "remembers the user when keep me signed in is checked", %{
+      conn: conn,
+      unconfirmed_user: unconfirmed_user,
+      confirmed_user: confirmed_user
+    } do
+      for {user, form_id} <- [
+            {unconfirmed_user, "#confirmation_form"},
+            {confirmed_user, "#login_form"}
+          ] do
+        token =
+          extract_user_token(fn url ->
+            Accounts.deliver_login_instructions(user, url)
+          end)
+
+        {:ok, lv, _html} = live(conn, ~p"/users/log-in/#{token}")
+
+        form = form(lv, form_id, %{"user" => %{"token" => token, "remember_me" => "true"}})
+        render_submit(form)
+        conn = follow_trigger_action(form, conn)
+
+        assert redirected_to(conn) == ~p"/"
+        assert conn.resp_cookies["_zaimu_tomo_web_user_remember_me"]
+      end
     end
 
     test "raises error for invalid token", %{conn: conn} do
