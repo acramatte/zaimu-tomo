@@ -6,11 +6,12 @@ defmodule ZaimuTomoWeb.UserLive.LoginTest do
 
   describe "login page" do
     test "renders login page", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in")
+      {:ok, lv, html} = live(conn, ~p"/users/log-in")
 
-      assert html =~ "Log in"
-      assert html =~ "Register"
+      assert html =~ "Sign-in slip"
       assert html =~ "Log in with email"
+      assert has_element?(lv, "#login_form_password input[name='user[password]']")
+      assert has_element?(lv, "#login_form_magic input[name='user[email]']")
     end
   end
 
@@ -57,6 +58,23 @@ defmodule ZaimuTomoWeb.UserLive.LoginTest do
       conn = submit_form(form, conn)
 
       assert redirected_to(conn) == ~p"/"
+      assert conn.resp_cookies["_zaimu_tomo_web_user_remember_me"]
+    end
+
+    test "does not remember the user when keep me signed in is unchecked", %{conn: conn} do
+      user = user_fixture() |> set_password()
+
+      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
+
+      form =
+        form(lv, "#login_form_password",
+          user: %{email: user.email, password: valid_user_password()}
+        )
+
+      conn = submit_form(form, conn)
+
+      assert redirected_to(conn) == ~p"/"
+      refute conn.resp_cookies["_zaimu_tomo_web_user_remember_me"]
     end
 
     test "redirects to login page with a flash error if credentials are invalid", %{

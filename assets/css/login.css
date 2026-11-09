@@ -1,0 +1,270 @@
+/* =========================================================
+   Login and magic-link pages on the Zaimutomo tokens:
+   dark brand stage + "sign-in slip" receipt
+   ========================================================= */
+
+/* Login pages bring their own chrome; drop the generic root menu. */
+body:has(.login-shell) > ul.menu { display: none; }
+
+.login-shell {
+  min-height: 100vh;
+  font-family: 'Geist', system-ui, sans-serif;
+  color: var(--ink);
+}
+.login-shell em {
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* Shared: method switch transition (used by JS.show) */
+.login-enter { transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.8,.2,1); }
+.login-enter-from { opacity: 0; transform: translateY(6px); }
+.login-enter-to { opacity: 1; transform: translateY(0); }
+
+/* Shared: reset core_components field chrome inside login forms */
+.login-shell .fieldset { padding: 0; margin: 0 0 16px; border: 0; display: block; }
+.login-shell .fieldset > label { display: block; }
+.login-shell .fieldset .label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* =========================================================
+   Brand stage + sign-in slip
+   ========================================================= */
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 1fr);
+  background: var(--bg);
+}
+
+.auth-stage {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+  padding: 40px 56px 44px;
+  background:
+    radial-gradient(900px 600px at 15% 110%, oklch(0.36 0.07 155 / 0.55), transparent 60%),
+    oklch(0.17 0.008 60);
+  color: oklch(0.96 0.01 85);
+}
+.auth-brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 500; position: relative; z-index: 1; }
+.auth-mark { background: oklch(0.96 0.01 85) !important; color: oklch(0.17 0.008 60) !important; }
+
+.auth-kanji {
+  position: absolute; left: -0.06em; top: 18%;
+  font-size: clamp(140px, 19vw, 300px); line-height: 1; font-weight: 600; white-space: nowrap;
+  color: transparent; -webkit-text-stroke: 1px oklch(0.96 0.01 85 / 0.10);
+  user-select: none; pointer-events: none;
+}
+
+.auth-headline {
+  position: relative; z-index: 1;
+  margin: auto 0 28px;
+  font: 400 clamp(56px, 7.2vw, 112px)/0.92 'Instrument Serif', serif;
+  letter-spacing: -0.035em;
+}
+.auth-headline em { color: oklch(0.80 0.11 155); }
+
+/* "Every <word>," — all words share one grid cell, so the slot is as wide as the
+   widest word and the line never reflows. Each word drops in from above, holds,
+   then falls out below; 6 words × 2.5s = one 15s cycle. */
+.money-word {
+  display: inline-grid;
+  vertical-align: bottom;
+  overflow: hidden;
+  padding: 0.04em 0.06em 0.18em;
+  margin: -0.04em -0.06em -0.18em;
+  perspective: 600px;
+}
+.money-word > span {
+  grid-area: 1 / 1;
+  transform-origin: 50% 0;
+  animation: money-flip 15s cubic-bezier(.6,.05,.3,1) infinite both;
+  animation-delay: calc(var(--i) * 2.5s - 1s);
+}
+@keyframes money-flip {
+  0%    { opacity: 0; transform: translateY(-85%) rotateX(70deg); }
+  5%    { opacity: 1; transform: translateY(0) rotateX(0); }
+  16.7% { opacity: 1; transform: translateY(0) rotateX(0); }
+  21.7% { opacity: 0; transform: translateY(85%) rotateX(-70deg); }
+  100%  { opacity: 0; transform: translateY(85%) rotateX(-70deg); }
+}
+
+.auth-tape {
+  position: relative; z-index: 1;
+  height: 168px; overflow: hidden;
+  border-top: 1px solid oklch(0.96 0.01 85 / 0.14);
+  mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+}
+.auth-tape-track {
+  list-style: none; margin: 0; padding: 0;
+  animation: auth-tape 28s linear infinite;
+}
+.auth-tape li {
+  display: grid; grid-template-columns: 56px 1fr 110px 110px; gap: 12px;
+  padding: 9px 0; border-bottom: 1px dashed oklch(0.96 0.01 85 / 0.10);
+  font: 400 13px 'Geist Mono', monospace; font-variant-numeric: tabular-nums;
+}
+.auth-tape .faint { color: oklch(0.96 0.01 85 / 0.45); }
+.auth-tape .amount { text-align: right; }
+.auth-tape .amount.positive { color: oklch(0.80 0.11 155); }
+@keyframes auth-tape { to { transform: translateY(-50%); } }
+
+.auth-caption {
+  position: relative; z-index: 1; margin: 22px 0 0;
+  font-size: 13px; letter-spacing: 0.02em; color: oklch(0.96 0.01 85 / 0.6);
+}
+
+.auth-desk {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 48px 32px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 27px, oklch(0.91 0.006 85 / 0.55) 27px 28px),
+    var(--bg);
+}
+
+.slip-wrap {
+  width: 100%; max-width: 392px;
+  filter: drop-shadow(0 24px 30px oklch(0.2 0.01 60 / 0.16)) drop-shadow(0 2px 3px oklch(0.2 0.01 60 / 0.08));
+}
+.slip {
+  --paper: oklch(0.995 0.004 90);
+  position: relative;
+  padding: 30px 30px 40px;
+  background: var(--paper);
+  font-family: 'Geist Mono', monospace;
+  /* torn zig-zag bottom edge */
+  -webkit-mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 16px 8px repeat-x,
+    linear-gradient(#000 0 0) top / 100% calc(100% - 7px) no-repeat;
+          mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 16px 8px repeat-x,
+    linear-gradient(#000 0 0) top / 100% calc(100% - 7px) no-repeat;
+  transform-origin: top center;
+  animation: slip-print 700ms cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes slip-print {
+  from { opacity: 0; transform: translateY(-24px); clip-path: inset(0 0 100% 0); }
+  to { opacity: 1; transform: translateY(0); clip-path: inset(0 0 0 0); }
+}
+
+.slip-head { text-align: left; padding-right: 76px; padding-bottom: 18px; border-bottom: 1px dashed var(--hairline-strong); }
+.slip-kicker { margin: 0; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.slip-title {
+  margin: 10px 0 8px;
+  font: 400 44px/1 'Instrument Serif', serif; font-style: italic; letter-spacing: -0.02em; color: var(--ink);
+}
+.slip-meta { display: flex; gap: 18px; margin: 0; font-size: 11px; color: var(--muted); }
+.slip-note { margin: 16px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+
+.slip-methods {
+  display: flex; align-items: center; gap: 6px;
+  padding: 14px 0; margin-bottom: 18px; border-bottom: 1px dashed var(--hairline-strong);
+}
+.slip-label { margin-right: auto; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.slip-methods button {
+  padding: 5px 10px; border: 1px solid transparent; border-radius: 999px;
+  background: none; color: var(--muted); cursor: pointer;
+  font: 500 12px 'Geist Mono', monospace;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.slip-methods button:hover { color: var(--ink); border-color: var(--hairline-strong); }
+.slip-methods button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.login-shell .fieldset .label { font-family: 'Geist Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; margin-bottom: 2px; }
+.slip-input {
+  width: 100%; height: 40px; padding: 0;
+  border: 0; border-bottom: 1.5px solid var(--ink); border-radius: 0;
+  background: transparent; color: var(--ink);
+  font: 400 16px 'Geist Mono', monospace;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.slip-input:focus {
+  outline: none; border-bottom-color: var(--accent);
+  background: linear-gradient(to top, oklch(0.95 0.025 155 / 0.8), transparent 70%);
+}
+.slip-input[readonly] { color: var(--ink-2); border-bottom-style: dashed; }
+
+.login-shell .fieldset:has(input[type="checkbox"]) .label {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 11.5px; letter-spacing: 0.04em; color: var(--ink-2); cursor: pointer;
+}
+
+.login-shell .fieldset:has(input[type="checkbox"]) { margin: 4px 0 24px; }
+
+.slip-submit {
+  width: 100%; height: 54px; padding: 0 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border: 0; border-radius: 0; cursor: pointer;
+  background: var(--ink); color: var(--paper);
+  font: 400 26px 'Instrument Serif', serif; font-style: italic; letter-spacing: -0.01em;
+  position: relative; overflow: hidden;
+  transition: background 200ms ease;
+}
+.slip-submit::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--accent);
+  transform: translateX(-101%);
+  transition: transform 320ms cubic-bezier(.2,.8,.2,1);
+}
+.slip-submit > * { position: relative; }
+.slip-submit:hover::before { transform: translateX(0); }
+.slip-arrow { transition: transform 200ms ease; }
+.slip-submit:hover .slip-arrow { transform: translateX(4px); }
+.slip-submit:active { transform: translateY(1px); }
+.slip-submit:disabled { cursor: progress; opacity: 0.8; }
+
+.slip-link {
+  display: block; margin: 14px auto 0; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 400 12px 'Geist Mono', monospace; color: var(--muted);
+  text-decoration: underline dotted; text-underline-offset: 3px;
+  transition: color 160ms ease;
+}
+.slip-link:hover { color: var(--accent); }
+.slip-hint { margin: -4px 0 18px; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.slip-dev { margin: 22px 0 0; text-align: center; font-size: 10.5px; color: var(--faint); }
+.slip-dev a { color: var(--muted); }
+
+.slip-stamp {
+  position: absolute; top: 34px; right: 26px;
+  width: 72px; height: 72px; border-radius: 50%;
+  display: grid; place-items: center; align-content: center; gap: 0;
+  border: 2px solid oklch(0.55 0.16 25 / 0.75);
+  box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 4px oklch(0.55 0.16 25 / 0.6);
+  color: oklch(0.55 0.16 25 / 0.8);
+  font-size: 8.5px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 500;
+  transform: rotate(-14deg);
+  mix-blend-mode: multiply; pointer-events: none;
+  animation: slip-stamp 360ms 620ms cubic-bezier(.3,1.6,.5,1) both;
+}
+.slip-stamp .kanji { font-size: 24px; line-height: 1.1; letter-spacing: 0; font-weight: 600; }
+@keyframes slip-stamp { from { opacity: 0; transform: rotate(-14deg) scale(1.8); } }
+
+.auth-signup { margin: 26px 0 0; font-size: 14px; color: var(--muted); }
+.auth-signup a {
+  color: var(--ink); font-weight: 500; text-decoration: none;
+  border-bottom: 1px solid var(--ink); padding-bottom: 1px;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.auth-signup a:hover { color: var(--accent); border-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .login-shell { grid-template-columns: 1fr; }
+  .auth-stage { padding: 28px 24px 30px; min-height: 0; }
+  .auth-headline { margin: 48px 0 0; font-size: 56px; }
+  .auth-tape, .auth-caption { display: none; }
+  .auth-kanji { font-size: 150px; top: 10%; }
+  .auth-desk { padding: 32px 18px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-tape-track, .slip, .slip-stamp, .money-word > span { animation: none; }
+  .money-word > span:not(:first-child) { visibility: hidden; }
+}

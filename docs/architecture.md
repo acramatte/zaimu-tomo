@@ -347,6 +347,15 @@ flash messages without duplicating the standalone authentication navigation.
 Profile, email, and password remain independent forms; sensitive changes still
 require a recent login. Settings styles are scoped to avoid altering other pages.
 
+The login page (`UserLive.Login`, `/users/log-in`) renders under the standalone
+`root` layout with `Layouts.app shell: :bare`, so it brings its own full-page
+chrome: the dark brand panel `ZaimuComponents.auth_stage/1` beside a
+"sign-in slip" form. Its styles live in `assets/css/login.css`, and the `root`
+layout loads the same Geist and Instrument Serif fonts as the `zaimutomo`
+layout. The password form has a single "Keep me signed in" checkbox: checking
+it posts `remember_me=true`, which makes `UserAuth` write the remember-me
+cookie; leaving it unchecked logs in for the browser session only.
+
 ### Testing
 
 ExUnit with the SQL sandbox. Storage uses the Memory adapter, HTTP uses

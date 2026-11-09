@@ -33,12 +33,13 @@ defmodule ZaimuTomoWeb.Layouts do
 
   attr :shell, :atom,
     default: :auth,
-    values: [:auth, :product],
-    doc: "product pages already have navigation from the authenticated root layout"
+    values: [:auth, :product, :bare],
+    doc:
+      "product pages already have navigation from the authenticated root layout; bare pages bring their own full-page chrome"
 
   slot :inner_block, required: true
 
-  def app(%{shell: :product} = assigns) do
+  def app(%{shell: shell} = assigns) when shell in [:product, :bare] do
     ~H"""
     {render_slot(@inner_block)}
     <.flash_group flash={@flash} />
