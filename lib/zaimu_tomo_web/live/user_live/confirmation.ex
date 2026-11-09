@@ -6,68 +6,88 @@ defmodule ZaimuTomoWeb.UserLive.Confirmation do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-sm">
-        <div class="text-center">
-          <.header>Welcome {@user.email}</.header>
-        </div>
+    <Layouts.app flash={@flash} current_scope={@current_scope} shell={:bare}>
+      <main class="login-shell">
+        <.auth_stage />
 
-        <.form
-          :if={!@user.confirmed_at}
-          for={@form}
-          id="confirmation_form"
-          phx-mounted={JS.focus_first()}
-          phx-submit="submit"
-          action={~p"/users/log-in?_action=confirmed"}
-          phx-trigger-action={@trigger_submit}
-        >
-          <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
-          <.button
-            name={@form[:remember_me].name}
-            value="true"
-            phx-disable-with="Confirming..."
-            class="btn btn-primary w-full"
-          >
-            Confirm and stay logged in
-          </.button>
-          <.button phx-disable-with="Confirming..." class="btn btn-primary btn-soft w-full mt-2">
-            Confirm and log in only this time
-          </.button>
-        </.form>
+        <section class="auth-desk">
+          <div class="slip-wrap">
+            <div class="slip">
+              <header class="slip-head">
+                <p class="slip-kicker">Zaimutomo · Magic link</p>
+                <h1 class="slip-title">
+                  <%= cond do %>
+                    <% !@user.confirmed_at -> %>
+                      Confirm your account
+                    <% @current_scope -> %>
+                      Confirm it's you
+                    <% true -> %>
+                      Welcome back
+                  <% end %>
+                </h1>
+                <p class="slip-meta">
+                  <span>{Calendar.strftime(Date.utc_today(), "%d.%m.%Y")}</span>
+                </p>
+              </header>
 
-        <.form
-          :if={@user.confirmed_at}
-          for={@form}
-          id="login_form"
-          phx-submit="submit"
-          phx-mounted={JS.focus_first()}
-          action={~p"/users/log-in"}
-          phx-trigger-action={@trigger_submit}
-        >
-          <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
-          <%= if @current_scope do %>
-            <.button phx-disable-with="Logging in..." class="btn btn-primary w-full">
-              Log in
-            </.button>
-          <% else %>
-            <.button
-              name={@form[:remember_me].name}
-              value="true"
-              phx-disable-with="Logging in..."
-              class="btn btn-primary w-full"
-            >
-              Keep me logged in on this device
-            </.button>
-            <.button phx-disable-with="Logging in..." class="btn btn-primary btn-soft w-full mt-2">
-              Log me in only this time
-            </.button>
-          <% end %>
-        </.form>
+              <div class="slip-methods">
+                <span class="slip-label">Account</span>
+                <span class="slip-account">{@user.email}</span>
+              </div>
 
-        <p :if={!@user.confirmed_at} class="alert alert-outline mt-8">
-          Tip: If you prefer passwords, you can enable them in the user settings.
-        </p>
-      </div>
+              <.form
+                :if={!@user.confirmed_at}
+                for={@form}
+                id="confirmation_form"
+                phx-submit="submit"
+                action={~p"/users/log-in?_action=confirmed"}
+                phx-trigger-action={@trigger_submit}
+              >
+                <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
+                <.input field={@form[:remember_me]} type="checkbox" label="Keep me signed in" />
+                <button
+                  class="slip-submit"
+                  phx-disable-with="Confirming…"
+                  phx-mounted={JS.focus()}
+                >
+                  <span>Confirm and sign in</span>
+                  <.icon name="hero-arrow-right" class="size-5 slip-arrow" />
+                </button>
+              </.form>
+
+              <.form
+                :if={@user.confirmed_at}
+                for={@form}
+                id="login_form"
+                phx-submit="submit"
+                action={~p"/users/log-in"}
+                phx-trigger-action={@trigger_submit}
+              >
+                <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
+                <.input
+                  :if={!@current_scope}
+                  field={@form[:remember_me]}
+                  type="checkbox"
+                  label="Keep me signed in"
+                />
+                <button class="slip-submit" phx-disable-with="Logging in…" phx-mounted={JS.focus()}>
+                  <span>Log in</span>
+                  <.icon name="hero-arrow-right" class="size-5 slip-arrow" />
+                </button>
+              </.form>
+
+              <p :if={!@user.confirmed_at} class="slip-tip">
+                Tip: If you prefer passwords, you can enable them in the user settings.
+              </p>
+
+              <div class="slip-stamp" aria-hidden="true">
+                <span>Verified</span>
+                <span class="kanji">友</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
     </Layouts.app>
     """
   end

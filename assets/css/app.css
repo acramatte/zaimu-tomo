@@ -106,3 +106,4 @@
 
 /* Zaimutomo design system — imported after Tailwind so its resets win for Zaimutomo pages */
 @import "./zaimutomo.css";
+@import "./login.css";

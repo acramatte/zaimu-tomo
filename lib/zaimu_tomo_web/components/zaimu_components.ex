@@ -562,4 +562,68 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     </div>
     """
   end
+
+  # ── Auth pages: brand stage ────────────────────────────────────────────────
+
+  # Sample ledger rows that scroll in the auth brand stage.
+  @ledger [
+    {"11-04", "Migros Zürich", "Groceries", "−84.35"},
+    {"11-03", "SBB CFF FFS", "Transport", "−56.00"},
+    {"11-01", "Salary · Acme AG", "Income", "+8,450.00"},
+    {"10-31", "Swisscom", "Utilities", "−69.90"},
+    {"10-30", "Pillar 3a", "Savings", "−588.00"},
+    {"10-29", "Coop Pronto", "Groceries", "−23.15"},
+    {"10-28", "Helsana", "Insurance", "−412.60"},
+    {"10-27", "Interest · ZKB", "Income", "+12.40"},
+    {"10-26", "Galaxus", "Household", "−149.00"},
+    {"10-25", "Rent · Seefeld", "Housing", "−2,350.00"}
+  ]
+
+  # Cycled in the auth stage headline: "Every <word>, accounted for."
+  @money_words ~w(franc dollar cent euro rappen yen)
+
+  defp ledger, do: @ledger
+  defp money_words, do: @money_words
+
+  @doc "Dark brand panel shown beside the sign-in slip on the auth pages."
+  def auth_stage(assigns) do
+    ~H"""
+    <section class="auth-stage" aria-hidden="true">
+      <div class="auth-brand">
+        <span class="brand-mark auth-mark">Z</span>
+        <span>Zaimutomo</span>
+      </div>
+
+      <span class="auth-kanji">財務友</span>
+
+      <h2 class="auth-headline">
+        Every
+        <span class="money-word">
+          <span
+            :for={{word, index} <- Enum.with_index(money_words())}
+            style={"--i: #{index}"}
+          >
+            {word},
+          </span>
+        </span><br /><em>accounted</em>
+        for.
+      </h2>
+
+      <div class="auth-tape">
+        <ul class="auth-tape-track">
+          <li :for={{date, payee, category, amount} <- ledger() ++ ledger()}>
+            <span class="faint">{date}</span>
+            <span class="payee">{payee}</span>
+            <span class="faint">{category}</span>
+            <span class={["amount", String.starts_with?(amount, "+") && "positive"]}>
+              {amount}
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <p class="auth-caption">Receipts in. Journal entries out. Calm all the way down.</p>
+    </section>
+    """
+  end
 end
