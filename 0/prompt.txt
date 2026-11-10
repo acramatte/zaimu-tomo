@@ -1,0 +1,10 @@
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo/review.ex:282-285`
+
+When `pending_review_count/1` was removed, its `@doc "Returns the number of the user's reviews awaiting a decision."` stayed behind. It now documents `get_review_status_counts/1`, which actually returns a per-status count map. Delete the docstring or rewrite it for this function.
+</pasted_content id="d3d2">
+
+
+Also consider rebasing the PR, keeping only commits that add value, not the noisy ones that fix docs and such

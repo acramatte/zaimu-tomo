@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M73M47496Z1WYS3J1V40FH9T",
+  "strategy": "manual-commit",
+  "branch": "feat/unified-invoice-page",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "assets/css/zaimutomo.css",
+    "docs/architecture.md",
+    "lib/zaimu_tomo/accounting.ex",
+    "lib/zaimu_tomo/activity.ex",
+    "lib/zaimu_tomo/document_processing/extracted_data.ex",
+    "lib/zaimu_tomo/documents.ex",
+    "lib/zaimu_tomo/review.ex",
+    "lib/zaimu_tomo/review/review_decision.ex",
+    "lib/zaimu_tomo_web/components/layouts/zaimutomo.html.heex",
+    "lib/zaimu_tomo_web/components/zaimu_components.ex",
+    "lib/zaimu_tomo_web/controllers/page_controller.ex",
+    "lib/zaimu_tomo_web/controllers/page_html/home.html.heex",
+    "lib/zaimu_tomo_web/controllers/review_redirect_controller.ex",
+    "lib/zaimu_tomo_web/live/document_live/duplicates.ex",
+    "lib/zaimu_tomo_web/live/document_live/index.ex",
+    "lib/zaimu_tomo_web/live/document_live/show.ex",
+    "lib/zaimu_tomo_web/live/journal_entry_live/show.ex",
+    "lib/zaimu_tomo_web/live/review_live/duplicates.ex",
+    "lib/zaimu_tomo_web/live/review_live/edit.ex",
+    "lib/zaimu_tomo_web/live/review_live/index.ex",
+    "lib/zaimu_tomo_web/live/review_live/show.ex",
+    "lib/zaimu_tomo_web/router.ex",
+    "test/zaimu_tomo/activity_test.exs",
+    "test/zaimu_tomo/review_test.exs",
+    "test/zaimu_tomo_web/controllers/page_controller_test.exs",
+    "test/zaimu_tomo_web/live/document_live_test.exs",
+    "test/zaimu_tomo_web/live/invoice_page_test.exs",
+    "test/zaimu_tomo_web/live/journal_entry_live_test.exs",
+    "test/zaimu_tomo_web/live/review_live_test.exs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 6633,
+    "cache_read_tokens": 1347276,
+    "output_tokens": 5281,
+    "api_call_count": 4
+  },
+  "redaction": {
+    "replacements": 2,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 2,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
