@@ -77,6 +77,41 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
              )
     end
 
+    test "Preview keeps the active tab", %{conn: conn, scope: scope} do
+      document = document_fixture(scope)
+      document |> extracted_content_fixture(scope.user) |> pending_review_fixture()
+
+      {:ok, index_live, _html} = live(conn, ~p"/documents?tab=needs_action")
+
+      index_live
+      |> element("#documents-#{document.id} [aria-label=\"Preview document\"]")
+      |> render_click()
+
+      assert_patch(index_live, ~p"/documents?tab=needs_action&preview=#{document.id}")
+    end
+
+    test "an approved invoice that still needs booking is under Needs action", %{
+      conn: conn,
+      scope: scope
+    } do
+      document = document_fixture(scope)
+
+      review =
+        document |> extracted_content_fixture(scope.user) |> approved_review_fixture(scope.user)
+
+      {:ok, needs_action, _html} = live(conn, ~p"/documents?tab=needs_action")
+      assert has_element?(needs_action, "#documents-#{document.id}")
+
+      {:ok, posted, _html} = live(conn, ~p"/documents?tab=posted")
+      refute has_element?(posted, "#documents-#{document.id}")
+
+      {:ok, entry} = ZaimuTomo.Accounting.get_journal_entry_for_decision(review.id)
+      {:ok, _} = ZaimuTomo.Accounting.post_entry(entry, scope.user.id, "Office", "need")
+
+      {:ok, posted, _html} = live(conn, ~p"/documents?tab=posted")
+      assert has_element?(posted, "#documents-#{document.id}")
+    end
+
     test "pressing Escape closes the preview", %{conn: conn, document: document} do
       {:ok, index_live, _html} = live(conn, ~p"/documents?preview=#{document.id}")
 
@@ -109,6 +144,86 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
              |> render_click()
 
       refute has_element?(index_live, "#documents-#{document.id}")
+    end
+  end
+
+  describe "Index tabs" do
+    test "each tab lists only its invoices, and the counts cover all of them", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      other = %{
+        amount_to_pay_cents: 100,
+        invoice_date: "2026-01-01",
+        currency: "CHF",
+        reason_for_payment: "Other",
+        issuer: "Other AG"
+      }
+
+      document_fixture(scope, %{filename: "to-check.pdf"})
+      |> extracted_content_fixture(user)
+      |> pending_review_fixture()
+
+      document_fixture(scope, %{filename: "posted.pdf"})
+      |> extracted_content_fixture(user, %{extracted_data: %{other | issuer: "Posted AG"}})
+      |> approved_review_fixture(user)
+      |> book_entry(user)
+
+      document_fixture(scope, %{filename: "rejected.pdf"})
+      |> extracted_content_fixture(user, %{extracted_data: other})
+      |> rejected_review_fixture(user)
+
+      for {tab, shown} <- [
+            {"needs_action", "to-check.pdf"},
+            {"posted", "posted.pdf"},
+            {"rejected", "rejected.pdf"}
+          ] do
+        {:ok, live, html} = live(conn, ~p"/documents?tab=#{tab}")
+
+        for file <- ["to-check.pdf", "posted.pdf", "rejected.pdf"] do
+          assert html =~ file == (file == shown), "#{file} on the #{tab} tab (first render)"
+          assert render(live) =~ file == (file == shown), "#{file} on the #{tab} tab"
+        end
+
+        assert has_element?(live, "#document-tabs a[aria-current]", "1")
+      end
+
+      {:ok, live, _html} = live(conn, ~p"/documents")
+      assert has_element?(live, ~s(#document-tabs a[aria-current="page"]), "All")
+      assert has_element?(live, "#document-tabs a", "3")
+    end
+
+    defp book_entry(review, user) do
+      {:ok, entry} = ZaimuTomo.Accounting.get_journal_entry_for_decision(review.id)
+      {:ok, _} = ZaimuTomo.Accounting.post_entry(entry, user.id, "Office", "need")
+    end
+  end
+
+  describe "Index rows" do
+    test "a corrected invoice is listed with its posted values", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      ec = scope |> document_fixture() |> extracted_content_fixture(user)
+      {:ok, _} = ZaimuTomo.Review.create_initial_decision(ec)
+
+      {:ok, _} =
+        ZaimuTomo.Review.amend_invoice(
+          ec.id,
+          user.id,
+          ec.extracted_data
+          |> Map.from_struct()
+          |> Map.merge(%{issuer: "ACME Corporation", amount_to_pay_cents: 3990}),
+          nil,
+          booking: %{category: "Office", need_or_want: "need"}
+        )
+
+      {:ok, _live, html} = live(conn, ~p"/documents?tab=posted")
+      assert html =~ "ACME Corporation"
+      assert html =~ "EUR 39.90"
+      refute html =~ "EUR 42.00"
     end
   end
 
@@ -325,12 +440,12 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert html =~ "Failed"
     end
 
-    test "failed — review rejected", %{conn: conn, scope: scope, user: user} do
+    test "rejected — review rejected", %{conn: conn, scope: scope, user: user} do
       doc = document_fixture(scope)
       ec = extracted_content_fixture(doc, user)
       rejected_review_fixture(ec, user)
       {:ok, _live, html} = live(conn, ~p"/documents")
-      assert html =~ "Failed"
+      assert html =~ "Rejected: Duplicate invoice"
     end
   end
 
@@ -342,20 +457,6 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
 
       assert html =~ document.filename
       assert html =~ document.filename
-    end
-
-    test "updates document and returns to show", %{conn: conn, document: document} do
-      {:ok, show_live, _html} = live(conn, ~p"/documents/#{document}")
-
-      assert {:ok, form_live, _} =
-               show_live
-               |> element("a", "Edit")
-               |> render_click()
-               |> follow_redirect(conn, ~p"/documents/#{document}/edit?return_to=show")
-
-      assert render(form_live) =~ "Edit Document"
-
-      # File upload and edit submission are covered in "Form uploads" above.
     end
   end
 
@@ -436,7 +537,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       user: user
     } do
       doc = document_fixture(scope)
-      extracted_content_fixture(doc, user)
+      doc |> extracted_content_fixture(user) |> pending_review_fixture()
 
       {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
 

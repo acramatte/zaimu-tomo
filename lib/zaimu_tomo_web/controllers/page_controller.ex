@@ -298,7 +298,7 @@ defmodule ZaimuTomoWeb.PageController do
 
     donut_segments = Enum.map(spending_categories, &%{value: &1.total_cents, color: &1.color})
 
-    pending_review_count = Review.pending_review_count(scope)
+    needs_action_count = Review.needs_action_count(scope)
     ytd_spending = Spending.monthly_history(scope, today, today.month)
     ytd_points = Spending.ytd_points(ytd_spending)
 
@@ -325,7 +325,7 @@ defmodule ZaimuTomoWeb.PageController do
       ytd_year: today.year,
       activity: @activity,
       upcoming: @upcoming,
-      pending_review_count: pending_review_count
+      needs_action_count: needs_action_count
     }
   end
 end

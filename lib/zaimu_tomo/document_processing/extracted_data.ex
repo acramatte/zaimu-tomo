@@ -38,4 +38,19 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
   end
 
   def fields, do: @required_fields ++ @optional_fields
+
+  @doc """
+  Lists the fields whose value differs between `from` and `to` as
+  `{field, from_value, to_value}`, in `fields/0` order. Surrounding whitespace
+  is not a difference.
+  """
+  @spec changes(t(), t()) :: [{atom(), term(), term()}]
+  def changes(%__MODULE__{} = from, %__MODULE__{} = to) do
+    for field <- fields(),
+        comparable(Map.get(from, field)) != comparable(Map.get(to, field)),
+        do: {field, Map.get(from, field), Map.get(to, field)}
+  end
+
+  defp comparable(value) when is_binary(value), do: String.trim(value)
+  defp comparable(value), do: value
 end

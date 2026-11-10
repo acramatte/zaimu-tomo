@@ -45,9 +45,9 @@ defmodule ZaimuTomoWeb.PageControllerTest do
       |> LazyHTML.from_document()
       |> LazyHTML.to_html()
 
-    refute html =~ "document needs review"
-    refute html =~ "documents need review"
-    refute html =~ "dashboard-pending-reviews"
+    refute html =~ "needs action"
+    refute html =~ "need action"
+    refute html =~ "dashboard-needs-action"
   end
 
   test "GET / shows only the authenticated user's pending-review documents", %{
@@ -69,9 +69,9 @@ defmodule ZaimuTomoWeb.PageControllerTest do
       |> LazyHTML.from_document()
       |> LazyHTML.to_html()
 
-    assert html =~ "1 document needs review"
-    refute html =~ "2 documents need review"
-    assert html =~ "id=\"dashboard-pending-reviews\""
+    assert html =~ "1 document needs action"
+    refute html =~ "2 documents need action"
+    assert html =~ "id=\"dashboard-needs-action\""
   end
 
   test "GET / renders current-month spending for the authenticated user", %{
@@ -152,7 +152,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
   } do
     document = document_fixture(scope, %{filename: "server-invoice.pdf"})
     content = extracted_content_fixture(document, user)
-    decision = pending_review_fixture(content)
+    pending_review_fixture(content)
 
     html = conn |> get(~p"/") |> html_response(200)
 
@@ -160,7 +160,7 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "server-invoice.pdf"
     assert html =~ "ACME Corp"
     assert html =~ "Needs review"
-    assert html =~ ~p"/reviews/#{decision.id}"
+    assert html =~ ~p"/documents/#{document}"
   end
 
   test "GET / renders an empty state when there is no recent activity", %{conn: conn} do

@@ -71,6 +71,8 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
         <span class="pill verified">Verified</span>
       <% "failed" -> %>
         <span class="pill failed">Failed</span>
+      <% "rejected" -> %>
+        <span class="pill failed">Rejected</span>
       <% other -> %>
         <span class="pill">{other}</span>
     <% end %>
@@ -482,16 +484,16 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
       </div>
       <div class="actions">
         <a
-          :if={@item.status == "review" && @item.review_id}
+          :if={@item.status == "review"}
           class="btn sm primary"
-          href={~p"/reviews/#{@item.review_id}"}
+          href={~p"/documents/#{@item.document_id}"}
         >
-          Review
+          Check
         </a>
         <a
           :if={@item.status == "failed"}
           class="btn sm"
-          href={~p"/documents/#{@item.document_id}/edit"}
+          href={~p"/documents/#{@item.document_id}"}
         >
           View
         </a>
@@ -552,7 +554,7 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
       </div>
       <div class="actions">
         <%= if @item.status == "review" do %>
-          <a class="btn sm primary" href={~p"/reviews/#{@item.id}"}>Review</a>
+          <a class="btn sm primary" href={~p"/documents"}>Check</a>
         <% end %>
         <%= if @item.status == "failed" do %>
           <button class="btn sm">Retry</button>

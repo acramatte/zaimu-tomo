@@ -1,6 +1,6 @@
-defmodule ZaimuTomoWeb.ReviewLive.Duplicates do
+defmodule ZaimuTomoWeb.DocumentLive.Duplicates do
   @moduledoc """
-  Copy shared by the review show and amend views for
+  Copy used by the invoice page for
   `ZaimuTomo.Accounting.duplicate_check/3` verdicts.
 
   An exact-file match is described as the same uploaded file, never as an

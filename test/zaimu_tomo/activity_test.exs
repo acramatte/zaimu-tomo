@@ -29,11 +29,12 @@ defmodule ZaimuTomo.ActivityTest do
 
     review_document = document_fixture(scope, %{filename: "review.pdf"})
     review_content = extracted_content_fixture(review_document, user)
-    review = pending_review_fixture(review_content)
+    pending_review_fixture(review_content)
 
     posted_document = document_fixture(scope, %{filename: "posted.pdf"})
     posted_content = extracted_content_fixture(posted_document, user)
     posted = approved_review_fixture(posted_content, user)
+    book(posted, user)
 
     failed_document = document_fixture(scope, %{filename: "failed.pdf"})
 
@@ -75,21 +76,43 @@ defmodule ZaimuTomo.ActivityTest do
 
     assert %{status: "failed", filename: "failed.pdf", error: "Image too blurry"} = failed_item
 
-    posted_id = posted.id
-    review_id = review.id
-
-    assert %{status: "posted", filename: "posted.pdf", review_id: ^posted_id} = posted_item
+    assert %{status: "posted", filename: "posted.pdf"} = posted_item
 
     assert %{
              status: "review",
              filename: "review.pdf",
              merchant: "ACME Corp",
              amount_cents: 4200,
-             currency: "EUR",
-             review_id: ^review_id
+             currency: "EUR"
            } = review_item
 
-    assert %{status: "processing", filename: "processing.pdf", review_id: nil} = processing_item
+    assert %{status: "processing", filename: "processing.pdf"} = processing_item
+  end
+
+  test "uses the document list's status for rejected and not yet booked invoices", %{
+    scope: scope,
+    user: user
+  } do
+    rejected_document = document_fixture(scope, %{filename: "rejected.pdf"})
+    rejected_document |> extracted_content_fixture(user) |> rejected_review_fixture(user)
+
+    unbooked_document = document_fixture(scope, %{filename: "unbooked.pdf"})
+
+    unbooked_document
+    |> extracted_content_fixture(user, %{
+      extracted_data: %{
+        amount_to_pay_cents: 100,
+        invoice_date: "2026-01-01",
+        currency: "CHF",
+        reason_for_payment: "Other",
+        issuer: "Other AG"
+      }
+    })
+    |> approved_review_fixture(user)
+
+    statuses = Map.new(Activity.list_recent(scope, limit: :all), &{&1.filename, &1.status})
+
+    assert statuses == %{"rejected.pdf" => "rejected", "unbooked.pdf" => "review"}
   end
 
   test "limits the feed after ordering activity", %{scope: scope} do
@@ -105,5 +128,10 @@ defmodule ZaimuTomo.ActivityTest do
     )
 
     assert [%{filename: "second.pdf"}] = Activity.list_recent(scope, limit: 1)
+  end
+
+  defp book(review, user) do
+    {:ok, entry} = ZaimuTomo.Accounting.get_journal_entry_for_decision(review.id)
+    {:ok, _} = ZaimuTomo.Accounting.post_entry(entry, user.id, "Office", "need")
   end
 end

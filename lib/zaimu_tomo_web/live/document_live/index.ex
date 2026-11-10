@@ -3,8 +3,18 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
 
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.Review
+  alias ZaimuTomo.Review.ReviewDecision
 
   @prune_interval_ms 30_000
+
+  @tabs %{
+    "needs_action" => "Needs action",
+    "posted" => "Posted",
+    "rejected" => "Rejected",
+    "all" => "All"
+  }
+  @tab_order ~w(needs_action posted rejected all)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,12 +30,22 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
      |> assign(:current_path, "/documents")
      |> assign(:preview_id, nil)
      |> assign(:preview_doc, nil)
-     |> refresh_documents()}
+     |> assign(:tab, nil)
+     |> assign(:processing_docs, [])
+     |> stream(:documents, [])}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
     preview_id = params["preview"]
+    tab = if params["tab"] in Map.keys(@tabs), do: params["tab"], else: "all"
+
+    # The first call (right after mount) loads the rows for the requested
+    # tab, so the stream is filled exactly once before the first render.
+    socket =
+      if tab != socket.assigns.tab,
+        do: socket |> assign(:tab, tab) |> refresh_documents(),
+        else: socket
 
     socket =
       case preview_id do
@@ -47,24 +67,35 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
   def render(assigns) do
     ~H"""
     <h1 class="view-title">Documents</h1>
-    <p class="view-sub">All uploaded receipts, invoices, and pay stubs</p>
+    <p class="view-sub">Upload an invoice, then check and post it from its page</p>
+
+    <nav class="invoice-tabs" id="document-tabs" aria-label="Filter documents">
+      <.link
+        :for={{key, label} <- @tab_list}
+        patch={if key == "all", do: ~p"/documents", else: ~p"/documents?tab=#{key}"}
+        class={["invoice-tab", @tab == key && "active"]}
+        aria-current={if @tab == key, do: "page"}
+      >
+        {label} <span class="count">{@tab_counts[key]}</span>
+      </.link>
+    </nav>
 
     <.processing_hero documents={@processing_docs} />
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">All files</div>
+        <div class="card-title">{@tabs[@tab]}</div>
       </div>
       {live_render(@socket, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
       <div class="feed" id="documents-feed" phx-update="stream" style="margin-top:16px">
         <div
           :for={{dom_id, %{document: document, state: state}} <- @streams.documents}
           id={dom_id}
-          class={"feed-item #{row_status(state, List.first(document.extracted_content))}"}
+          class={"feed-item #{Review.document_status(state, List.first(document.extracted_content))}"}
         >
           <% ec = List.first(document.extracted_content) %>
-          <% status = row_status(state, ec) %>
-          <% data = ec && ec.extracted_data %>
+          <% status = Review.document_status(state, ec) %>
+          <% data = row_data(ec) %>
           <% ext =
             document.filename
             |> Path.extname()
@@ -72,10 +103,10 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             |> String.upcase()
             |> String.slice(0, 3) %>
           <.link
-            patch={~p"/documents?preview=#{document.id}"}
+            navigate={~p"/documents/#{document}"}
             class="row-preview-link"
-            aria-label="Preview document"
-            title="Preview"
+            aria-label="Open invoice"
+            title="Open"
           >
             <div class="stat">{if ext == "", do: "DOC", else: ext}</div>
             <div class="body">
@@ -100,6 +131,16 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
                         else: "—"}
                     </span>
                     {if data && data.invoice_number, do: " · #{data.invoice_number}", else: ""} · ready to verify
+                  <% "posted" -> %>
+                    <span class="amt">
+                      {if data && data.amount_to_pay_cents && data.currency,
+                        do: fmt_cents(data.amount_to_pay_cents, data.currency),
+                        else: "—"}
+                    </span>
+                    {if data && data.invoice_number, do: " · #{data.invoice_number}", else: ""}
+                  <% "rejected" -> %>
+                    Rejected{if ec.review_decision.rejection_reason,
+                      do: ": #{ec.review_decision.rejection_reason}"}
                   <% "failed" -> %>
                     {(ec && get_in(ec.error_details || %{}, ["message"])) || "Processing failed"}
                   <% _ -> %>
@@ -111,13 +152,21 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
           </.link>
           <div class="actions">
             <div class="row-actions">
-              <a
-                :if={status == "review" && ec && ec.review_decision}
+              <.link
+                :if={status == "review"}
                 class="btn sm primary"
-                href={~p"/reviews/#{ec.review_decision}"}
+                navigate={~p"/documents/#{document}"}
               >
-                Review
-              </a>
+                Check
+              </.link>
+              <.link
+                patch={preview_path(document, @tab)}
+                class="icon-btn"
+                aria-label="Preview document"
+                title="Preview"
+              >
+                <.icon name="hero-eye" class="w-4 h-4" />
+              </.link>
               <.link
                 :if={status != "posted"}
                 navigate={~p"/documents/#{document}/edit"}
@@ -166,7 +215,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             <h3>{@preview_doc.filename}</h3>
             <a class="btn sm" href={~p"/documents/#{@preview_doc}/download"}>Download</a>
             <.link
-              patch={~p"/documents"}
+              patch={tab_path(@tab)}
               class="icon-btn modal-close"
               aria-label="Close preview"
               title="Close"
@@ -203,7 +252,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
 
   @impl true
   def handle_event("close-preview", _params, socket) do
-    {:noreply, push_patch(socket, to: ~p"/documents")}
+    {:noreply, push_patch(socket, to: tab_path(socket.assigns.tab))}
   end
 
   @impl true
@@ -240,22 +289,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     {:noreply, refresh_documents(socket)}
   end
 
-  defp derive_status(nil), do: "processing"
-  defp derive_status(%{status: "failed"}), do: "failed"
-
-  defp derive_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"],
-    do: "posted"
-
-  defp derive_status(%{review_decision: %{review_status: "rejected"}}), do: "failed"
-  defp derive_status(_), do: "review"
-
-  # Row status from the durable processing state, falling back to the latest
-  # extraction (review decision) once a run has completed.
-  defp row_status(:processing, _ec), do: "processing"
-  defp row_status(:stuck, _ec), do: "stalled"
-  defp row_status(:failed, _ec), do: "failed"
-  defp row_status(:extracted, ec), do: derive_status(ec)
-
   # Loads the documents with their durable processing state (two batched
   # queries, independent of the row count) and resets the stream and hero.
   defp refresh_documents(socket) do
@@ -263,10 +296,45 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
     rows = Enum.map(documents, &%{id: &1.id, document: &1, state: states[&1.id]})
 
+    statuses =
+      Map.new(
+        rows,
+        &{&1.id, Review.document_status(&1.state, List.first(&1.document.extracted_content))}
+      )
+
+    counts =
+      Map.new(@tabs, fn {key, _label} ->
+        {key, Enum.count(rows, &in_tab?(key, statuses[&1.id]))}
+      end)
+
     socket
     |> assign(:processing_docs, Enum.filter(documents, &(states[&1.id] == :processing)))
-    |> stream(:documents, rows, reset: true)
+    |> assign(:tab_counts, counts)
+    |> assign(:tab_list, @tab_order |> Enum.map(&{&1, @tabs[&1]}))
+    |> assign(:tabs, @tabs)
+    |> stream(:documents, Enum.filter(rows, &in_tab?(socket.assigns.tab, statuses[&1.id])),
+      reset: true
+    )
   end
+
+  # Corrections made while checking win over the raw extraction.
+  defp row_data(%{review_decision: %ReviewDecision{} = decision}),
+    do: ReviewDecision.effective_data(decision)
+
+  defp row_data(%{extracted_data: data}), do: data
+  defp row_data(nil), do: nil
+
+  defp in_tab?("all", _status), do: true
+  defp in_tab?("needs_action", status), do: Review.needs_action?(status)
+
+  defp in_tab?("posted", status), do: status == "posted"
+  defp in_tab?("rejected", status), do: status == "rejected"
+
+  defp tab_path("all"), do: ~p"/documents"
+  defp tab_path(tab), do: ~p"/documents?tab=#{tab}"
+
+  defp preview_path(document, "all"), do: ~p"/documents?preview=#{document.id}"
+  defp preview_path(document, tab), do: ~p"/documents?tab=#{tab}&preview=#{document.id}"
 
   defp schedule_prune do
     Process.send_after(self(), :prune_processing_docs, @prune_interval_ms)

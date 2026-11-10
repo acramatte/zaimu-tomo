@@ -7,7 +7,6 @@ defmodule ZaimuTomo.Accounting do
   """
 
   import Ecto.Query, warn: false
-  require Logger
 
   alias Ecto.Multi
   alias ZaimuTomo.Accounting.JournalEntry
@@ -227,6 +226,10 @@ defmodule ZaimuTomo.Accounting do
       to the entry as an immutable posting-time snapshot.
     * `:source_file_reuse_confirmed` — `true` only when the reviewer explicitly
       confirmed a reuse of the same file; defaults to `false`.
+    * `:booking` — a map with `category`, `need_or_want` and `notes`. When
+      given, the entry is categorized and posted in the same multi (step
+      `:posted_journal_entry`), so an invoice can be checked and booked in one
+      step. Without it the entry stays `uncategorized`.
   """
   @spec create_multi_from_decision(ReviewDecision.t(), map(), keyword()) :: Ecto.Multi.t()
   def create_multi_from_decision(
@@ -256,6 +259,20 @@ defmodule ZaimuTomo.Accounting do
     |> Multi.insert(:journal_entry, JournalEntry.changeset_for_create(attrs))
     |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: entry} ->
       TaxDeductionClaim.changeset_for_create(entry, tax_claim_attrs) |> repo.insert()
+    end)
+    |> maybe_post_booking(Keyword.get(opts, :booking))
+  end
+
+  defp maybe_post_booking(multi, nil), do: multi
+
+  defp maybe_post_booking(multi, booking) when is_map(booking) do
+    Multi.update(multi, :posted_journal_entry, fn %{journal_entry: entry} ->
+      booking = Map.new(booking, fn {key, value} -> {to_string(key), value} end)
+
+      JournalEntry.changeset_for_categorize(entry, Map.put(booking, "status", "posted"))
+    end)
+    |> Multi.insert(:posted_event, fn %{posted_journal_entry: entry, tax_deduction_claim: claim} ->
+      posted_event_changeset(entry, claim.status)
     end)
   end
 
@@ -314,11 +331,6 @@ defmodule ZaimuTomo.Accounting do
   # Posting (category assignment)
   # ---------------------------------------------------------------------------
 
-  @spec change_journal_entry_posting(JournalEntry.t(), map()) :: Ecto.Changeset.t()
-  def change_journal_entry_posting(%JournalEntry{} = entry, attrs \\ %{}) do
-    JournalEntry.changeset_for_categorize(entry, attrs)
-  end
-
   @spec post_entry(JournalEntry.t(), integer(), String.t(), String.t(), String.t() | nil, map()) ::
           {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
   def post_entry(
@@ -344,18 +356,13 @@ defmodule ZaimuTomo.Accounting do
     |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: updated} ->
       upsert_tax_deduction_claim(repo, updated, tax_claim_attrs)
     end)
+    |> Multi.insert(:posted_event, fn %{journal_entry: updated, tax_deduction_claim: claim} ->
+      posted_event_changeset(updated, claim.status)
+    end)
     |> Repo.transaction()
     |> case do
       {:ok, %{journal_entry: updated, tax_deduction_claim: claim}} ->
-        updated = %{updated | tax_deduction_claim: claim}
-
-        write_event_log("journal_entry_posted", entry.id, user_id, %{
-          category: category,
-          need_or_want: need_or_want,
-          tax_deduction_status: claim.status
-        })
-
-        {:ok, updated}
+        {:ok, %{updated | tax_deduction_claim: claim}}
 
       {:error, _operation, changeset, _changes} ->
         {:error, changeset}
@@ -520,24 +527,25 @@ defmodule ZaimuTomo.Accounting do
     end)
   end
 
-  defp write_event_log(event_type, entry_id, user_id, metadata) do
-    result =
-      EventLog.changeset_for_create(%{
-        event_type: event_type,
-        invoice_id: to_string(entry_id),
-        user_id: user_id,
-        metadata: metadata,
-        status: "completed"
-      })
-      |> Repo.insert()
+  @doc """
+  Builds the `journal_entry_posted` audit event for a booked `entry`.
 
-    case result do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
-        :ok
-    end
+  Every way of booking an entry writes this event in the booking's transaction.
+  `details` adds path-specific metadata, such as how a backfill chose the values.
+  """
+  @spec posted_event_changeset(JournalEntry.t(), String.t() | nil, map()) :: Ecto.Changeset.t()
+  def posted_event_changeset(%JournalEntry{} = entry, tax_status, details \\ %{}) do
+    EventLog.changeset_for_create(%{
+      event_type: "journal_entry_posted",
+      invoice_id: to_string(entry.id),
+      user_id: entry.user_id,
+      status: "completed",
+      metadata:
+        Map.merge(details, %{
+          category: entry.category,
+          need_or_want: entry.need_or_want,
+          tax_deduction_status: tax_status
+        })
+    })
   end
 end
