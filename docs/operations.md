@@ -16,6 +16,8 @@ Day-2 tasks for the production deployment described in
 | Re-enqueue stuck documents | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!(confirm: true)'"` |
 | Verify every stored object exists | `kamal verify_storage` |
 | Backfill document fingerprints | `kamal backfill_document_fingerprints` |
+| Complete legacy bookings (dry run) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!()'"` |
+| Complete legacy bookings (apply) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!(confirm: true)'"` |
 
 Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, and `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`.
 
@@ -116,6 +118,30 @@ delete) and verified them with `bin/verify_storage`. The volume mount in
 `config/deploy.yml` and the directory in the `Dockerfile` remain until a restore
 check is recorded. After that, remove both in a cleanup release and update
 [architecture.md §11](architecture.md#11-risks-and-technical-debt).
+
+## Completing legacy bookings
+
+Entries approved before booking became part of posting can still lack a category
+or a need/want choice. This one-off copies the choice from the same user's posted
+entries with the same issuer, but only when they all agree on the missing values.
+Bookings a person has already decided are passed at run time, so real ledger
+data stays out of this repository. They book through normal posting, including
+their tax treatment:
+
+```elixir
+manual: %{{ENTRY_ID, ~s(lowercase trimmed issuer)} =>
+  %{category: ~s(CATEGORY), need_or_want: ~s(need), tax_status: ~s(undecided)}}
+```
+
+1. Run the dry run from the quick reference and read each planned booking. Add
+   the `manual:` option next to `confirm:` in the command if you need it.
+2. Run the apply command. Each copied booking writes a `journal_entry_posted`
+   event with `source: "legacy_booking_backfill"` and its previous values, and
+   leaves tax claims and notes untouched.
+3. Book each entry listed under **Book by hand** on the invoice page it names.
+
+A rerun only considers entries that are still incomplete. An uncategorized entry
+that gets booked starts counting in the posted spending totals for its date.
 
 ## Database access
 

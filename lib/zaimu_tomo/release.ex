@@ -5,6 +5,7 @@ defmodule ZaimuTomo.Release do
 
   @app :zaimu_tomo
 
+  alias ZaimuTomo.Accounting.LegacyBookingBackfill
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents.FingerprintBackfill
   alias ZaimuTomo.Storage.{Migration, Verification}
@@ -35,6 +36,11 @@ defmodule ZaimuTomo.Release do
   def backfill_document_fingerprints!(opts \\ []) do
     start_app()
     report_or_raise(FingerprintBackfill.run(opts), FingerprintBackfill)
+  end
+
+  def backfill_legacy_bookings!(opts \\ []) do
+    start_app()
+    report_or_raise(LegacyBookingBackfill.run(opts), LegacyBookingBackfill)
   end
 
   def verify_storage! do
@@ -100,7 +106,7 @@ defmodule ZaimuTomo.Release do
 
     case status do
       :ok -> summary
-      :error -> raise "storage maintenance command failed"
+      :error -> raise "maintenance command failed"
     end
   end
 end
