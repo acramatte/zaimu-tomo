@@ -17,8 +17,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
              |> assign(:page_title, entry_title(entry))
              |> assign(:current_path, "/journal_entries")
              |> assign(:entry, entry)
-             |> assign(:categories, Accounting.list_categories(socket.assigns.current_scope))
-             |> assign_posting_form(entry)}
+             |> assign(:document_id, source_document_id(entry, user.id))}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/journal_entries")}
@@ -29,11 +28,26 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
     end
   end
 
+  defp source_document_id(entry, user_id) do
+    case ZaimuTomo.Review.get_review_decision(entry.review_decision_id, user_id) do
+      {:ok, decision} -> decision.extracted_content.document_id
+      {:error, _reason} -> nil
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <a class="btn sm" href={~p"/journal_entries"}>← Journal entries</a>
+      <.link
+        :if={@document_id}
+        id="journal-entry-invoice-link"
+        class="btn sm"
+        navigate={~p"/documents/#{@document_id}"}
+      >
+        Open invoice
+      </.link>
     </div>
     <h1 class="view-title" style="margin-top:8px">{@page_title}</h1>
 
@@ -98,94 +112,20 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
           </div>
         <% else %>
           <p class="muted" style="font-size:13px;margin-bottom:12px">
-            Assign a budget category, classify it as a need or want, and record the tax treatment.
+            This entry still needs a budget category, a need or want choice, and its tax treatment.
           </p>
-          <.form for={@form} id="journal-entry-posting-form" phx-submit="post_entry">
-            <div style="display:grid;gap:10px">
-              <.input
-                field={@form[:category]}
-                label="Budget category"
-                placeholder="e.g. Software, Travel, Office"
-                list="posting-category-suggestions"
-                autocomplete="off"
-                required
-              />
-              <datalist id="posting-category-suggestions">
-                <option :for={category <- @categories} value={category} />
-              </datalist>
-              <.input
-                field={@form[:need_or_want]}
-                label="Need / Want"
-                type="select"
-                prompt="Choose one"
-                options={[Need: "need", Want: "want"]}
-                required
-              />
-              <.input
-                id="posting-tax-treatment-status"
-                name="posting[tax_treatment_status]"
-                type="select"
-                label="Tax treatment"
-                value={tax_treatment_status(@entry)}
-                options={TaxDeductionClaim.status_options()}
-              />
-              <.input field={@form[:notes]} label="Notes" type="textarea" />
-            </div>
-            <div style="margin-top:12px">
-              <button
-                id="post-entry-button"
-                type="submit"
-                class="btn sm primary"
-                phx-disable-with="Posting…"
-              >
-                Post entry
-              </button>
-            </div>
-          </.form>
+          <.link
+            :if={@document_id}
+            id="book-on-invoice-page"
+            navigate={~p"/documents/#{@document_id}"}
+            class="btn sm primary"
+          >
+            Book on the invoice page →
+          </.link>
         <% end %>
       </div>
     </div>
     """
-  end
-
-  @impl true
-  def handle_event("post_entry", %{"posting" => params}, socket) do
-    user_id = socket.assigns.current_scope.user.id
-    category = Map.get(params, "category")
-    need_or_want = Map.get(params, "need_or_want")
-    tax_claim_attrs = %{"status" => Map.get(params, "tax_treatment_status", "undecided")}
-
-    notes =
-      case Map.get(params, "notes", "") do
-        "" -> nil
-        n -> n
-      end
-
-    case Accounting.post_entry(
-           socket.assigns.entry,
-           user_id,
-           category,
-           need_or_want,
-           notes,
-           tax_claim_attrs
-         ) do
-      {:ok, updated} ->
-        {:noreply,
-         socket
-         |> assign(:entry, updated)
-         |> assign_posting_form(updated)
-         |> put_flash(:info, "Entry posted")}
-
-      {:error, changeset} ->
-        {:noreply,
-         socket
-         |> assign(:form, to_form(%{changeset | action: :insert}, as: :posting))
-         |> put_flash(:error, "Failed to post entry")}
-    end
-  end
-
-  def handle_event("post_entry", _params, socket) do
-    {:noreply, put_flash(socket, :error, "Failed to post entry")}
   end
 
   defp entry_title(%JournalEntry{issuer: issuer, invoice_number: number}) do
@@ -200,17 +140,10 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   defp format_date(%Date{} = date), do: Date.to_iso8601(date)
   defp format_date(_), do: "—"
 
-  defp assign_posting_form(socket, %JournalEntry{} = entry) do
-    assign(socket, :form, to_form(Accounting.change_journal_entry_posting(entry), as: :posting))
-  end
-
   defp need_or_want_label("need"), do: "Need"
   defp need_or_want_label("want"), do: "Want"
   defp need_or_want_label(_), do: "—"
 
   defp tax_treatment_label(%{status: status}), do: TaxDeductionClaim.status_label(status)
   defp tax_treatment_label(_), do: "—"
-
-  defp tax_treatment_status(%{tax_deduction_claim: %{status: status}}), do: status
-  defp tax_treatment_status(_), do: "undecided"
 end

@@ -25,7 +25,7 @@ Main capabilities:
 | Document intake | Upload invoices and receipts (PDF, images), stored privately in S3-compatible object storage. |
 | AI extraction | OCR to markdown (Mistral), LLM extraction of invoice fields, and a second LLM pass that checks the fields are grounded in the document. |
 | Human review | Approve, amend, or reject each extraction. Nothing is booked without sign-off. |
-| Bookkeeping | An approved or amended invoice becomes a journal entry. The user then assigns a category and a need/want label, and can mark tax deductibility. |
+| Bookkeeping | An approved or amended invoice becomes a journal entry, booked in the same step with a category, a need/want label, and its tax deductibility. |
 | Wealth tracking | Financial accounts (cash, savings, investment) with balance snapshots over time. |
 | Insight | Dashboard, activity feed, and monthly and year-to-date spending views. |
 
@@ -191,11 +191,19 @@ sequenceDiagram
     J->>L: verify grounding
     J->>DB: txn: lock document, append extracted_content,<br/>create pending review_decision, enqueue TypeSafe (optional)
     J-->>LV: PubSub user:id:document_processing:success
-    U->>LV: approve / amend / reject (+ explicit file-reuse confirmation)
-    LV->>DB: txn: update review_decision, create journal_entry<br/>(source_document_sha256 snapshot) + tax claim + event_log
+    U->>LV: invoice page: check + correct fields, book (category, need/want, tax), post or reject<br/>(+ explicit file-reuse confirmation)
+    LV->>DB: txn: update review_decision (approved, or amended when a field changed),<br/>create posted journal_entry (source_document_sha256 snapshot) + tax claim + event_log
     Note over LV,DB: a duplicate rolls the transition back: same issuer + number,<br/>or the same source file without a confirmed reuse (unique indexes).<br/>Soft issuer/date/amount/currency matches and confirmable file<br/>matches are refused before posting until the reviewer confirms
-    U->>LV: assign category + need/want → posted
+    LV-->>L: async Langfuse score on the trace: 1 when posted as extracted, 0 with the corrected<br/>fields (extracted → posted values, never the comment), unless the user picked 👍/👎
 ```
+
+`/documents/:id` (`DocumentLive.Show`) is the single page for an invoice through
+this whole flow: file preview, lifecycle steps, the check-and-book form, and,
+once posted or rejected, a read-only summary with corrections (extracted value
+struck through), the comment, the booking, and a history. `/documents` is the
+inbox with *Needs action / Posted / Rejected / All* tabs. The old `/reviews`
+URLs redirect there. Entries approved before booking was merged into posting are
+still `uncategorized` and get a booking form on the same page.
 
 ### 6.2 Failure, retry and recovery
 
@@ -390,6 +398,7 @@ is in [`specs/`](../specs/README.md).
 | D14 | 2026-10 | Add Dialyzer (dialyxir) as a nightly, advisory-only CI job rather than a required per-push check | Whole-program success typing complements the Elixir 1.20 compiler's own type inference (D12) by also checking across the OTP/dependency boundary, but PLT builds are too slow for a per-push gate. First run found 10 findings: 3 duplicated dead code already fixed by the Elixir 1.20 upgrade; 5 are a well-known Dialyzer/`Ecto.Multi` opaque-`MapSet` false positive; 2 (`storage/s3.ex`) are a `File.stream!/2` success-typing gap verified benign directly in `iex` before suppressing. All 7 non-duplicate false positives are listed individually in `.dialyzer_ignore.exs` with the reasoning, not blanket-ignored, so a genuinely new finding in the same file still surfaces. Also added missing `@type t :: %__MODULE__{}` to `ExtractedData` and `ExtractedContent.ExtractedContent` (matching the convention already used in `Document`/`ReviewDecision`), which cleared 9 separate `unknown_type` findings and makes every existing `@spec` referencing them actually checked going forward. |
 | D15 | 2026-10 | Clear the 51-finding Credo backlog and make `mix credo --strict` blocking in the existing `lint` CI job | Supersedes D13's advisory Credo policy so new findings fail CI instead of rebuilding the backlog. Reorder aliases, alias nested module calls, use implicit function-level rescue/catch and readable string sigils, use `ReviewDecision.t()` in specs, and configure the existing TypeSafe Logger metadata explicitly. The two upload-test TODOs were stale: the same file already exercises uploads and edit submission, so replace them with references to that coverage. No checks are disabled and no findings are suppressed. Security audit and nightly Dialyzer remain advisory; GitHub branch protection settings are unchanged. |
 | D16 | 2026-10 | Pin every workflow job to `runs-on: ubuntu-26.04` instead of `ubuntu-latest` | GitHub migrated the `ubuntu-latest` label from Ubuntu 24.04 to 26.04 gradually between October 19 and November 19, 2026, so two runs of the same commit could land on different images with no repo change. Pinning makes the toolchain that a green build was verified against explicit and reproducible, and turns the next image adoption into a deliberate commit rather than a silent rollover. `ubuntu-26.04` is GA on x64, and all five jobs only need Docker, the Postgres service container, and `erlef/setup-beam`'s Elixir/OTP builds, which the new image supports. |
+| D17 | 2026-11 | One invoice page (`/documents/:id`) replaces the review, amend, and journal-entry posting screens, so it is the only place an entry is booked; checking and booking are one transaction. `/documents/:id/edit` remains and only replaces the stored file | The flow split one invoice over three pages that did not link to each other, so a treated or amended invoice was hard to find again. `Review.approve_invoice/4` and `amend_invoice/5` take `:booking` and `:tax_claim_attrs`, and `Accounting.create_multi_from_decision/3` posts the entry inside the existing review transaction, so a booking error rolls back the whole posting like a duplicate does. One comment per invoice (stored as review notes and copied to the entry's notes). Extraction feedback is sent automatically on posting so Langfuse gets a signal for every posted invoice. A rejection sends a score only when the user picked 👍/👎, because a correctly read duplicate is rejected too. |
 
 ---
 
@@ -434,7 +443,7 @@ is in [`specs/`](../specs/README.md).
 | Extractor / verifier | The two LLM roles: extract the invoice fields, then check they are grounded in the OCR text. |
 | Shadow verification | TypeSafe Jev run whose results are stored for comparison but never used for decisions. |
 | Review decision | A human verdict on an extraction: pending, approved, amended, rejected, or failed. |
-| Journal entry | A booked expense. `uncategorized` until the user posts it with a category and need/want label. |
+| Journal entry | A booked expense, posted with a category and need/want label. Entries approved before D17 may still be `uncategorized` until booked. |
 | Stuck document | Has no extraction row and no live OCR job. |
 | Currency hint | The user's base currency, snapshotted when the job is enqueued, to guide extraction. |
 | Accessory | A Kamal-managed sidecar container (Postgres, RustFS). |

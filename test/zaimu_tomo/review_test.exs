@@ -37,71 +37,44 @@ defmodule ZaimuTomo.ReviewTest do
     end)
   end
 
-  describe "submit_extraction_feedback/4" do
-    test "returns an error when the extracted content does not belong to the user" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
-      document = document_fixture(scope)
-      content = extracted_content_fixture(document, user, %{trace_id: "trace-abc"})
-      other_user = user_fixture()
-
-      assert {:error, "Extracted content not found or not owned by user"} =
-               Review.submit_extraction_feedback(content.id, other_user.id, 0, "wrong amount")
-    end
-
-    test "returns an error when no Langfuse trace was recorded for the extraction" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
-      document = document_fixture(scope)
-      content = extracted_content_fixture(document, user)
-
-      assert {:error, "No Langfuse trace recorded for this extraction"} =
-               Review.submit_extraction_feedback(content.id, user.id, 1)
-    end
-
-    test "records a score on the extraction's Langfuse trace" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
-      document = document_fixture(scope)
-      content = extracted_content_fixture(document, user, %{trace_id: "trace-abc"})
-      parent = self()
-
-      Application.put_env(:zaimu_tomo, :langfuse,
-        enabled: true,
-        environment: "test",
-        score_sender: fn payload ->
-          send(parent, {:score_payload, payload})
-          {:ok, %{status: 200}}
-        end
-      )
-
-      assert :ok =
-               Review.submit_extraction_feedback(content.id, user.id, 0, "amount was wrong")
-
-      assert_received {:score_payload, payload}
-      assert payload.traceId == "trace-abc"
-      assert payload.value == 0
-      assert payload.comment == "amount was wrong"
-    end
-  end
-
-  describe "pending_review_count/1" do
-    test "counts only pending reviews owned by the scope" do
+  describe "needs_action_count/1" do
+    test "counts what the Needs action tab lists, for the scope only" do
       user = user_fixture()
       scope = user_scope_fixture(user)
 
       pending_document = document_fixture(scope)
       pending_document |> extracted_content_fixture(user) |> pending_review_fixture()
 
-      approved_document = document_fixture(scope)
-      approved_document |> extracted_content_fixture(user) |> approved_review_fixture(user)
+      unbooked_document = document_fixture(scope)
+      unbooked_document |> extracted_content_fixture(user) |> approved_review_fixture(user)
+
+      failed_document = document_fixture(scope)
+      extracted_content_fixture(failed_document, user, %{status: "failed"})
+
+      booked_document = document_fixture(scope)
+
+      booked =
+        booked_document
+        |> extracted_content_fixture(user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 100,
+            invoice_date: "2026-01-01",
+            currency: "CHF",
+            reason_for_payment: "Other",
+            issuer: "Other AG"
+          }
+        })
+        |> approved_review_fixture(user)
+
+      {:ok, entry} = Accounting.get_journal_entry_for_decision(booked.id)
+      {:ok, _} = Accounting.post_entry(entry, user.id, "Office", "need")
 
       other_user = user_fixture()
       other_scope = user_scope_fixture(other_user)
       other_document = document_fixture(other_scope)
       other_document |> extracted_content_fixture(other_user) |> pending_review_fixture()
 
-      assert Review.pending_review_count(scope) == 1
+      assert Review.needs_action_count(scope) == 3
     end
   end
 

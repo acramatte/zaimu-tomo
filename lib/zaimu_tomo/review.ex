@@ -13,13 +13,73 @@ defmodule ZaimuTomo.Review do
   alias Ecto.Multi
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.EventLog
   alias ZaimuTomo.Review.ReviewDecision
+
+  @doc """
+  Where an invoice stands, from its latest extraction: `"processing"`,
+  `"failed"`, `"review"`, `"posted"` or `"rejected"`.
+
+  The one rule set behind the document list and the activity feed. An invoice
+  approved before booking was part of posting is `"review"` until its entry is
+  booked, so the decision must be loaded with its `journal_entry`.
+  """
+  @spec invoice_status(ExtractedContent.t() | nil) :: String.t()
+  def invoice_status(nil), do: "processing"
+  def invoice_status(%{status: "failed"}), do: "failed"
+
+  def invoice_status(%{review_decision: %{journal_entry: %Ecto.Association.NotLoaded{}}}) do
+    raise ArgumentError, "invoice_status/1 needs the review decision's journal_entry preloaded"
+  end
+
+  def invoice_status(%{review_decision: %{journal_entry: %{status: "uncategorized"}}}),
+    do: "review"
+
+  def invoice_status(%{review_decision: %{review_status: s}}) when s in ["approved", "amended"],
+    do: "posted"
+
+  def invoice_status(%{review_decision: %{review_status: "rejected"}}), do: "rejected"
+  def invoice_status(_content), do: "review"
+
+  @doc """
+  A document's status in the document list: its processing state from
+  `DocumentProcessing.processing_states/1` first, then `invoice_status/1` of its
+  latest extraction once a run has completed.
+  """
+  @spec document_status(DocumentProcessing.processing_state(), ExtractedContent.t() | nil) ::
+          String.t()
+  def document_status(:processing, _content), do: "processing"
+  def document_status(:stuck, _content), do: "stalled"
+  def document_status(:failed, _content), do: "failed"
+  def document_status(:extracted, content), do: invoice_status(content)
+
+  @doc """
+  True for a `document_status/2` the user still has to act on: an invoice to
+  check or book, or an extraction to retry or wait for. This is the document
+  list's Needs action tab.
+  """
+  @spec needs_action?(String.t()) :: boolean()
+  def needs_action?(status), do: status in ["review", "failed", "stalled", "processing"]
+
+  @doc "Counts the scope's documents in the document list's Needs action tab."
+  @spec needs_action_count(Scope.t()) :: non_neg_integer()
+  def needs_action_count(%Scope{} = scope) do
+    documents = Documents.list_documents(scope)
+    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
+
+    Enum.count(documents, fn document ->
+      states[document.id]
+      |> document_status(List.first(document.extracted_content))
+      |> needs_action?()
+    end)
+  end
 
   # ---------------------------------------------------------------------------
   # Initial decision creation (called by OCR worker)
@@ -60,6 +120,11 @@ defmodule ZaimuTomo.Review do
       that the source file is a legitimate reuse (for example, a reused
       QR-bill) of an already posted file. Honored only when the duplicate
       check's verdict is `:file_reuse`; see `post_review_transaction/6`.
+    * `:booking` — `%{category, need_or_want, notes}`; when given, the journal
+      entry is created already categorized and posted instead of
+      `uncategorized`, in the same transaction.
+    * `:tax_claim_attrs` — attributes for the entry's tax deduction claim,
+      such as `%{"status" => "candidate"}`; defaults to undecided.
 
   Returns `{:error, :duplicate_invoice}` when a duplicate blocks the posting
   and `{:error, :file_reuse_not_applicable}` when a reuse was confirmed but
@@ -131,20 +196,56 @@ defmodule ZaimuTomo.Review do
   end
 
   @doc """
-  Records user feedback about extraction quality on the Langfuse trace
-  associated with the given extracted content.
+  Scores the extraction of an invoice that was just posted, in the background.
 
-  `value` is `1` for correct, `0` for incorrect. Returns `:ok` when the score
-  was recorded (or Langfuse is not configured, in which case it is a no-op).
+  Without an explicit `override` (`0` or `1`), the score is `1` when the
+  invoice was posted as extracted and `0` when fields were corrected. The
+  comment lists the corrected fields with their extracted and posted values;
+  the reviewer's own comment is never sent. A no-op without a Langfuse trace.
   """
-  def submit_extraction_feedback(extracted_content_id, user_id, value, comment \\ nil) do
-    with {:ok, content} <- get_owned_extracted_content(extracted_content_id, user_id),
-         true <- is_binary(content.trace_id) do
-      Langfuse.create_user_score(content.trace_id, value, comment)
-    else
-      nil -> {:error, "Extracted content not found or not owned by user"}
-      false -> {:error, "No Langfuse trace recorded for this extraction"}
-    end
+  @spec score_posted_extraction(ExtractedContent.t(), [{atom(), term(), term()}], 0 | 1 | nil) ::
+          :ok
+  def score_posted_extraction(content, changes, override \\ nil)
+
+  def score_posted_extraction(%ExtractedContent{trace_id: trace_id}, changes, override)
+      when is_binary(trace_id) do
+    value = override || if(changes == [], do: 1, else: 0)
+
+    comment =
+      if changes != [] do
+        "Corrected before posting: " <>
+          Enum.map_join(changes, "; ", fn {field, from, to} ->
+            "#{field} #{inspect(from)} -> #{inspect(to)}"
+          end)
+      end
+
+    send_extraction_score(trace_id, value, comment)
+  end
+
+  def score_posted_extraction(_content, _changes, _override), do: :ok
+
+  @doc """
+  Records the reviewer's explicit 👍/👎 (`1` or `0`) when rejecting an invoice,
+  in the background. A rejection alone says nothing about the extraction (a
+  correctly read duplicate is rejected too), so without a choice nothing is sent.
+  The rejection reason is never sent.
+  """
+  @spec score_rejected_extraction(ExtractedContent.t(), 0 | 1 | nil) :: :ok
+  def score_rejected_extraction(%ExtractedContent{trace_id: trace_id}, value)
+      when is_binary(trace_id) and value in [0, 1] do
+    send_extraction_score(trace_id, value, "Rejected before posting")
+  end
+
+  def score_rejected_extraction(_content, _value), do: :ok
+
+  defp send_extraction_score(trace_id, value, comment) do
+    Task.start(fn ->
+      with {:error, reason} <- Langfuse.create_user_score(trace_id, value, comment) do
+        Logger.warning("Failed to record extraction score: #{inspect(reason)}")
+      end
+    end)
+
+    :ok
   end
 
   # ---------------------------------------------------------------------------
@@ -163,17 +264,6 @@ defmodule ZaimuTomo.Review do
     Accounting.duplicate_check(decision.user_id, data, source_document_sha256(Repo, decision))
   end
 
-  def list_review_decisions(user_id) do
-    query =
-      from rd in ReviewDecision,
-        join: ec in ExtractedContent,
-        on: ec.id == rd.extracted_content_id,
-        where: ec.user_id == ^user_id,
-        order_by: [desc: rd.review_status == "pending", desc: rd.inserted_at]
-
-    Repo.all(query)
-  end
-
   def get_review_decision(id, user_id) do
     query =
       from rd in ReviewDecision,
@@ -187,32 +277,6 @@ defmodule ZaimuTomo.Review do
       nil -> {:error, "Review decision not found or not owned by user"}
       review_decision -> {:ok, review_decision}
     end
-  end
-
-  @doc """
-  Returns the number of the user's reviews awaiting a decision.
-  """
-  def pending_review_count(%Scope{} = scope) do
-    from(rd in ReviewDecision,
-      where: rd.user_id == ^scope.user.id,
-      where: rd.review_status == "pending",
-      select: count(rd.id)
-    )
-    |> Repo.one()
-  end
-
-  def get_review_status_counts(user_id) do
-    ReviewDecision
-    |> join(:left, [rd], ec in ExtractedContent, on: ec.id == rd.extracted_content_id)
-    |> where(
-      [rd, ec],
-      ec.user_id == ^user_id and
-        rd.review_status in ["pending", "approved", "rejected", "amended"]
-    )
-    |> group_by([rd, _], rd.review_status)
-    |> select([rd, _], %{status: rd.review_status, count: count(rd.id)})
-    |> Repo.all()
-    |> Enum.into(%{}, fn %{status: status, count: count} -> {String.to_atom(status), count} end)
   end
 
   def update_review_decision(%ReviewDecision{} = review_decision, attrs) do
@@ -248,13 +312,6 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  defp get_owned_extracted_content(extracted_content_id, user_id) do
-    case Repo.get_by(ExtractedContent, id: extracted_content_id, user_id: user_id) do
-      nil -> nil
-      content -> {:ok, content}
-    end
-  end
-
   # Marks a pending review as approved or amended and posts its journal entry in
   # ONE transaction.
   #
@@ -283,6 +340,14 @@ defmodule ZaimuTomo.Review do
        ) do
     confirm_file_reuse? = Keyword.get(opts, :confirm_file_reuse, false) == true
 
+    booking = Keyword.get(opts, :booking)
+    tax_claim_attrs = Keyword.get(opts, :tax_claim_attrs, %{})
+
+    event_metadata =
+      if booking,
+        do: Map.merge(event_metadata, %{booking: booking, tax_claim: tax_claim_attrs}),
+        else: event_metadata
+
     Multi.new()
     |> Multi.run(:source_document_sha256, fn repo, _changes ->
       {:ok, source_document_sha256(repo, decision)}
@@ -295,9 +360,10 @@ defmodule ZaimuTomo.Review do
       file_reuse_confirmation(confirm_file_reuse?, changes)
     end)
     |> Multi.merge(fn %{review_decision: updated} = changes ->
-      Accounting.create_multi_from_decision(updated, %{},
+      Accounting.create_multi_from_decision(updated, tax_claim_attrs,
         source_document_sha256: changes.source_document_sha256,
-        source_file_reuse_confirmed: changes.file_reuse != nil
+        source_file_reuse_confirmed: changes.file_reuse != nil,
+        booking: booking
       )
     end)
     |> Multi.run(:event_log, fn repo, %{review_decision: updated} ->

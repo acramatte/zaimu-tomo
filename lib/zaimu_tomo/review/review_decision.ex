@@ -17,6 +17,7 @@ defmodule ZaimuTomo.Review.ReviewDecision do
 
     belongs_to :extracted_content, ExtractedContent
     belongs_to :user, User
+    has_one :journal_entry, ZaimuTomo.Accounting.JournalEntry
 
     timestamps(type: :utc_datetime)
   end

@@ -13,75 +13,23 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
   setup :register_and_log_in_user
 
   describe "Show" do
-    test "posts an entry with category and need classification", %{
+    test "sends an unbooked entry to its invoice page instead of booking here", %{
       conn: conn,
       scope: scope,
       user: user
     } do
       entry = create_entry(scope, user)
 
-      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
-
-      assert has_element?(live, "#journal-entry-posting-form")
-      assert has_element?(live, "#posting-tax-treatment-status")
-
-      live
-      |> form("#journal-entry-posting-form", %{
-        "posting" => %{
-          "category" => "Utilities",
-          "need_or_want" => "need",
-          "tax_treatment_status" => "candidate",
-          "notes" => "Electricity bill"
-        }
-      })
-      |> render_submit()
-
-      updated = Accounting.get_journal_entry(entry.id, user.id) |> elem(1)
-
-      assert updated.category == "Utilities"
-      assert updated.need_or_want == "need"
-      assert updated.tax_deduction_claim.status == "candidate"
-      assert updated.notes == "Electricity bill"
-      assert render(live) =~ "Need"
-    end
-
-    test "suggests only the current user's existing categories", %{
-      conn: conn,
-      scope: scope,
-      user: user
-    } do
-      {:ok, _} = Accounting.post_entry(create_entry(scope, user), user.id, "Software", "need")
-
-      other = ZaimuTomo.AccountsFixtures.user_fixture()
-      other_scope = ZaimuTomo.AccountsFixtures.user_scope_fixture(other)
-
-      {:ok, _} =
-        Accounting.post_entry(create_entry(other_scope, other), other.id, "Secret", "want")
-
-      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{create_entry(scope, user)}")
-
-      assert has_element?(live, "#posting_category[list=posting-category-suggestions]")
-      assert has_element?(live, "#posting-category-suggestions option[value=Software]")
-      refute has_element?(live, "#posting-category-suggestions option[value=Secret]")
-    end
-
-    test "requires need or want before posting", %{conn: conn, scope: scope} do
-      entry = create_entry(scope, scope.user)
+      decision =
+        ZaimuTomo.Review.ReviewDecision
+        |> Repo.get!(entry.review_decision_id)
+        |> Repo.preload(:extracted_content)
 
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
-      html =
-        live
-        |> form("#journal-entry-posting-form", %{
-          "posting" => %{
-            "category" => "Utilities",
-            "need_or_want" => "",
-            "notes" => ""
-          }
-        })
-        |> render_submit()
-
-      assert html =~ "can&#39;t be blank"
+      path = ~p"/documents/#{decision.extracted_content.document_id}"
+      assert has_element?(live, ~s(#book-on-invoice-page[href="#{path}"]))
+      refute has_element?(live, "form")
     end
 
     test "shows the tax treatment linked to a posted entry", %{
@@ -96,7 +44,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
-      refute has_element?(live, "#journal-entry-posting-form")
+      refute has_element?(live, "#book-on-invoice-page")
       assert has_element?(live, "#journal-entry-tax-treatment", "Tax treatment")
       assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
     end

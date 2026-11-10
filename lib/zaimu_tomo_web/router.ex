@@ -63,9 +63,11 @@ defmodule ZaimuTomoWeb.Router do
       live "/documents/:id", DocumentLive.Show, :show
       live "/documents/:id/edit", DocumentLive.Form, :edit
 
-      live "/reviews", ReviewLive.Index, :index
-      live "/reviews/:id", ReviewLive.Show, :show
-      live "/reviews/:id/edit", ReviewLive.Edit, :edit
+      # The invoice page at /documents/:id replaced the review pages; keep
+      # old links and bookmarks working.
+      get "/reviews", ReviewRedirectController, :index
+      get "/reviews/:id", ReviewRedirectController, :show
+      get "/reviews/:id/edit", ReviewRedirectController, :show
 
       live "/journal_entries", JournalEntryLive.Index, :index
       live "/journal_entries/:id", JournalEntryLive.Show, :show

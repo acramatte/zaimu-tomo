@@ -4,12 +4,14 @@ defmodule ZaimuTomo.Activity do
 
   Each item represents the document's current place in the workflow. Documents
   with no extraction are shown as processing; extraction and review state then
-  determines whether an item needs review, has failed, or has been posted.
+  determines whether an item needs review, has failed, was rejected, or has been
+  posted, using the same rules as the document list (`Review.invoice_status/1`).
   """
 
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
+  alias ZaimuTomo.Review
 
   @doc """
   Lists the newest activity for the scope, ordered by the latest user-visible
@@ -35,7 +37,7 @@ defmodule ZaimuTomo.Activity do
 
     %{
       id: activity_id(document, content, decision),
-      status: activity_status(content, decision),
+      status: Review.invoice_status(content),
       merchant: data && data.issuer,
       filename: document.filename,
       amount_cents: data && data.amount_to_pay_cents,
@@ -43,7 +45,6 @@ defmodule ZaimuTomo.Activity do
       invoice_no: data && data.invoice_number,
       error: activity_error(content, decision),
       occurred_at: activity_timestamp(document, content, decision),
-      review_id: decision && decision.id,
       document_id: document.id
     }
   end
@@ -58,15 +59,6 @@ defmodule ZaimuTomo.Activity do
     do: data
 
   defp effective_activity_data(_content, _decision), do: nil
-
-  defp activity_status(nil, _decision), do: "processing"
-  defp activity_status(%{status: "failed"}, _decision), do: "failed"
-
-  defp activity_status(_content, %{review_status: status}) when status in ["approved", "amended"],
-    do: "posted"
-
-  defp activity_status(_content, %{review_status: "rejected"}), do: "failed"
-  defp activity_status(_content, _decision), do: "review"
 
   defp activity_error(%{error_details: error_details}, _decision) when is_map(error_details) do
     Map.get(error_details, "message") || Map.get(error_details, :message) || "Processing failed"
