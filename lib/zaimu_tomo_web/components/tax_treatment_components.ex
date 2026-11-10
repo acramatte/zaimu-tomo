@@ -12,6 +12,10 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounting.TaxDeductionClaim
 
+  # Largest amount the 4-byte cents column stores; bigger inputs are rejected
+  # here so the error speaks in currency units, not cents.
+  @max_amount_cents 2_147_483_647
+
   @doc """
   Builds the revision form prefilled from the entry's current claim. After a
   status that deducts nothing, the amount is left blank, so choosing a
@@ -66,12 +70,17 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
   `Accounting.revise_tax_deduction_claim/3`.
 
   The amount is entered in currency units; a blank amount falls back to the
-  context default. Returns `:error` for an amount that is not a
-  number with at most two decimals.
+  context default, and a status that deducts nothing ignores it. Returns
+  `:error` for an amount that is not a number with at most two decimals.
   """
   @spec revision_attrs(map()) :: {:ok, map()} | :error
   def revision_attrs(params) when is_map(params) do
-    with {:ok, cents} <- amount_to_cents(Map.get(params, "deductible_amount")) do
+    amount =
+      if TaxDeductionClaim.zero_deduction?(params["status"]),
+        do: nil,
+        else: Map.get(params, "deductible_amount")
+
+    with {:ok, cents} <- amount_to_cents(amount) do
       {:ok,
        %{
          "status" => Map.get(params, "status"),
@@ -94,8 +103,8 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
     >
       <div class="card-title" style="font-size:13px;margin-bottom:6px">Revise tax treatment</div>
       <p class="muted" style="font-size:12px;margin-bottom:10px">
-        Record what was filed or what the tax office decided. Each revision is kept in the
-        invoice's history.
+        Record what was filed or what the tax office decided. Each revision is recorded with
+        its reason in the audit log.
       </p>
       <div style="display:grid;gap:10px">
         <.input
@@ -108,9 +117,8 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
         <.input
           field={@form[:deductible_amount]}
           id="tax-revision-form-amount"
-          type="number"
-          step="0.01"
           inputmode="decimal"
+          autocomplete="off"
           label={"Deductible amount#{if @currency, do: " (#{@currency})"}"}
         />
         <p class="muted" style="font-size:12px;margin-top:-6px">
@@ -155,10 +163,12 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
       trimmed ->
         # An optional minus sign is allowed for credit notes; the format rules out
         # exponents, NaN and Infinity before parsing.
-        if String.match?(trimmed, ~r/\A-?\d+(?:\.\d{1,2})?\z/) do
-          {:ok, trimmed |> Decimal.new() |> Decimal.mult(100) |> Decimal.to_integer()}
+        with true <- String.match?(trimmed, ~r/\A-?\d+(?:\.\d{1,2})?\z/),
+             cents = trimmed |> Decimal.new() |> Decimal.mult(100) |> Decimal.to_integer(),
+             true <- abs(cents) <= @max_amount_cents do
+          {:ok, cents}
         else
-          :error
+          _ -> :error
         end
     end
   end

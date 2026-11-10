@@ -73,6 +73,8 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       assert has_element?(live, "#journal-entry-tax-treatment", "Included in tax return")
       assert has_element?(live, "#journal-entry-deductible-amount", "EUR 12.50")
+      assert has_element?(live, "#flash-info", "Tax treatment revised")
+      assert has_element?(live, "#tax-revision-form-amount[type=text][inputmode=decimal]")
       assert has_element?(live, "#journal-entry-tax-reason", "Half business use")
 
       live
@@ -174,7 +176,8 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         })
         |> render_submit()
 
-      assert html =~ "must be less than or equal to 2147483647"
+      assert html =~ "must be an amount with up to 2 decimals"
+      refute html =~ "2147483647"
 
       for amount <- ["NaN", "Infinity", "1e5", "1.234"] do
         html =
@@ -194,10 +197,39 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         })
         |> render_submit()
 
-      assert html =~ "must be greater than or equal to 0"
+      assert html =~ "must be between 0 and the invoice amount"
+
+      html =
+        live
+        |> form("#tax-revision-form", %{
+          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "42.01"}
+        })
+        |> render_submit()
+
+      assert html =~ "must be between 0 and the invoice amount"
 
       {:ok, unchanged} = Accounting.get_journal_entry(entry.id, user.id)
       assert unchanged.tax_deduction_claim.status == "undecided"
+    end
+
+    test "a status that deducts nothing ignores the amount field", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      entry = create_entry(scope, user)
+      {:ok, _entry} = Accounting.post_entry(entry, user.id, "Software", "need")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
+
+      live
+      |> form("#tax-revision-form", %{
+        "tax_revision" => %{"status" => "disallowed", "deductible_amount" => "12,50"}
+      })
+      |> render_submit()
+
+      assert has_element?(live, "#journal-entry-tax-treatment", "Not allowed")
+      assert has_element?(live, "#journal-entry-deductible-amount", "EUR 0.00")
     end
 
     test "revises a credit note with its negative amount", %{conn: conn, scope: scope, user: user} do
@@ -226,7 +258,16 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         })
         |> render_submit()
 
-      assert html =~ "must be 0 or negative for a credit note"
+      assert html =~ "must be between the credit note amount and 0"
+
+      html =
+        live
+        |> form("#tax-revision-form", %{
+          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "-50.01"}
+        })
+        |> render_submit()
+
+      assert html =~ "must be between the credit note amount and 0"
     end
 
     test "revises an entry that has no tax claim yet", %{conn: conn, scope: scope, user: user} do

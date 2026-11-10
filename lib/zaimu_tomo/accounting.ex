@@ -377,13 +377,14 @@ defmodule ZaimuTomo.Accounting do
 
     * `"status"` — required; any `TaxDeductionClaim` status.
     * `"reason"` — optional; stored as the claim's notes and in the audit event.
-    * `"deductible_amount_cents"` — optional integer with the entry amount's
-      sign (0 or less for a credit note). Defaults to the entry amount. Always 0
-      for `not_deductible` and `disallowed`.
+    * `"deductible_amount_cents"` — optional integer between 0 and the entry
+      amount (which is negative for a credit note). Defaults to the entry
+      amount. Always 0 for `not_deductible` and `disallowed`.
 
   The claim update and a `tax_deduction_claim_revised` event log entry (old
   and new status and amount, plus the reason) commit in one transaction, so a
-  revision is never applied without its audit record. An entry posted before
+  revision is never applied without its audit record. Saving an unchanged
+  claim logs nothing. An entry posted before
   tax claims existed has none; the revision creates it, with no old values.
 
   Returns `{:error, :not_found}` for another user's or a missing entry, and
@@ -400,8 +401,8 @@ defmodule ZaimuTomo.Accounting do
     |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: entry, previous_claim: claim} ->
       save_revised_claim(repo, entry, claim, attrs)
     end)
-    |> Multi.insert(:event_log, fn %{previous_claim: previous, tax_deduction_claim: revised} ->
-      revision_event_changeset(user, entry_id, previous, revised)
+    |> Multi.run(:event_log, fn repo, %{previous_claim: previous, tax_deduction_claim: revised} ->
+      insert_revision_event(repo, user, entry_id, previous, revised)
     end)
     |> Repo.transaction()
     |> case do
@@ -542,7 +543,12 @@ defmodule ZaimuTomo.Accounting do
   end
 
   defp fetch_posted_entry(repo, user, entry_id) do
-    case repo.one(from je in JournalEntry, where: je.id == ^entry_id and je.user_id == ^user.id) do
+    # Locking the entry serializes revisions even before its claim row exists.
+    case repo.one(
+           from je in JournalEntry,
+             where: je.id == ^entry_id and je.user_id == ^user.id,
+             lock: "FOR UPDATE"
+         ) do
       nil -> {:error, :not_found}
       %JournalEntry{status: "posted"} = entry -> {:ok, entry}
       %JournalEntry{} -> {:error, :not_posted}
@@ -571,7 +577,14 @@ defmodule ZaimuTomo.Accounting do
     |> repo.update()
   end
 
-  defp revision_event_changeset(user, entry_id, previous, revised) do
+  # Saving an unchanged claim (for example a double submit) logs nothing.
+  defp insert_revision_event(_repo, _user, _entry_id, %TaxDeductionClaim{} = previous, revised)
+       when previous.status == revised.status and
+              previous.deductible_amount_cents == revised.deductible_amount_cents and
+              previous.notes == revised.notes,
+       do: {:ok, nil}
+
+  defp insert_revision_event(repo, user, entry_id, previous, revised) do
     EventLog.changeset_for_create(%{
       event_type: "tax_deduction_claim_revised",
       invoice_id: to_string(entry_id),
@@ -586,20 +599,24 @@ defmodule ZaimuTomo.Accounting do
         reason: revised.notes
       }
     })
+    |> repo.insert()
   end
 
-  # A revised amount keeps the entry amount's sign: what can be deducted for an
-  # invoice, or taken back for a credit note (a negative entry amount).
+  # A revised amount lies between 0 and the entry amount: at most the whole
+  # invoice is deductible, or taken back for a credit note (a negative amount).
   defp validate_revised_amount(changeset, %JournalEntry{amount_cents: amount}) when amount < 0 do
     Ecto.Changeset.validate_number(changeset, :deductible_amount_cents,
+      greater_than_or_equal_to: amount,
       less_than_or_equal_to: 0,
-      message: "must be 0 or negative for a credit note"
+      message: "must be between the credit note amount and 0"
     )
   end
 
-  defp validate_revised_amount(changeset, _entry) do
+  defp validate_revised_amount(changeset, %JournalEntry{amount_cents: amount}) do
     Ecto.Changeset.validate_number(changeset, :deductible_amount_cents,
-      greater_than_or_equal_to: 0
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: amount,
+      message: "must be between 0 and the invoice amount"
     )
   end
 
