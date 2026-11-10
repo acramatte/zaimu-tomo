@@ -1,0 +1,112 @@
+PR merged, can you deploy the new version and run backfill ?
+
+---
+
+<task-notification>
+<task-id>bz2y6e82h</task-id>
+<tool-use-id>toolu_01Q8VnLTADMw73KWJTBzwp6J</tool-use-id>
+<output-file>/tmp/claude-1000/-home-alexis-Development-private-zaimu-tomo/d74b8cf3-e456-4318-9b47-ab8ccaf26aa3/tasks/bz2y6e82h.output</output-file>
+<status>completed</status>
+<summary>Background command "Deploy main to production with Kamal" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+yes please
+
+---
+
+there are merge conflicts, check
+
+---
+
+input from Entire.io
+
+
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:581`
+
+Submitting a revision with a reason longer than 255 characters passes the unrestricted textarea (`lib/zaimu_tomo_web/components/tax_treatment_components.ex:112-118`), but `notes` is a `varchar(255)` column (`priv/repo/migrations/20260810102206_create_tax_deduction_claims.exs:12`). No length validation prevents PostgreSQL from raising, so the exception escapes the submit handler (`lib/zaimu_tomo_web/live/journal_entry_live/show.ex:173-195`) and crashes the LiveView without saving the revision. Validate the length and return a form error, or migrate the column to `:text`.
+</pasted_content id="d3d2">
+
+
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:584`
+
+Submitting `claimed` with a deductible amount of `21474836.48` passes this validation, but the database column is a four-byte integer (`priv/repo/migrations/20260810102206_create_tax_deduction_claims.exs:11`). The resulting database/encoding exception escapes the submit handler (`lib/zaimu_tomo_web/live/journal_entry_live/show.ex:160-181`) and crashes the LiveView. Reject values above 2,147,483,647 cents before updating the claim.
+</pasted_content id="d3d2">
+
+
+(2 days ago, might be stale)
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:398-402`
+
+Legacy posted entries can lack a claim because `priv/repo/migrations/20260810102206_create_tax_deduction_claims.exs:4-24` creates the table without backfilling existing entries. The revision form is still offered (`lib/zaimu_tomo_web/live/journal_entry_live/show.ex:119-124`), but this `repo.one!` raises `Ecto.NoResultsError`, crashing the LiveView on submission. Create the missing claim transactionally or backfill these entries before allowing revisions.
+</pasted_content id="d3d2">
+
+
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:398-403`
+
+`repo.one!` assumes every posted entry has a `tax_deduction_claims` row. The claims migration (20260810102206) did not backfill existing entries, and `post_entry` upserts a claim precisely because one may be missing. The show page also handles a nil claim on purpose: `revision_form/1` falls back to `%TaxDeductionClaim{}`, and the template guards with `:if={@entry.tax_deduction_claim}`. So the form is offered on legacy posted entries, and submitting it raises `Ecto.NoResultsError` inside the transaction, which crashes the LiveView. Either create the claim when it is missing, as `upsert_tax_deduction_claim/3` does, or return an error. Add a test for a posted entry with no claim.
+</pasted_content id="d3d2">
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/components/tax_treatment_components.ex:27`
+
+The form always prefills `deductible_amount` from the current claim. After an entry is set to `not_deductible` or `disallowed`, the field shows `0.00`. Switching the status back to `claimed` then submits 0 cents explicitly, so the documented fallback to the entry amount for a blank amount never applies through the UI. The user silently records a 0 deductible claim unless they retype the amount.
+</pasted_content id="d3d2">
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/components/tax_treatment_components.ex:1-9`
+
+The moduledoc says the component is "shared by every page that shows a posted invoice", but `JournalEntryLive.Show` is its only caller. The separate module, its host-contract docs, the configurable `:submit`/`:id` attrs, and the changeset-to-form error remapping are built for reuse that does not exist. This is speculative abstraction with a docstring that does not match the code.
+</pasted_content id="d3d2">
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:365`
+
+The new `@zero_deduction_statuses` attribute duplicates the hardcoded `["not_deductible", "disallowed"]` list in the existing `normalize_tax_claim_attrs/2`, which was not switched to use it. The zero-amount rule now lives in two places, and they also behave differently: posting respects an explicit amount, while revision forces 0. Use one shared definition.
+</pasted_content id="d3d2">
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:571-577`
+
+The free-text revision reason is stored in `tax_deduction_claims.notes`, which the migration created as `:string` (varchar 255). The changeset has no `validate_length`. A reason longer than 255 characters from the textarea makes Postgres raise during the update, and that crashes the LiveView instead of showing an inline error. Add a length validation that matches the column.
+</pasted_content id="d3d2">
+
+---
+
+1.
