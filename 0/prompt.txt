@@ -1,0 +1,44 @@
+i've made zaimutomo public again
+
+---
+
+yes
+
+---
+
+leave it as it is
+
+---
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/controllers/page_html/home.html.heex:8`
+
+The dashboard link now goes to `/documents?tab=needs_action`, but its number still comes from `Review.pending_review_count/1`, which counts only pending decisions. That tab also lists approved-but-unbooked invoices plus failed, stalled and processing ones (`in_tab?("needs_action", …)`). So the home page might say "2 documents need review" and open a tab showing 5. Either count with the same rule or link to a matching filter.
+</pasted_content id="d3d2">
+
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/live/document_live/show.ex:1202-1206`
+
+The comment "A stuck document has no live run to report on; the pill must not keep pulsing…" now sits above the new `stage_pill/3` clause for uncategorized entries, together with that clause's own comment. The stuck case it describes is handled further down in `stage_pill/2`. Move the comment to the `:stuck` clause or drop it.
+</pasted_content id="d3d2">
+
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/components/zaimu_components.ex:486-491`
+
+`feed_item` no longer uses `@item.review_id`; it now links by `document_id`. No other code reads `ZaimuTomo.Activity`'s `review_id` field, which now exists only to satisfy `activity_test.exs`. Remove the field and its assertions together.
+</pasted_content id="d3d2">
+
+
+These are from Entire.io
