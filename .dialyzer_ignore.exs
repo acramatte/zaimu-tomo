@@ -11,6 +11,7 @@
   # Multi.new() |> Multi.insert(...) |> ... pipeline.
   {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in insert."},
   {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in update."},
+  {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in run."},
   {"lib/zaimu_tomo/documents.ex", "Type mismatch in call without opaque term in insert."},
   {"lib/zaimu_tomo/financial_accounts.ex",
    "Type mismatch in call without opaque term in insert."},

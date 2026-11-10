@@ -212,6 +212,28 @@ defmodule ZaimuTomo.AccountingTest do
       refute Repo.get_by(EventLog, event_type: "tax_deduction_claim_revised")
     end
 
+    test "caps the amount at the entry amount and logs nothing for an unchanged save", %{
+      scope: scope,
+      entry: entry
+    } do
+      assert {:error, changeset} =
+               Accounting.revise_tax_deduction_claim(scope, entry, %{
+                 status: "claimed",
+                 deductible_amount_cents: 42_01
+               })
+
+      assert %{deductible_amount_cents: ["must be between 0 and the invoice amount"]} =
+               errors_on(changeset)
+
+      attrs = %{status: "claimed", deductible_amount_cents: 42_00, reason: "Filed"}
+      assert {:ok, _} = Accounting.revise_tax_deduction_claim(scope, entry, attrs)
+      assert {:ok, same} = Accounting.revise_tax_deduction_claim(scope, entry, attrs)
+      assert same.tax_deduction_claim.status == "claimed"
+
+      assert [%{metadata: %{"from_status" => "candidate", "to_status" => "claimed"}}] =
+               Repo.all(from e in EventLog, where: e.event_type == "tax_deduction_claim_revised")
+    end
+
     test "refuses another user's entry and an entry that is not posted yet", %{
       user: user,
       scope: scope,
@@ -250,7 +272,7 @@ defmodule ZaimuTomo.AccountingTest do
                  deductible_amount_cents: 2_147_483_648
                })
 
-      assert %{deductible_amount_cents: [_]} = errors_on(changeset)
+      assert "must be less than or equal to 2147483647" in errors_on(changeset).deductible_amount_cents
       refute Repo.get_by(EventLog, event_type: "tax_deduction_claim_revised")
     end
 
