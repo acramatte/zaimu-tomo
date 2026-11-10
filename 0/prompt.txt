@@ -1,0 +1,24 @@
+credo failed + 
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:398-402`
+
+Legacy posted entries can lack a claim because `priv/repo/migrations/20260810102206_create_tax_deduction_claims.exs:4-24` creates the table without backfilling existing entries. The revision form is still offered (`lib/zaimu_tomo_web/live/journal_entry_live/show.ex:119-124`), but this `repo.one!` raises `Ecto.NoResultsError`, crashing the LiveView on submission. Create the missing claim transactionally or backfill these entries before allowing revisions.
+</pasted_content id="d3d2">
+
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:581-586`
+
+`TaxDeductionClaim` now permits negative amounts because "a credit note's entry amount, and so its default deductible amount, is negative". Revision forbids them in two places: `validate_revised_amount` requires `>= 0`, and the form's `amount_to_cents` regex has no sign. For a credit-note entry, `revision_form/1` prefills the negative amount (e.g. `-50.00`), so any submit fails with "must be a non-negative amount". Clearing the field falls back to the negative entry amount, which the changeset then rejects. Make the sign policy for credit notes the same in posting and revision, or default a blank revision amount to a value revision accepts.
+</pasted_content id="d3d2">
+
+---
+
+2. retry
