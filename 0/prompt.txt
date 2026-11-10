@@ -1,0 +1,31 @@
+I intend to make the repo public again
+
+---
+
+what are we doing here ? Once this feature is in i want:
+1. GitHub repo to be public
+2. Remote.io to keept trakcing transrcripts and others like it did before
+
+---
+
+nevermind the entire.io trace then, let's move back to the work we were doing
+
+---
+
+yes
+
+---
+
+What's the decision for Findings
+Medium
+If a user books a target through lib/zaimu_tomo_web/live/document_live/show.ex:783-793 after the backfill loads its plan but before this update, the stale changeset overwrites their category and need/want choices. Re-read and lock each target inside its transaction, verify that the planned fields are still missing, and apply the same protection to manual matches. ?
+
+---
+
+is that correct ?
+
+The new statuses (rejected → "rejected", and an approved decision whose entry is still uncategorized → "review") were added only to DocumentLive.Index.derive_status. ZaimuTomo.Activity.activity_status/2 drives the dashboard feed, and it still maps a rejection to "failed" and every approved or amended decision to "posted". So the same invoice shows as Rejected or Needs action in /documents but as Failed or Posted on the home feed. DocumentLive.Show.stage/2 is a third copy of these rules. Put the rules in one shared function, or at least update Activity to match.
+
+---
+
+yes, also rebase against the latest main
