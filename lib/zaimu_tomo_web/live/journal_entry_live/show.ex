@@ -7,17 +7,22 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   alias ZaimuTomo.Accounts.Scope
 
   @impl true
-  def mount(%{"id" => id}, _session, socket) do
+  def mount(%{"id" => id} = params, _session, socket) do
     case socket.assigns.current_scope do
       %Scope{user: user} ->
         case Accounting.get_journal_entry(id, user.id) do
           {:ok, %JournalEntry{} = entry} ->
+            document_id = source_document_id(entry, user.id)
+            # Opened from the invoice page: going back returns to that invoice.
+            from_invoice? = params["from"] == "invoice" and document_id != nil
+
             {:ok,
              socket
              |> assign(:page_title, entry_title(entry))
              |> assign(:current_path, "/journal_entries")
              |> assign(:entry, entry)
-             |> assign(:document_id, source_document_id(entry, user.id))}
+             |> assign(:document_id, document_id)
+             |> assign(:from_invoice?, from_invoice?)}
 
           {:error, reason} ->
             {:ok, put_flash(socket, :error, reason) |> redirect(to: ~p"/journal_entries")}
@@ -39,9 +44,17 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   def render(assigns) do
     ~H"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-      <a class="btn sm" href={~p"/journal_entries"}>← Journal entries</a>
       <.link
-        :if={@document_id}
+        :if={@from_invoice?}
+        id="journal-entry-back-to-invoice"
+        class="btn sm"
+        navigate={~p"/documents/#{@document_id}"}
+      >
+        ← Invoice
+      </.link>
+      <a :if={!@from_invoice?} class="btn sm" href={~p"/journal_entries"}>← Journal entries</a>
+      <.link
+        :if={@document_id && !@from_invoice?}
         id="journal-entry-invoice-link"
         class="btn sm"
         navigate={~p"/documents/#{@document_id}"}

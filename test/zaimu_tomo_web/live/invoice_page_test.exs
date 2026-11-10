@@ -587,6 +587,28 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
       assert html =~ "invalid_response"
     end
 
+    test "the journal entry opened from the invoice page goes back to that invoice", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      document = document_fixture(scope)
+      review = document |> extracted_content_fixture(user) |> pending_review_fixture()
+      {:ok, live, _html} = live(conn, invoice_path(review))
+      submit_invoice(live, %{})
+
+      {:ok, entry_live, _html} =
+        live |> element("#open-journal-entry") |> render_click() |> follow_redirect(conn)
+
+      assert has_element?(
+               entry_live,
+               ~s(#journal-entry-back-to-invoice[href="#{~p"/documents/#{document}"}"])
+             )
+
+      refute has_element?(entry_live, "a", "← Journal entries")
+      refute has_element?(entry_live, "#journal-entry-invoice-link")
+    end
+
     test "the journal entry links back to its invoice", %{conn: conn, scope: scope, user: user} do
       document = document_fixture(scope)
       review = document |> extracted_content_fixture(user) |> approved_review_fixture(user)
@@ -597,6 +619,9 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
                live,
                ~s(#journal-entry-invoice-link[href="#{~p"/documents/#{document}"}"])
              )
+
+      assert has_element?(live, "a", "← Journal entries")
+      refute has_element?(live, "#journal-entry-back-to-invoice")
     end
   end
 

@@ -605,7 +605,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         Booking
         <.link
           :if={@entry}
-          navigate={~p"/journal_entries/#{@entry}"}
+          navigate={~p"/journal_entries/#{@entry}?from=invoice"}
           class="btn sm"
           id="open-journal-entry"
         >
