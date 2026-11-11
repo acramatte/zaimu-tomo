@@ -1036,6 +1036,11 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
 
       confirm_invoice(live, "possible")
       refute Repo.get!(JournalEntry, entry_for(review).id).source_file_reuse_confirmed
+
+      assert Repo.get_by!(EventLog,
+               event_type: "possible_duplicate_confirmed",
+               invoice_id: to_string(review.extracted_content_id)
+             ).user_id == user.id
     end
   end
 end
