@@ -126,7 +126,9 @@ or a need/want choice. This one-off copies the choice from the same user's poste
 entries with the same issuer, but only when they all agree on the missing values.
 Bookings a person has already decided are passed at run time, so real ledger
 data stays out of this repository. They book through normal posting, including
-their tax treatment:
+their tax treatment, so they apply to `uncategorized` entries only. A decision
+for an entry that is already posted is listed as failed (`:already_posted`) and
+changes nothing, because a posted entry is final:
 
 ```elixir
 manual: %{{ENTRY_ID, ~s(lowercase trimmed issuer)} =>

@@ -119,13 +119,17 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   @spec duplicate_source_file_index() :: String.t()
   def duplicate_source_file_index, do: @duplicate_source_file_index
 
+  @doc """
+  Books an entry with its category and need/want choice. Booking is what posts
+  an entry, so the status is set here and is not an input.
+  """
   @spec changeset_for_categorize(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_categorize(%__MODULE__{} = entry, attrs) do
     entry
-    |> cast(attrs, [:category, :need_or_want, :notes, :status])
+    |> cast(attrs, [:category, :need_or_want, :notes])
     |> validate_required([:category, :need_or_want])
     |> validate_inclusion(:need_or_want, @need_or_want_values)
-    |> validate_inclusion(:status, ["uncategorized", "posted"])
+    |> put_change(:status, "posted")
     |> check_constraint(:need_or_want, name: :journal_entries_need_or_want_check)
   end
 

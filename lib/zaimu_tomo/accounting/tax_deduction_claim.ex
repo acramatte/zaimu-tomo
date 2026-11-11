@@ -73,7 +73,7 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
       :status,
       :deductible_amount_cents
     ])
-    |> validate_inclusion(:status, @statuses)
+    |> validate_draft_status()
     |> validate_column_limits()
     |> claim_constraints()
   end
@@ -201,14 +201,22 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
     )
   end
 
+  @doc "Changeset for the tax treatment chosen while booking: a draft status only."
   @spec changeset_for_update(t(), map()) :: Ecto.Changeset.t(t())
   def changeset_for_update(%__MODULE__{} = claim, attrs) do
     claim
     |> cast(attrs, [:status, :category, :deductible_amount_cents, :notes])
     |> validate_required([:status, :deductible_amount_cents])
-    |> validate_inclusion(:status, @statuses)
+    |> validate_draft_status()
     |> validate_column_limits()
     |> claim_constraints()
+  end
+
+  # Filing and refusal are revisions of a posted entry (`changeset_for_revision/2`).
+  defp validate_draft_status(changeset) do
+    validate_inclusion(changeset, :status, @draft_statuses,
+      message: "can only be filed or refused by revising the posted entry"
+    )
   end
 
   defp validate_column_limits(changeset) do

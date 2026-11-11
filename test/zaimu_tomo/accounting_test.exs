@@ -111,6 +111,59 @@ defmodule ZaimuTomo.AccountingTest do
       assert updated.tax_deduction_claim.status == "not_deductible"
       assert updated.tax_deduction_claim.deductible_amount_cents == 0
     end
+
+    test "posts once: a second call cannot rebook the entry or reset its filed claim" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      uncategorized = create_entry(scope, user)
+
+      {:ok, posted} =
+        Accounting.post_entry(uncategorized, user.id, "Office", "need", nil, %{
+          "status" => "candidate"
+        })
+
+      {:ok, _claimed} =
+        Accounting.revise_tax_deduction_claim(scope, posted, %{
+          "status" => "claimed",
+          "tax_return_reference" => "RETURN-2026"
+        })
+
+      # A stale tab still holds the entry as it was before posting.
+      assert {:error, :already_posted} =
+               Accounting.post_entry(uncategorized, user.id, "Travel", "want", nil, %{
+                 "status" => "undecided"
+               })
+
+      assert {:ok, entry} = Accounting.get_journal_entry(posted.id, user.id)
+      assert {entry.category, entry.need_or_want} == {"Office", "need"}
+      assert entry.tax_deduction_claim.status == "claimed"
+      assert entry.tax_deduction_claim.tax_return_reference == "RETURN-2026"
+      assert entry.tax_deduction_claim.deductible_amount_cents == entry.amount_cents
+
+      assert [_only_posting] =
+               Repo.all(
+                 from e in EventLog,
+                   where:
+                     e.event_type == "journal_entry_posted" and
+                       e.invoice_id == ^to_string(entry.id)
+               )
+    end
+
+    test "takes a draft tax treatment only" do
+      user = user_fixture()
+      entry = create_entry(user_scope_fixture(user), user)
+
+      assert {:error, changeset} =
+               Accounting.post_entry(entry, user.id, "Software", "need", nil, %{
+                 "status" => "claimed",
+                 "tax_return_reference" => "RETURN-2026"
+               })
+
+      assert %{status: ["can only be filed or refused by revising the posted entry"]} =
+               errors_on(changeset)
+
+      assert Repo.reload!(entry).status == "uncategorized"
+    end
   end
 
   describe "revise_tax_deduction_claim/3" do

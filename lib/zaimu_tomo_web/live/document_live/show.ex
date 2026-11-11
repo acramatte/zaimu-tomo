@@ -797,6 +797,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
       {:ok, _entry} ->
         {:noreply, socket |> put_flash(:info, "Entry booked") |> reload()}
 
+      {:error, :already_posted} ->
+        {:noreply, socket |> put_flash(:error, "This entry is already booked") |> reload()}
+
       {:error, changeset} ->
         {:noreply,
          socket
