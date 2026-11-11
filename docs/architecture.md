@@ -208,10 +208,25 @@ still `uncategorized` and get a booking form on the same page.
 After posting, the tax treatment stays editable: when the return is filed or
 assessed, the user revises the claim on the journal entry page
 (`TaxTreatmentComponents.tax_revision_form/1`). `Accounting.revise_tax_deduction_claim/3`
-accepts all five statuses, an optional reason, and the deductible amount, and
-writes the claim and a `tax_deduction_claim_revised` event in one transaction,
+moves the claim along the lifecycle below (`TaxDeductionClaim.next_statuses/1`)
+with a reason and the deductible amount, and writes the claim and a
+`tax_deduction_claim_revised` event in one transaction,
 with the journal entry row locked so concurrent revisions serialize. Saving an
 unchanged claim logs nothing. An entry posted before tax claims existed has no claim; revising it creates one.
+
+```mermaid
+stateDiagram-v2
+    state "draft (undecided / candidate / not_deductible)" as draft
+    [*] --> draft: posting
+    draft --> draft: any draft status
+    draft --> claimed: from candidate, return reference
+    claimed --> disallowed: authority name + reference
+    claimed --> draft: correction to candidate, reason
+    disallowed --> claimed: correction (appeal), reason
+```
+
+Corrections are flagged `correction: true` in the event. References that no
+longer apply to the new status are cleared; the event keeps them.
 
 ### 6.2 Failure, retry and recovery
 
@@ -310,7 +325,7 @@ erDiagram
 - Money is stored in integer cents with an ISO currency code. Each user has a `base_currency` (default CHF), which is snapshotted into each OCR job as the currency hint.
 - `oban_jobs` lives in the same database. Finished jobs are pruned after 7 days.
 - Deleting a document that has a posted journal entry is blocked by a foreign key.
-- `tax_deduction_claims` has at most one row per journal entry; entries posted before the table existed have none until a revision creates it. Posting offers `undecided`, `candidate`, and `not_deductible`; a revision of a posted entry can also set `claimed` (included in the tax return) or `disallowed` (refused by the tax office). `not_deductible` and `disallowed` always store a deductible amount of 0; otherwise a revised amount lies between 0 and the entry amount (negative for a credit note). `notes` holds the latest revision reason (up to 255 characters). The history lives in `event_logs`: each `tax_deduction_claim_revised` event (`invoice_id` = journal entry ID) records `from_status`/`to_status`, `from_deductible_amount_cents`/`to_deductible_amount_cents`, `tax_year`, and `reason`.
+- `tax_deduction_claims` has at most one row per journal entry; entries posted before the table existed have none until a revision creates it. Posting offers `undecided`, `candidate`, and `not_deductible`; a revision of a posted entry follows the lifecycle in §6.1 to `claimed` (included in the tax return; `tax_return_reference` required) and `disallowed` (refused by the tax authority; `authority_name` and `authority_reference` required, return reference kept). Check constraints enforce the required references in the database. `not_deductible` and `disallowed` always store a deductible amount of 0; otherwise a revised amount lies between 0 and the entry amount (negative for a credit note). `notes` holds the latest revision reason (up to 255 characters). The history lives in `event_logs`: each `tax_deduction_claim_revised` event (`invoice_id` = journal entry ID) records `from_status`/`to_status`, `from_deductible_amount_cents`/`to_deductible_amount_cents`, `tax_year`, `reason`, `correction`, and the three references.
 - A partial unique index on `journal_entries (user_id, lower(btrim(issuer)), lower(btrim(invoice_number)))` blocks posting the same numbered invoice twice per user. An unnumbered invoice matching an existing entry's exact `(issuer, date, amount, currency)` tuple is a soft match that requires explicit reviewer confirmation to post. See `Accounting.duplicate_candidates/2`.
 - `journal_entries.source_document_sha256` is an immutable posting-time copy of the source document's `content_sha256`; `source_file_reuse_confirmed` (default false) marks a posting the reviewer explicitly confirmed as a reuse of the same file. The partial unique index `journal_entries (user_id, source_document_sha256) WHERE source_document_sha256 IS NOT NULL AND NOT source_file_reuse_confirmed` allows one unconfirmed posting per file per user. `Accounting.duplicate_check/3` ranks matches as same file > invoice number > same details; a file match is confirmable only when no field rule also matches (the tuple is compared against the file-matched entries even for numbered invoices). Confirmations are logged as `source_file_reuse_confirmed` events with the matched entry IDs. Fingerprints are user-scoped, redacted from inspect output, and never rendered or sent to an AI provider. Only `FingerprintBackfill` may set them on existing entries; there is no immutability trigger on `journal_entries` yet, and any future one must run after the backfill or allow it.
 
@@ -409,6 +424,7 @@ is in [`specs/`](../specs/README.md).
 | D15 | 2026-10 | Clear the 51-finding Credo backlog and make `mix credo --strict` blocking in the existing `lint` CI job | Supersedes D13's advisory Credo policy so new findings fail CI instead of rebuilding the backlog. Reorder aliases, alias nested module calls, use implicit function-level rescue/catch and readable string sigils, use `ReviewDecision.t()` in specs, and configure the existing TypeSafe Logger metadata explicitly. The two upload-test TODOs were stale: the same file already exercises uploads and edit submission, so replace them with references to that coverage. No checks are disabled and no findings are suppressed. Security audit and nightly Dialyzer remain advisory; GitHub branch protection settings are unchanged. |
 | D16 | 2026-10 | Pin every workflow job to `runs-on: ubuntu-26.04` instead of `ubuntu-latest` | GitHub migrated the `ubuntu-latest` label from Ubuntu 24.04 to 26.04 gradually between October 19 and November 19, 2026, so two runs of the same commit could land on different images with no repo change. Pinning makes the toolchain that a green build was verified against explicit and reproducible, and turns the next image adoption into a deliberate commit rather than a silent rollover. `ubuntu-26.04` is GA on x64, and all five jobs only need Docker, the Postgres service container, and `erlef/setup-beam`'s Elixir/OTP builds, which the new image supports. |
 | D17 | 2026-11 | One invoice page (`/documents/:id`) replaces the review, amend, and journal-entry posting screens, so it is the only place an entry is booked; checking and booking are one transaction. `/documents/:id/edit` remains and only replaces the stored file | The flow split one invoice over three pages that did not link to each other, so a treated or amended invoice was hard to find again. `Review.approve_invoice/4` and `amend_invoice/5` take `:booking` and `:tax_claim_attrs`, and `Accounting.create_multi_from_decision/3` posts the entry inside the existing review transaction, so a booking error rolls back the whole posting like a duplicate does. One comment per invoice (stored as review notes and copied to the entry's notes). Extraction feedback is sent automatically on posting so Langfuse gets a signal for every posted invoice. A rejection sends a score only when the user picked 👍/👎, because a correctly read duplicate is rejected too. |
+| D18 | 2026-11 | Tax claims follow an explicit lifecycle: drafts move freely, `candidate` → `claimed` needs a tax return reference, `claimed` → `disallowed` needs the authority name and reference, and the corrections `claimed` → `candidate` and `disallowed` → `claimed` need a reason | Replaces the free status edit of the first revision form. A refusal only makes sense after filing, and the references are what a follow-up with the tax office needs, so they are required in the changeset and by check constraints. Appeals and mistaken filings happen, so the two corrections exist but are flagged in the event log. Adapted from the unmerged PR #38 (`feat/tax-claim-lifecycle`), without its separate `/tax_claims` pages. Rows set to `claimed` or `disallowed` before the references existed are marked `not recorded` by the migration. |
 
 ---
 

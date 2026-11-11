@@ -133,7 +133,8 @@ defmodule ZaimuTomo.AccountingTest do
       assert {:ok, claimed} =
                Accounting.revise_tax_deduction_claim(scope, entry, %{
                  "status" => "claimed",
-                 "deductible_amount_cents" => 30_00
+                 "deductible_amount_cents" => 30_00,
+                 "tax_return_reference" => " 2026 return "
                })
 
       assert claimed.tax_deduction_claim.status == "claimed"
@@ -143,6 +144,8 @@ defmodule ZaimuTomo.AccountingTest do
                Accounting.revise_tax_deduction_claim(scope, entry, %{
                  status: "disallowed",
                  deductible_amount_cents: 30_00,
+                 authority_name: "Steueramt Zürich",
+                 authority_reference: "A-77",
                  reason: "  Private use, per 2027 assessment  "
                })
 
@@ -150,6 +153,7 @@ defmodule ZaimuTomo.AccountingTest do
       assert reloaded.tax_deduction_claim.status == "disallowed"
       assert reloaded.tax_deduction_claim.deductible_amount_cents == 0
       assert reloaded.tax_deduction_claim.notes == "Private use, per 2027 assessment"
+      assert reloaded.tax_deduction_claim.tax_return_reference == "2026 return"
       assert disallowed.tax_deduction_claim.id == entry.tax_deduction_claim.id
 
       revisions =
@@ -168,14 +172,19 @@ defmodule ZaimuTomo.AccountingTest do
                  "from_deductible_amount_cents" => 42_00,
                  "to_deductible_amount_cents" => 30_00,
                  "reason" => nil,
-                 "tax_year" => 2026
+                 "tax_year" => 2026,
+                 "correction" => false,
+                 "tax_return_reference" => "2026 return"
                },
                %{
                  "from_status" => "claimed",
                  "to_status" => "disallowed",
                  "from_deductible_amount_cents" => 30_00,
                  "to_deductible_amount_cents" => 0,
-                 "reason" => "Private use, per 2027 assessment"
+                 "reason" => "Private use, per 2027 assessment",
+                 "authority_name" => "Steueramt Zürich",
+                 "authority_reference" => "A-77",
+                 "tax_return_reference" => "2026 return"
                }
              ] = Enum.map(revisions, & &1.metadata)
     end
@@ -184,7 +193,7 @@ defmodule ZaimuTomo.AccountingTest do
       {:ok, _} = Accounting.revise_tax_deduction_claim(scope, entry, %{status: "not_deductible"})
 
       assert {:ok, revised} =
-               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "claimed"})
+               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "candidate"})
 
       assert revised.tax_deduction_claim.deductible_amount_cents == 42_00
     end
@@ -225,7 +234,13 @@ defmodule ZaimuTomo.AccountingTest do
       assert %{deductible_amount_cents: ["must be between 0 and the invoice amount"]} =
                errors_on(changeset)
 
-      attrs = %{status: "claimed", deductible_amount_cents: 42_00, reason: "Filed"}
+      attrs = %{
+        status: "claimed",
+        deductible_amount_cents: 42_00,
+        reason: "Filed",
+        tax_return_reference: "2026 return"
+      }
+
       assert {:ok, _} = Accounting.revise_tax_deduction_claim(scope, entry, attrs)
       assert {:ok, same} = Accounting.revise_tax_deduction_claim(scope, entry, attrs)
       assert same.tax_deduction_claim.status == "claimed"
@@ -286,17 +301,17 @@ defmodule ZaimuTomo.AccountingTest do
       )
 
       assert {:ok, revised} =
-               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "claimed"})
+               Accounting.revise_tax_deduction_claim(scope, entry, %{status: "candidate"})
 
-      assert revised.tax_deduction_claim.status == "claimed"
+      assert revised.tax_deduction_claim.status == "candidate"
       assert revised.tax_deduction_claim.deductible_amount_cents == 42_00
 
       assert {:ok, reloaded} = Accounting.get_journal_entry(entry.id, user.id)
-      assert reloaded.tax_deduction_claim.status == "claimed"
+      assert reloaded.tax_deduction_claim.status == "candidate"
 
       event = Repo.get_by!(EventLog, event_type: "tax_deduction_claim_revised")
       assert event.metadata["from_status"] == nil
-      assert event.metadata["to_status"] == "claimed"
+      assert event.metadata["to_status"] == "candidate"
     end
 
     test "posting and revising share the zero-deduction rule", %{user: user, scope: scope} do
@@ -307,6 +322,83 @@ defmodule ZaimuTomo.AccountingTest do
         })
 
       assert posted.tax_deduction_claim.deductible_amount_cents == 0
+    end
+
+    test "follows the lifecycle: filing, refusal, and corrections with a reason", %{
+      user: user,
+      scope: scope,
+      entry: entry
+    } do
+      revise = &Accounting.revise_tax_deduction_claim(scope, entry, &1)
+
+      # A claim is refused only after it was filed, and filed only from candidate.
+      assert {:error, changeset} =
+               revise.(%{status: "disallowed", authority_name: "X", authority_reference: "1"})
+
+      assert %{status: ["can't change from “Potentially deductible” to “Not allowed”"]} =
+               errors_on(changeset)
+
+      assert {:error, changeset} = revise.(%{status: "claimed"})
+      assert %{tax_return_reference: ["can't be blank"]} = errors_on(changeset)
+
+      assert {:ok, _} = revise.(%{status: "claimed", tax_return_reference: "2026 return"})
+
+      assert {:error, changeset} = revise.(%{status: "not_deductible"})
+      assert %{status: [_]} = errors_on(changeset)
+
+      assert {:error, changeset} = revise.(%{status: "disallowed", authority_name: "Steueramt"})
+      assert %{authority_reference: ["can't be blank"]} = errors_on(changeset)
+
+      assert {:ok, _} =
+               revise.(%{
+                 status: "disallowed",
+                 authority_name: "Steueramt",
+                 authority_reference: "A-77"
+               })
+
+      # Corrections undo a refusal or a filing, and need a reason.
+      assert {:error, changeset} = revise.(%{status: "claimed"})
+      assert %{notes: ["is required to correct a filed or refused claim"]} = errors_on(changeset)
+
+      assert {:ok, reclaimed} = revise.(%{status: "claimed", reason: "Appeal upheld"})
+      assert reclaimed.tax_deduction_claim.tax_return_reference == "2026 return"
+      assert reclaimed.tax_deduction_claim.authority_name == nil
+
+      assert {:ok, unfiled} = revise.(%{status: "candidate", reason: "Filed by mistake"})
+      assert unfiled.tax_deduction_claim.tax_return_reference == nil
+
+      corrections =
+        Repo.all(
+          from e in EventLog,
+            where:
+              e.event_type == "tax_deduction_claim_revised" and
+                e.invoice_id == ^to_string(entry.id) and e.user_id == ^user.id,
+            order_by: e.id,
+            select: {e.metadata["to_status"], e.metadata["correction"]}
+        )
+
+      assert corrections == [
+               {"claimed", false},
+               {"disallowed", false},
+               {"claimed", true},
+               {"candidate", true}
+             ]
+    end
+
+    test "the database refuses a filed claim without its references", %{entry: entry} do
+      claim = Repo.get_by!(ZaimuTomo.Accounting.TaxDeductionClaim, journal_entry_id: entry.id)
+
+      assert {:error, changeset} =
+               claim
+               |> Ecto.Changeset.change(status: "claimed")
+               |> then(
+                 &Ecto.Changeset.check_constraint(&1, :tax_return_reference,
+                   name: :tax_deduction_claims_claimed_return_reference_check
+                 )
+               )
+               |> Repo.update()
+
+      assert %{tax_return_reference: [_]} = errors_on(changeset)
     end
   end
 

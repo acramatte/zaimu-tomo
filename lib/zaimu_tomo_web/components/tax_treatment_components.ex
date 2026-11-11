@@ -3,7 +3,9 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
   The "Revise tax treatment" form on the journal entry page
   (`ZaimuTomoWeb.JournalEntryLive.Show`), which handles its
   `revise_tax_treatment` event with `revision_attrs/1` and
-  `ZaimuTomo.Accounting.revise_tax_deduction_claim/3`.
+  `ZaimuTomo.Accounting.revise_tax_deduction_claim/3`, and its
+  `change_tax_revision` event with `revision_form/1` on the params, so the
+  reference fields follow the chosen status.
   """
   use Phoenix.Component
 
@@ -34,7 +36,10 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
       %{
         "status" => claim.status || "undecided",
         "deductible_amount" => amount,
-        "reason" => claim.notes
+        "reason" => claim.notes,
+        "tax_return_reference" => claim.tax_return_reference,
+        "authority_name" => claim.authority_name,
+        "authority_reference" => claim.authority_reference
       },
       as: :tax_revision
     )
@@ -53,7 +58,14 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
   end
 
   def revision_form(params, %Ecto.Changeset{errors: errors}) when is_map(params) do
-    fields = %{status: :status, deductible_amount_cents: :deductible_amount, notes: :reason}
+    fields = %{
+      status: :status,
+      deductible_amount_cents: :deductible_amount,
+      notes: :reason,
+      tax_return_reference: :tax_return_reference,
+      authority_name: :authority_name,
+      authority_reference: :authority_reference
+    }
 
     errors
     |> Enum.flat_map(fn {field, error} ->
@@ -61,6 +73,10 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
     end)
     |> then(&error_form(params, &1))
   end
+
+  @doc "The form for submitted params without errors, after a status change."
+  @spec changed_form(map()) :: Phoenix.HTML.Form.t()
+  def changed_form(params) when is_map(params), do: to_form(params, as: :tax_revision)
 
   defp error_form(params, errors),
     do: to_form(params, as: :tax_revision, errors: errors, action: :validate)
@@ -85,19 +101,34 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
        %{
          "status" => Map.get(params, "status"),
          "reason" => Map.get(params, "reason"),
-         "deductible_amount_cents" => cents
+         "deductible_amount_cents" => cents,
+         "tax_return_reference" => Map.get(params, "tax_return_reference"),
+         "authority_name" => Map.get(params, "authority_name"),
+         "authority_reference" => Map.get(params, "authority_reference")
        }}
     end
   end
 
   attr :form, Phoenix.HTML.Form, required: true
+  attr :current_status, :string, default: nil, doc: "the saved claim's status"
   attr :currency, :string, default: nil
 
   def tax_revision_form(assigns) do
+    assigns =
+      assign(assigns,
+        status: assigns.form[:status].value,
+        correction?:
+          TaxDeductionClaim.correction?(
+            assigns.current_status,
+            assigns.form[:status].value
+          )
+      )
+
     ~H"""
     <.form
       for={@form}
       id="tax-revision-form"
+      phx-change="change_tax_revision"
       phx-submit="revise_tax_treatment"
       class="tax-revision-form"
     >
@@ -112,7 +143,32 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
           id="tax-revision-form-status"
           type="select"
           label="Tax treatment"
-          options={TaxDeductionClaim.revision_status_options()}
+          options={TaxDeductionClaim.revision_status_options(@current_status)}
+        />
+        <.input
+          :if={@status in ["claimed", "disallowed"]}
+          field={@form[:tax_return_reference]}
+          id="tax-revision-form-return-reference"
+          label="Tax return reference"
+          maxlength="255"
+          placeholder="e.g. 2026 return, filed 2027-03-01"
+          readonly={@status == "disallowed"}
+        />
+        <.input
+          :if={@status == "disallowed"}
+          field={@form[:authority_name]}
+          id="tax-revision-form-authority-name"
+          label="Tax authority"
+          maxlength="255"
+          placeholder="e.g. Steuerverwaltung Kanton Zürich"
+        />
+        <.input
+          :if={@status == "disallowed"}
+          field={@form[:authority_reference]}
+          id="tax-revision-form-authority-reference"
+          label="Authority reference"
+          maxlength="255"
+          placeholder="e.g. assessment number"
         />
         <.input
           field={@form[:deductible_amount]}
@@ -128,7 +184,7 @@ defmodule ZaimuTomoWeb.TaxTreatmentComponents do
           field={@form[:reason]}
           id="tax-revision-form-reason"
           type="textarea"
-          label="Reason (optional)"
+          label={if @correction?, do: "Reason (required for a correction)", else: "Reason (optional)"}
           maxlength={TaxDeductionClaim.notes_max_length()}
           placeholder="e.g. Tax office assessment of 2027-03-14"
         />

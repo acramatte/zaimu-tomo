@@ -375,14 +375,20 @@ defmodule ZaimuTomo.Accounting do
 
   `attrs` (string or atom keys):
 
-    * `"status"` — required; any `TaxDeductionClaim` status.
-    * `"reason"` — optional; stored as the claim's notes and in the audit event.
+    * `"status"` — required; one of `TaxDeductionClaim.next_statuses/1` for
+      the current status.
+    * `"reason"` — stored as the claim's notes and in the audit event.
+      Required for a correction (`claimed` → `candidate`, `disallowed` →
+      `claimed`).
+    * `"tax_return_reference"` — required for `claimed`.
+    * `"authority_name"`, `"authority_reference"` — required for `disallowed`.
     * `"deductible_amount_cents"` — optional integer between 0 and the entry
       amount (which is negative for a credit note). Defaults to the entry
       amount. Always 0 for `not_deductible` and `disallowed`.
 
   The claim update and a `tax_deduction_claim_revised` event log entry (old
-  and new status and amount, plus the reason) commit in one transaction, so a
+  and new status and amount, the reason, the references, and whether it was
+  a correction) commit in one transaction, so a
   revision is never applied without its audit record. Saving an unchanged
   claim logs nothing. An entry posted before
   tax claims existed has none; the revision creates it, with no old values.
@@ -563,28 +569,30 @@ defmodule ZaimuTomo.Accounting do
   end
 
   # An entry posted before tax claims existed has no claim; the revision creates it.
-  defp save_revised_claim(repo, entry, nil, attrs) do
-    entry
-    |> TaxDeductionClaim.changeset_for_create(tax_revision_attrs(entry, attrs))
-    |> validate_revised_amount(entry)
-    |> repo.insert()
-  end
-
   defp save_revised_claim(repo, entry, claim, attrs) do
-    claim
-    |> TaxDeductionClaim.changeset_for_update(tax_revision_attrs(entry, attrs))
+    (claim || TaxDeductionClaim.new_for_entry(entry))
+    |> TaxDeductionClaim.changeset_for_revision(tax_revision_attrs(entry, attrs))
     |> validate_revised_amount(entry)
-    |> repo.update()
+    |> repo.insert_or_update()
   end
 
-  # Saving an unchanged claim (for example a double submit) logs nothing.
-  defp insert_revision_event(_repo, _user, _entry_id, %TaxDeductionClaim{} = previous, revised)
-       when previous.status == revised.status and
-              previous.deductible_amount_cents == revised.deductible_amount_cents and
-              previous.notes == revised.notes,
-       do: {:ok, nil}
+  @revision_fields [
+    :status,
+    :deductible_amount_cents,
+    :notes,
+    :tax_return_reference,
+    :authority_name,
+    :authority_reference
+  ]
 
   defp insert_revision_event(repo, user, entry_id, previous, revised) do
+    # Saving an unchanged claim (for example a double submit) logs nothing.
+    if previous && Map.take(previous, @revision_fields) == Map.take(revised, @revision_fields),
+      do: {:ok, nil},
+      else: do_insert_revision_event(repo, user, entry_id, previous, revised)
+  end
+
+  defp do_insert_revision_event(repo, user, entry_id, previous, revised) do
     EventLog.changeset_for_create(%{
       event_type: "tax_deduction_claim_revised",
       invoice_id: to_string(entry_id),
@@ -596,7 +604,11 @@ defmodule ZaimuTomo.Accounting do
         to_status: revised.status,
         from_deductible_amount_cents: previous && previous.deductible_amount_cents,
         to_deductible_amount_cents: revised.deductible_amount_cents,
-        reason: revised.notes
+        reason: revised.notes,
+        correction: TaxDeductionClaim.correction?(previous && previous.status, revised.status),
+        tax_return_reference: revised.tax_return_reference,
+        authority_name: revised.authority_name,
+        authority_reference: revised.authority_reference
       }
     })
     |> repo.insert()
@@ -620,10 +632,19 @@ defmodule ZaimuTomo.Accounting do
     )
   end
 
+  # A reference left out or blank keeps the stored one (a refused claim keeps
+  # its return reference); the claim changeset clears those the status drops.
   defp tax_revision_attrs(%JournalEntry{} = entry, attrs) do
     status = attrs["status"]
 
-    %{
+    references =
+      for key <- ~w(tax_return_reference authority_name authority_reference),
+          value = blank_to_nil(attrs[key]),
+          value != nil,
+          into: %{},
+          do: {String.to_existing_atom(key), value}
+
+    Map.merge(references, %{
       status: status,
       notes: blank_to_nil(attrs["reason"]),
       deductible_amount_cents:
@@ -632,7 +653,7 @@ defmodule ZaimuTomo.Accounting do
           attrs["deductible_amount_cents"],
           entry.amount_cents
         )
-    }
+    })
   end
 
   defp blank_to_nil(value) when is_binary(value) do

@@ -134,6 +134,24 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
               </div>
             </div>
             <div
+              :if={@entry.tax_deduction_claim && @entry.tax_deduction_claim.tax_return_reference}
+              id="journal-entry-tax-return-reference"
+              class="detail-row"
+            >
+              <div class="name">Tax return</div>
+              <div>{@entry.tax_deduction_claim.tax_return_reference}</div>
+            </div>
+            <div
+              :if={@entry.tax_deduction_claim && @entry.tax_deduction_claim.authority_name}
+              id="journal-entry-tax-authority"
+              class="detail-row"
+            >
+              <div class="name">Refused by</div>
+              <div>
+                {@entry.tax_deduction_claim.authority_name} ({@entry.tax_deduction_claim.authority_reference})
+              </div>
+            </div>
+            <div
               :if={@entry.tax_deduction_claim && @entry.tax_deduction_claim.notes}
               id="journal-entry-tax-reason"
               class="detail-row"
@@ -148,6 +166,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
             <div style="border-top:1px solid var(--hairline);margin-top:12px;padding-top:12px">
               <.tax_revision_form
                 form={@tax_revision_form}
+                current_status={@entry.tax_deduction_claim && @entry.tax_deduction_claim.status}
                 currency={@entry.currency}
               />
             </div>
@@ -171,6 +190,10 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Show do
   end
 
   @impl true
+  def handle_event("change_tax_revision", %{"tax_revision" => params}, socket) do
+    {:noreply, assign(socket, :tax_revision_form, changed_form(params))}
+  end
+
   def handle_event("revise_tax_treatment", %{"tax_revision" => params}, socket) do
     with {:ok, attrs} <- revision_attrs(params),
          {:ok, updated} <-
