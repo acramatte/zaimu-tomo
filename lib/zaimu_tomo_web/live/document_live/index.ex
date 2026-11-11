@@ -112,7 +112,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             <div class="body">
               <div class="title">
                 {(data && data.issuer) || document.filename}
-                <.status_pill status={if status == "stalled", do: "Processing stalled", else: status} />
+                <.status_pill status={status} />
               </div>
               <div class="desc">
                 <%= case status do %>

@@ -205,6 +205,11 @@ inbox with *Needs action / Posted / Rejected / All* tabs. The old `/reviews`
 URLs redirect there. Entries approved before booking was merged into posting are
 still `uncategorized` and get a booking form on the same page.
 
+The status shown for a document comes from one rule, `Review.document_status/2`,
+on the document list, the dashboard feed (`Activity`), and the invoice page: the
+OCR job queue decides `processing`, `stalled`, or `failed`, and only a completed
+extraction is read for `review`, `posted`, or `rejected`.
+
 An entry is posted once. `Accounting.post_entry/6` locks the entry row and books
 it only while it is `uncategorized`; a repeat (a stale tab, a replayed event,
 the legacy backfill) returns `{:error, :already_posted}` and changes nothing. A
@@ -434,6 +439,7 @@ is in [`specs/`](../specs/README.md).
 | D17 | 2026-11 | One invoice page (`/documents/:id`) replaces the review, amend, and journal-entry posting screens, so it is the only place an entry is booked; checking and booking are one transaction. `/documents/:id/edit` remains and only replaces the stored file | The flow split one invoice over three pages that did not link to each other, so a treated or amended invoice was hard to find again. `Review.approve_invoice/4` and `amend_invoice/5` take `:booking` and `:tax_claim_attrs`, and `Accounting.create_multi_from_decision/3` posts the entry inside the existing review transaction, so a booking error rolls back the whole posting like a duplicate does. One comment per invoice (stored as review notes and copied to the entry's notes). Extraction feedback is sent automatically on posting so Langfuse gets a signal for every posted invoice. A rejection sends a score only when the user picked 👍/👎, because a correctly read duplicate is rejected too. |
 | D18 | 2026-11 | Tax claims follow an explicit lifecycle: drafts move freely, `candidate` → `claimed` needs a tax return reference, `claimed` → `disallowed` needs the authority name and reference, and the corrections `claimed` → `candidate` and `disallowed` → `claimed` need a reason | Replaces the free status edit of the first revision form. A refusal only makes sense after filing, and the references are what a follow-up with the tax office needs, so they are required in the changeset and by check constraints. Appeals and mistaken filings happen, so the two corrections exist but are flagged in the event log. Adapted from the unmerged PR #38 (`feat/tax-claim-lifecycle`), without its separate `/tax_claims` pages. Rows set to `claimed` or `disallowed` before the references existed are marked `not recorded` by the migration. |
 | D19 | 2026-11 | Posting a journal entry is a one-way latch: `Accounting.post_entry/6` locks the row and books only an `uncategorized` entry, booking takes draft tax statuses only, and `JournalEntry.changeset_for_categorize/2` sets `posted` itself instead of casting a status | A second `post_entry` used to overwrite the category and write the tax claim without the D18 lifecycle, so a filed or refused claim could be reset with no revision event (reachable from a stale tab, a replayed `book` event, and the legacy backfill's manual decisions). The row lock is the one `revise_tax_deduction_claim/3` takes, so posting and revising serialize. Consequence: a posted entry cannot be recategorised; that would need its own named move with an audit event. |
+| D20 | 2026-11 | One status rule for every surface: the dashboard feed and the invoice page take a document's status from `Review.document_status/2`, as the document list does, and `status_pill` renders `stalled` itself | The feed read only the latest extraction, so a document with no OCR run pulsed "Processing" forever and a failed document being retried stayed "Failed"; the invoice page kept its own copy of the rule. Consequence: `Documents.get_document_with_content!/2` preloads the decision's journal entry, which the rule needs. |
 
 ---
 
