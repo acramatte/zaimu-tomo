@@ -45,6 +45,26 @@ defmodule ZaimuTomo.Review.ReviewDecisionTest do
     end
   end
 
+  describe "changeset_for_create/1" do
+    test "starts a review as pending or failed only" do
+      create = fn status ->
+        ReviewDecision.changeset_for_create(%{
+          extracted_content_id: 1,
+          user_id: 1,
+          review_status: status,
+          decision_type: "initial",
+          rejection_reason: "Duplicate"
+        })
+      end
+
+      for status <- ~w(pending failed), do: assert(create.(status).valid?)
+
+      for status <- ~w(approved amended rejected) do
+        assert {"must start as pending or failed", _} = create.(status).errors[:review_status]
+      end
+    end
+  end
+
   describe "decide_changeset/3" do
     test "moves a pending review to the decision and stamps it" do
       changeset =

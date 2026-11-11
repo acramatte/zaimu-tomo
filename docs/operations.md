@@ -107,6 +107,12 @@ Restore (also used for periodic restore drills on a scratch environment):
 restore the object export first, then the Postgres dump, then run `bin/verify_storage`.
 It must report zero missing and zero failed.
 
+Restore the full dump, schema and data together: it loads rows before it
+creates triggers. A data-only load into a schema that already has the
+`review_decisions` triggers is refused for every decided review ("review
+decision cannot start as approved"). If a data-only load is unavoidable, dump
+with `pg_dump --data-only --disable-triggers` and load as a superuser.
+
 Backup credentials and destinations are not kept in the repository.
 
 ## Legacy upload volume
