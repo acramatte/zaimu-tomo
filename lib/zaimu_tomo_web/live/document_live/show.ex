@@ -1146,7 +1146,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   end
 
   defp rejection_form(%ReviewDecision{} = rd),
-    do: to_form(ReviewDecision.changeset_for_update(rd, %{}))
+    do: to_form(ReviewDecision.decide_changeset(rd, "rejected", %{}))
 
   defp rejection_form(_rd), do: to_form(%{}, as: :review_decision)
 

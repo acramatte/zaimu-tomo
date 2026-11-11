@@ -136,40 +136,40 @@ defmodule ZaimuTomo.Review do
   for the current verdict.
   """
   def approve_invoice(extracted_content_id, user_id, notes \\ nil, opts \\ []) do
-    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id) do
-      post_review_transaction(
-        decision,
-        %{
-          review_status: "approved",
-          decision_type: "approved",
-          review_notes: notes,
-          review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        },
-        "invoice_approved",
-        %{notes: notes},
-        "approved",
-        opts
-      )
-    end
+    post_review_transaction(
+      extracted_content_id,
+      user_id,
+      "approved",
+      %{review_notes: notes},
+      %{notes: notes},
+      opts
+    )
   end
 
+  @doc """
+  Rejects a pending invoice with a reason, and records it in the event log, in
+  one transaction. Nothing is posted.
+  """
   def reject_invoice(extracted_content_id, user_id, rejection_reason, notes \\ nil) do
-    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id),
-         {:ok, updated} <-
-           update_review_decision(decision, %{
-             review_status: "rejected",
-             decision_type: "rejected",
-             rejection_reason: rejection_reason,
-             review_notes: notes,
-             review_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-           }) do
-      write_event_log("invoice_rejected", extracted_content_id, user_id, %{
+    Multi.new()
+    |> decide(extracted_content_id, user_id, "rejected", %{
+      rejection_reason: rejection_reason,
+      review_notes: notes
+    })
+    |> Multi.run(:event_log, fn repo, _changes ->
+      insert_event_log(repo, "invoice_rejected", extracted_content_id, user_id, %{
         rejection_reason: rejection_reason,
         notes: notes
       })
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{review_decision: updated}} ->
+        emit_review_completed_event(updated, "rejected")
+        {:ok, updated}
 
-      emit_review_completed_event(updated, "rejected")
-      {:ok, updated}
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
     end
   end
 
@@ -181,23 +181,14 @@ defmodule ZaimuTomo.Review do
   turn a blocked exact-file match into a confirmable one.
   """
   def amend_invoice(extracted_content_id, user_id, amended_data, notes \\ nil, opts \\ []) do
-    with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id) do
-      post_review_transaction(
-        decision,
-        %{
-          review_status: "amended",
-          decision_type: "amended",
-          status: "completed",
-          decision_data: amended_data,
-          review_notes: notes,
-          review_completed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-        },
-        "invoice_amended",
-        %{amended_data: amended_data, notes: notes},
-        "amended",
-        opts
-      )
-    end
+    post_review_transaction(
+      extracted_content_id,
+      user_id,
+      "amended",
+      %{decision_data: amended_data, review_notes: notes},
+      %{amended_data: amended_data, notes: notes},
+      opts
+    )
   end
 
   @doc """
@@ -319,12 +310,6 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  def update_review_decision(%ReviewDecision{} = review_decision, attrs) do
-    review_decision
-    |> ReviewDecision.changeset_for_update(attrs)
-    |> Repo.update()
-  end
-
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
@@ -337,23 +322,30 @@ defmodule ZaimuTomo.Review do
 
   defp failure_review_note(_error), do: "Automatically marked as failed: unknown error"
 
-  defp get_pending_decision(extracted_content_id, user_id) do
-    query =
-      from rd in ReviewDecision,
-        join: ec in ExtractedContent,
-        on: ec.id == rd.extracted_content_id,
-        where: rd.extracted_content_id == ^extracted_content_id,
-        where: ec.user_id == ^user_id,
-        where: rd.review_status == "pending"
+  # The one place a review is decided. Adds a `:review_decision` step that
+  # locks the user's pending review row and applies the transition, so of two
+  # concurrent decisions on one review the second waits, then finds it no
+  # longer pending and fails with the message below.
+  defp decide(multi, extracted_content_id, user_id, to, attrs) do
+    Multi.run(multi, :review_decision, fn repo, _changes ->
+      query =
+        from rd in ReviewDecision,
+          join: ec in ExtractedContent,
+          on: ec.id == rd.extracted_content_id,
+          where: rd.extracted_content_id == ^extracted_content_id,
+          where: ec.user_id == ^user_id,
+          where: rd.review_status == "pending",
+          lock: fragment("FOR UPDATE OF ?", rd)
 
-    case Repo.one(query) do
-      nil -> {:error, "No pending review found for this invoice"}
-      decision -> {:ok, decision}
-    end
+      case repo.one(query) do
+        nil -> {:error, "No pending review found for this invoice"}
+        decision -> decision |> ReviewDecision.decide_changeset(to, attrs) |> repo.update()
+      end
+    end)
   end
 
-  # Marks a pending review as approved or amended and posts its journal entry in
-  # ONE transaction.
+  # Decides a pending review as approved or amended (`to`) and posts its journal
+  # entry in ONE transaction.
   #
   # The journal entry is created from the decision's effective data (amended data
   # when present, original otherwise) in the same transaction that updates the
@@ -370,14 +362,7 @@ defmodule ZaimuTomo.Review do
   # file digest) index over unconfirmed postings remain as a backstop for any
   # writer that skips the gate; a violation is `{:error, :duplicate_invoice}`.
   # Other failures return `{:error, changeset}`.
-  defp post_review_transaction(
-         decision,
-         changeset_attrs,
-         event_type,
-         event_metadata,
-         status,
-         opts
-       ) do
+  defp post_review_transaction(extracted_content_id, user_id, to, attrs, event_metadata, opts) do
     confirmation = Keyword.get(opts, :confirm)
     booking = Keyword.get(opts, :booking)
     tax_claim_attrs = Keyword.get(opts, :tax_claim_attrs, %{})
@@ -389,17 +374,12 @@ defmodule ZaimuTomo.Review do
 
     Multi.new()
     |> Multi.run(:posting_lock, fn repo, _changes ->
-      repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        "journal_posting:#{decision.user_id}"
-      ])
+      repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["journal_posting:#{user_id}"])
     end)
-    |> Multi.run(:source_document_sha256, fn repo, _changes ->
-      {:ok, source_document_sha256(repo, decision)}
+    |> decide(extracted_content_id, user_id, to, attrs)
+    |> Multi.run(:source_document_sha256, fn repo, %{review_decision: updated} ->
+      {:ok, source_document_sha256(repo, updated)}
     end)
-    |> Multi.update(
-      :review_decision,
-      ReviewDecision.changeset_for_update(decision, changeset_attrs)
-    )
     |> Multi.run(:duplicate_gate, fn _repo, changes ->
       duplicate_gate(confirmation, changes)
     end)
@@ -413,7 +393,7 @@ defmodule ZaimuTomo.Review do
     |> Multi.run(:event_log, fn repo, %{review_decision: updated} ->
       insert_event_log(
         repo,
-        event_type,
+        "invoice_#{to}",
         updated.extracted_content_id,
         updated.user_id,
         event_metadata
@@ -425,10 +405,11 @@ defmodule ZaimuTomo.Review do
     |> Repo.transaction()
     |> case do
       {:ok, %{review_decision: updated}} ->
-        emit_review_completed_event(updated, status)
+        emit_review_completed_event(updated, to)
         {:ok, updated}
 
-      {:error, :duplicate_gate, reason, _changes} ->
+      {:error, operation, reason, _changes}
+      when operation in [:review_decision, :duplicate_gate] ->
         {:error, reason}
 
       {:error, :journal_entry, %Ecto.Changeset{} = changeset, _changes} ->
@@ -506,20 +487,8 @@ defmodule ZaimuTomo.Review do
     |> repo.one()
   end
 
-  # Best-effort audit write for transitions that do not post a journal entry.
-  defp write_event_log(event_type, invoice_id, user_id, metadata) do
-    case insert_event_log(Repo, event_type, invoice_id, user_id, metadata) do
-      {:ok, _event_log} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to write event log for #{event_type}: #{inspect(reason)}")
-        :ok
-    end
-  end
-
-  # Inside the posting transaction the audit entry is required: an error
-  # rolls back the review update and the journal entry with it.
+  # Inside a review transaction the audit entry is required: an error rolls
+  # back the decision, and the journal entry when one was posted, with it.
   defp insert_event_log(repo, event_type, invoice_id, user_id, metadata) do
     %{
       event_type: event_type,

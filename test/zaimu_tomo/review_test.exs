@@ -97,6 +97,59 @@ defmodule ZaimuTomo.ReviewTest do
     end
   end
 
+  describe "a decided review" do
+    test "is final: it cannot be rejected, approved, or amended again" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      content = scope |> document_fixture() |> extracted_content_fixture(user)
+      approved = approved_review_fixture(content, user)
+      counts = ledger_counts(user)
+
+      no_pending = {:error, "No pending review found for this invoice"}
+      assert Review.reject_invoice(content.id, user.id, "Changed my mind") == no_pending
+      assert Review.approve_invoice(content.id, user.id) == no_pending
+      assert Review.amend_invoice(content.id, user.id, %{issuer: "Other AG"}) == no_pending
+
+      assert Repo.reload!(approved) == approved
+      assert ledger_counts(user) == counts
+    end
+
+    # Each action alone succeeds; only the row lock makes the loser see the
+    # winner's decision instead of the pending row both started from.
+    test "has one outcome when approve and reject race" do
+      {results, entries} =
+        race(fn scope, user ->
+          content = scope |> document_fixture() |> extracted_content_fixture(user)
+          {:ok, _} = Review.create_initial_decision(content)
+
+          [
+            fn -> Review.approve_invoice(content.id, user.id) end,
+            fn -> Review.reject_invoice(content.id, user.id, "Not mine") end
+          ]
+        end)
+
+      assert [{:ok, winner}] = Enum.filter(results, &match?({:ok, _}, &1))
+      assert {:error, "No pending review found for this invoice"} in results
+      assert entries == if(winner.review_status == "approved", do: 1, else: 0)
+    end
+
+    test "is constrained in the database to a known status and a reason for rejection" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      content = scope |> document_fixture() |> extracted_content_fixture(user)
+      pending = pending_review_fixture(content)
+      row = from(rd in ReviewDecision, where: rd.id == ^pending.id)
+
+      assert_raise Postgrex.Error, ~r/review_decisions_review_status_check/, fn ->
+        Repo.update_all(row, set: [review_status: "reopened"])
+      end
+
+      assert_raise Postgrex.Error, ~r/review_decisions_rejected_reason_check/, fn ->
+        Repo.update_all(row, set: [review_status: "rejected", rejection_reason: " "])
+      end
+    end
+  end
+
   describe "approve_invoice/3 with a duplicate invoice" do
     test "blocks the posting and rolls the review back to pending" do
       user = user_fixture()
@@ -476,11 +529,21 @@ defmodule ZaimuTomo.ReviewTest do
     end
   end
 
-  # Approves the pending invoices `build` creates at the same moment and
-  # returns the results with the number of journal entries committed. Runs
-  # outside the SQL sandbox so the approvals use separate connections and real
-  # transactions; the rows are deleted afterwards.
+  # Approves the pending invoices `build` creates at the same moment; see
+  # `race/1`.
   defp race_approvals(build) do
+    race(fn scope, user ->
+      for pending <- build.(scope, user) do
+        fn -> Review.approve_invoice(pending.extracted_content_id, user.id) end
+      end
+    end)
+  end
+
+  # Runs the actions `build` returns at the same moment and returns their
+  # results with the number of journal entries committed. Runs outside the SQL
+  # sandbox so the actions use separate connections and real transactions; the
+  # rows are deleted afterwards.
+  defp race(build) do
     Sandbox.unboxed_run(Repo, fn ->
       user = user_fixture()
 
@@ -488,13 +551,13 @@ defmodule ZaimuTomo.ReviewTest do
         parent = self()
 
         tasks =
-          for pending <- build.(user_scope_fixture(user), user) do
+          for action <- build.(user_scope_fixture(user), user) do
             Task.async(fn ->
               Sandbox.unboxed_run(Repo, fn ->
                 send(parent, {:ready, self()})
 
                 receive do
-                  :go -> Review.approve_invoice(pending.extracted_content_id, user.id)
+                  :go -> action.()
                 end
               end)
             end)
