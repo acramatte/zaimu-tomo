@@ -355,8 +355,9 @@ defmodule ZaimuTomo.Review do
   # data, and `posting_decision/2` decides: anything but `:post` rolls the
   # whole transition back and the review stays pending. A user's postings are
   # serialized by an advisory lock, so the check sees every earlier posting.
-  # Only a confirmed `:file_reuse` marks the entry `source_file_reuse_confirmed`
-  # and records the confirmation with the matched entry IDs in the event log.
+  # Every confirmation is recorded in the event log with the matched entry IDs
+  # (`@confirmation_events`); only a confirmed `:file_reuse` also marks the
+  # entry `source_file_reuse_confirmed`.
   #
   # The unique (user, issuer, invoice number) index and the unique (user, source
   # file digest) index over unconfirmed postings remain as a backstop for any
@@ -399,8 +400,8 @@ defmodule ZaimuTomo.Review do
         event_metadata
       )
     end)
-    |> Multi.run(:file_reuse_event_log, fn repo, changes ->
-      insert_file_reuse_event_log(repo, changes)
+    |> Multi.run(:confirmation_event_log, fn repo, changes ->
+      insert_confirmation_event_log(repo, changes)
     end)
     |> Repo.transaction()
     |> case do
@@ -451,17 +452,24 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  defp insert_file_reuse_event_log(repo, %{
+  # The audit event for each confirmation a reviewer can give at the gate.
+  @confirmation_events %{
+    possible: "possible_duplicate_confirmed",
+    file_reuse: "source_file_reuse_confirmed"
+  }
+
+  defp insert_confirmation_event_log(repo, %{
          duplicate_gate: %{
-           confirmed: :file_reuse,
+           confirmed: confirmation,
            matched_journal_entry_ids: [matched_id | _] = matched_ids
          },
          journal_entry: entry,
          review_decision: updated
-       }) do
+       })
+       when is_map_key(@confirmation_events, confirmation) do
     insert_event_log(
       repo,
-      "source_file_reuse_confirmed",
+      @confirmation_events[confirmation],
       updated.extracted_content_id,
       updated.user_id,
       %{
@@ -472,7 +480,7 @@ defmodule ZaimuTomo.Review do
     )
   end
 
-  defp insert_file_reuse_event_log(_repo, _changes), do: {:ok, nil}
+  defp insert_confirmation_event_log(_repo, _changes), do: {:ok, nil}
 
   # Loads the decision's source document fingerprint, scoped to the decision's
   # user through both the extraction and the document.

@@ -477,7 +477,7 @@ defmodule ZaimuTomo.ReviewTest do
     test "a soft match posts only with its confirmation" do
       user = user_fixture()
       scope = user_scope_fixture(user)
-      _original = posted_file_invoice(scope, user, @digest, @rent)
+      original = posted_file_invoice(scope, user, @digest, @rent)
       same_details = pending_file_invoice(scope, user, @other_digest, @rent)
       counts = ledger_counts(user)
 
@@ -492,8 +492,15 @@ defmodule ZaimuTomo.ReviewTest do
                  confirm: :possible
                )
 
-      assert {:ok, %{source_file_reuse_confirmed: false}} =
+      assert {:ok, %{source_file_reuse_confirmed: false} = entry} =
                Accounting.get_journal_entry_for_decision(decision.id)
+
+      # "Post anyway" leaves an audit event naming what it overrode.
+      assert [event] = confirmation_events(user)
+      assert event.event_type == "possible_duplicate_confirmed"
+      assert event.invoice_id == to_string(same_details.extracted_content_id)
+      assert event.metadata["journal_entry_id"] == entry.id
+      assert event.metadata["matched_journal_entry_ids"] == [original.journal_entry_id]
     end
 
     test "amending into a soft match needs the confirmation too" do
@@ -521,6 +528,8 @@ defmodule ZaimuTomo.ReviewTest do
                Review.amend_invoice(misread.extracted_content_id, user.id, corrected, nil,
                  confirm: :possible
                )
+
+      assert [%{event_type: "possible_duplicate_confirmed"}] = confirmation_events(user)
     end
 
     test "a confirmation is never applied to another verdict" do
@@ -535,6 +544,9 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert pending_review?(lone.id)
       assert {:ok, _} = Review.approve_invoice(lone.extracted_content_id, user.id)
+
+      # An unconfirmed posting and a refused confirmation log no confirmation.
+      assert confirmation_events(user) == []
 
       # "Post anyway" does not confirm a reused file.
       reused = pending_file_invoice(scope, user, @digest, %{@rent | invoice_date: "2026-06-01"})
@@ -639,6 +651,14 @@ defmodule ZaimuTomo.ReviewTest do
     {:ok, decision} = Review.approve_invoice(pending.extracted_content_id, user.id)
     {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
     Map.put(pending, :journal_entry_id, entry.id)
+  end
+
+  defp confirmation_events(user) do
+    Repo.all(
+      from e in EventLog,
+        where: e.user_id == ^user.id,
+        where: e.event_type in ["possible_duplicate_confirmed", "source_file_reuse_confirmed"]
+    )
   end
 
   defp ledger_counts(user) do
