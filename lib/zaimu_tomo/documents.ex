@@ -152,7 +152,7 @@ defmodule ZaimuTomo.Documents do
     ec_query =
       from ec in ExtractedContent,
         order_by: [desc: ec.inserted_at, desc: ec.id],
-        preload: :review_decision
+        preload: [review_decision: :journal_entry]
 
     Document
     |> Repo.get_by!(id: id, user_id: scope.user.id)

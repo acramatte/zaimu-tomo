@@ -11,7 +11,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Accounting
-  alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedData
@@ -55,7 +54,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <.link class="btn sm" navigate={~p"/documents"}>← Documents</.link>
       <span id="invoice-status">
-        <.status_pill status={stage_pill(@stage, @processing_state, @entry)} />
+        <.status_pill status={Review.document_status(@processing_state, @extracted_content)} />
       </span>
       <button
         :if={@processing_state in [:failed, :stuck]}
@@ -1201,20 +1200,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     end)
     |> Kernel.++([last])
   end
-
-  # An entry approved before booking was part of posting still needs booking.
-  defp stage_pill(:posted, _state, %JournalEntry{status: "uncategorized"}), do: "review"
-  defp stage_pill(stage, state, _entry), do: stage_pill(stage, state)
-
-  defp stage_pill(_stage, :processing), do: "processing"
-  # A stuck document has no live run to report on; the pill must not keep
-  # pulsing "Processing" forever.
-  defp stage_pill(_stage, :stuck), do: "Processing stalled"
-  defp stage_pill(:check, _state), do: "review"
-  defp stage_pill(:posted, _state), do: "posted"
-  defp stage_pill(:rejected, _state), do: "rejected"
-  defp stage_pill(_stage, :failed), do: "failed"
-  defp stage_pill(_stage, _state), do: "review"
 
   defp title(%ExtractedData{issuer: issuer, invoice_number: number}, _document)
        when is_binary(issuer) and is_binary(number) and number != "",

@@ -71,6 +71,8 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
         <span class="pill verified">Verified</span>
       <% "failed" -> %>
         <span class="pill failed">Failed</span>
+      <% "stalled" -> %>
+        <span class="pill">Processing stalled</span>
       <% "rejected" -> %>
         <span class="pill failed">Rejected</span>
       <% other -> %>
@@ -476,6 +478,8 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
                 else: ""}
             <% "failed" -> %>
               {@item.error || "Processing failed"}
+            <% "stalled" -> %>
+              Processing stalled · no OCR run is active, open to retry
             <% _ -> %>
               {@amount}
           <% end %>
@@ -491,7 +495,7 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
           Check
         </a>
         <a
-          :if={@item.status == "failed"}
+          :if={@item.status in ["failed", "stalled"]}
           class="btn sm"
           href={~p"/documents/#{@item.document_id}"}
         >

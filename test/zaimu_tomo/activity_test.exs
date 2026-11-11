@@ -6,6 +6,7 @@ defmodule ZaimuTomo.ActivityTest do
 
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Activity
+  alias ZaimuTomo.DocumentProcessing
 
   setup do
     user = ZaimuTomo.AccountsFixtures.user_fixture()
@@ -26,6 +27,7 @@ defmodule ZaimuTomo.ActivityTest do
     other_user: other_user
   } do
     processing = document_fixture(scope, %{filename: "processing.pdf"})
+    live_ocr_job(processing)
 
     review_document = document_fixture(scope, %{filename: "review.pdf"})
     review_content = extracted_content_fixture(review_document, user)
@@ -115,6 +117,29 @@ defmodule ZaimuTomo.ActivityTest do
     assert statuses == %{"rejected.pdf" => "rejected", "unbooked.pdf" => "review"}
   end
 
+  test "takes processing, stalled and failed from the job queue, like the document list", %{
+    scope: scope,
+    user: user
+  } do
+    document_fixture(scope, %{filename: "stalled.pdf"})
+
+    retrying = document_fixture(scope, %{filename: "retrying.pdf"})
+    extracted_content_fixture(retrying, user, %{status: "failed"})
+    live_ocr_job(retrying)
+
+    reprocessing = document_fixture(scope, %{filename: "reprocessing.pdf"})
+    reprocessing |> extracted_content_fixture(user) |> pending_review_fixture()
+    live_ocr_job(reprocessing)
+
+    statuses = Map.new(Activity.list_recent(scope, limit: :all), &{&1.filename, &1.status})
+
+    assert statuses == %{
+             "stalled.pdf" => "stalled",
+             "retrying.pdf" => "processing",
+             "reprocessing.pdf" => "processing"
+           }
+  end
+
   test "limits the feed after ordering activity", %{scope: scope} do
     first = document_fixture(scope, %{filename: "first.pdf"})
     second = document_fixture(scope, %{filename: "second.pdf"})
@@ -129,6 +154,9 @@ defmodule ZaimuTomo.ActivityTest do
 
     assert [%{filename: "second.pdf"}] = Activity.list_recent(scope, limit: 1)
   end
+
+  defp live_ocr_job(document),
+    do: document |> DocumentProcessing.ocr_job("CHF", nil) |> Oban.insert!()
 
   defp book(review, user) do
     {:ok, entry} = ZaimuTomo.Accounting.get_journal_entry_for_decision(review.id)

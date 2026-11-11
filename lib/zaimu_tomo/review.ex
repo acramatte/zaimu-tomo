@@ -27,9 +27,10 @@ defmodule ZaimuTomo.Review do
   Where an invoice stands, from its latest extraction: `"processing"`,
   `"failed"`, `"review"`, `"posted"` or `"rejected"`.
 
-  The one rule set behind the document list and the activity feed. An invoice
-  approved before booking was part of posting is `"review"` until its entry is
-  booked, so the decision must be loaded with its `journal_entry`.
+  The rule for a completed extraction; surfaces call `document_status/2`, which
+  puts the processing state first. An invoice approved before booking was part
+  of posting is `"review"` until its entry is booked, so the decision must be
+  loaded with its `journal_entry`.
   """
   @spec invoice_status(ExtractedContent.t() | nil) :: String.t()
   def invoice_status(nil), do: "processing"
@@ -49,9 +50,10 @@ defmodule ZaimuTomo.Review do
   def invoice_status(_content), do: "review"
 
   @doc """
-  A document's status in the document list: its processing state from
-  `DocumentProcessing.processing_states/1` first, then `invoice_status/1` of its
-  latest extraction once a run has completed.
+  A document's status on the document list, the activity feed, and the invoice
+  page: its processing state from `DocumentProcessing.processing_states/1`
+  first (`"processing"`, `"stalled"`, `"failed"`), then `invoice_status/1` of
+  its latest extraction once a run has completed.
   """
   @spec document_status(DocumentProcessing.processing_state(), ExtractedContent.t() | nil) ::
           String.t()

@@ -2,13 +2,14 @@ defmodule ZaimuTomo.Activity do
   @moduledoc """
   User-scoped activity assembled from document-processing and posting records.
 
-  Each item represents the document's current place in the workflow. Documents
-  with no extraction are shown as processing; extraction and review state then
-  determines whether an item needs review, has failed, was rejected, or has been
-  posted, using the same rules as the document list (`Review.invoice_status/1`).
+  Each item represents the document's current place in the workflow, using the
+  document list's rule (`Review.document_status/2`): the OCR job queue decides
+  between processing, stalled, and failed, and a completed extraction's review
+  state then decides between review, posted, and rejected.
   """
 
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Review
@@ -20,9 +21,11 @@ defmodule ZaimuTomo.Activity do
   def list_recent(%Scope{} = scope, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
 
-    scope
-    |> Documents.list_documents()
-    |> Enum.map(&to_activity_item/1)
+    documents = Documents.list_documents(scope)
+    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
+
+    documents
+    |> Enum.map(&to_activity_item(&1, states[&1.id]))
     |> Enum.sort_by(& &1.occurred_at, {:desc, DateTime})
     |> maybe_take(limit)
   end
@@ -30,14 +33,14 @@ defmodule ZaimuTomo.Activity do
   defp maybe_take(items, :all), do: items
   defp maybe_take(items, limit), do: Enum.take(items, limit)
 
-  defp to_activity_item(%Document{} = document) do
+  defp to_activity_item(%Document{} = document, state) do
     content = List.first(document.extracted_content)
     decision = content && content.review_decision
     data = effective_activity_data(content, decision)
 
     %{
       id: activity_id(document, content, decision),
-      status: Review.invoice_status(content),
+      status: Review.document_status(state, content),
       merchant: data && data.issuer,
       filename: document.filename,
       amount_cents: data && data.amount_to_pay_cents,

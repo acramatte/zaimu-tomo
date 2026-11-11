@@ -163,6 +163,24 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ ~p"/documents/#{document}"
   end
 
+  test "GET / shows a document with no OCR run as stalled, with a way to open it", %{
+    conn: conn,
+    scope: scope
+  } do
+    document = document_fixture(scope, %{filename: "lost-upload.pdf"})
+
+    item =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#recent-activity-document-#{document.id}")
+
+    assert LazyHTML.text(item) =~ "Processing stalled"
+    refute LazyHTML.text(item) =~ "Scanning"
+    assert has_element?(item, ~s|a[href="/documents/#{document.id}"]|)
+  end
+
   test "GET / renders an empty state when there is no recent activity", %{conn: conn} do
     document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
 
