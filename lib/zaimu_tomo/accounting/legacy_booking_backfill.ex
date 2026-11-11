@@ -11,7 +11,9 @@ defmodule ZaimuTomo.Accounting.LegacyBookingBackfill do
   Bookings a person already decided are passed at run time as `:manual`, so no
   real ledger data lives in the repository. They are keyed by entry ID and
   normalized issuer so they cannot land on another row, and go through
-  `Accounting.post_entry/6`, exactly like the invoice page's Book form.
+  `Accounting.post_entry/6`, exactly like the invoice page's Book form. Like
+  that form they book an uncategorized entry only: a decision for an entry that
+  is already posted is reported as failed and changes nothing.
 
   It is a dry run unless called with `confirm: true`. Each entry is updated in
   its own transaction together with a `journal_entry_posted` event marked with
@@ -193,11 +195,15 @@ defmodule ZaimuTomo.Accounting.LegacyBookingBackfill do
     %{
       applied: for({match, {:ok, _}} <- results, do: match),
       failed:
-        for({match, {:error, changeset}} <- results) do
-          %{match: match, errors: changeset.errors}
+        for({match, {:error, reason}} <- results) do
+          %{match: match, errors: failure_reason(reason)}
         end
     }
   end
+
+  defp failure_reason(%Ecto.Changeset{errors: errors}), do: errors
+  # A posted entry is final, so a manual decision cannot rebook it.
+  defp failure_reason(:already_posted), do: :already_posted
 
   defp apply_match(%{source: :manual, entry: entry} = match) do
     Accounting.post_entry(
@@ -225,8 +231,7 @@ defmodule ZaimuTomo.Accounting.LegacyBookingBackfill do
     entry
     |> JournalEntry.changeset_for_categorize(%{
       category: match.category,
-      need_or_want: match.need_or_want,
-      status: "posted"
+      need_or_want: match.need_or_want
     })
     |> Ecto.Changeset.force_change(:updated_at, entry.updated_at)
   end

@@ -156,6 +156,30 @@ defmodule ZaimuTomo.Accounting.LegacyBookingBackfillTest do
     assert backfill_events() == []
   end
 
+  test "a manual decision cannot rebook an entry that is already posted", %{
+    scope: scope,
+    user: user
+  } do
+    entry = legacy_entry(scope, user, "Course Provider")
+
+    Repo.update_all(from(je in JournalEntry, where: je.id == ^entry.id),
+      set: [category: "Software", status: "posted"]
+    )
+
+    decision = %{category: "Education", need_or_want: "need", tax_status: "candidate"}
+
+    assert {:error, %{applied: [], failed: [%{errors: :already_posted}]}} =
+             LegacyBookingBackfill.run(
+               confirm: true,
+               manual: %{{entry.id, "course provider"} => decision}
+             )
+
+    reloaded = Repo.reload!(entry)
+    assert reloaded.category == "Software"
+    assert reloaded.need_or_want == nil
+    assert Repo.get_by!(TaxDeductionClaim, journal_entry_id: entry.id).status == "undecided"
+  end
+
   test "a manual decision for another issuer does not apply", %{scope: scope, user: user} do
     entry = legacy_entry(scope, user, "Someone Else")
     decision = %{category: "Education", need_or_want: "need", tax_status: "candidate"}

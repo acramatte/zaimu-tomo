@@ -269,7 +269,7 @@ defmodule ZaimuTomo.Accounting do
     Multi.update(multi, :posted_journal_entry, fn %{journal_entry: entry} ->
       booking = Map.new(booking, fn {key, value} -> {to_string(key), value} end)
 
-      JournalEntry.changeset_for_categorize(entry, Map.put(booking, "status", "posted"))
+      JournalEntry.changeset_for_categorize(entry, booking)
     end)
     |> Multi.insert(:posted_event, fn %{posted_journal_entry: entry, tax_deduction_claim: claim} ->
       posted_event_changeset(entry, claim.status)
@@ -331,8 +331,18 @@ defmodule ZaimuTomo.Accounting do
   # Posting (category assignment)
   # ---------------------------------------------------------------------------
 
+  @doc """
+  Books an uncategorized entry: saves its category, need/want choice and tax
+  treatment and writes the `journal_entry_posted` event, in one transaction.
+
+  Posting happens once. The entry row is locked and must still be
+  `uncategorized`; for an entry that is already posted this returns
+  `{:error, :already_posted}` and changes nothing. From then on the tax
+  treatment only moves through `revise_tax_deduction_claim/3`, so
+  `tax_claim_attrs` takes a draft status only.
+  """
   @spec post_entry(JournalEntry.t(), integer(), String.t(), String.t(), String.t() | nil, map()) ::
-          {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, JournalEntry.t()} | {:error, :already_posted | Ecto.Changeset.t()}
   def post_entry(
         %JournalEntry{} = entry,
         user_id,
@@ -344,15 +354,14 @@ defmodule ZaimuTomo.Accounting do
     true = entry.user_id == user_id
 
     Multi.new()
-    |> Multi.update(
-      :journal_entry,
-      JournalEntry.changeset_for_categorize(entry, %{
+    |> Multi.run(:unposted_entry, fn repo, _changes -> fetch_unposted_entry(repo, entry.id) end)
+    |> Multi.update(:journal_entry, fn %{unposted_entry: unposted} ->
+      JournalEntry.changeset_for_categorize(unposted, %{
         category: category,
         need_or_want: need_or_want,
-        notes: notes,
-        status: "posted"
+        notes: notes
       })
-    )
+    end)
     |> Multi.run(:tax_deduction_claim, fn repo, %{journal_entry: updated} ->
       upsert_tax_deduction_claim(repo, updated, tax_claim_attrs)
     end)
@@ -364,8 +373,8 @@ defmodule ZaimuTomo.Accounting do
       {:ok, %{journal_entry: updated, tax_deduction_claim: claim}} ->
         {:ok, %{updated | tax_deduction_claim: claim}}
 
-      {:error, _operation, changeset, _changes} ->
-        {:error, changeset}
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
     end
   end
 
@@ -545,6 +554,15 @@ defmodule ZaimuTomo.Accounting do
     case String.next_grapheme(word) do
       {first, rest} -> String.upcase(first) <> rest
       nil -> word
+    end
+  end
+
+  # The lock makes posting happen once and serializes it with claim revisions,
+  # which lock the same row.
+  defp fetch_unposted_entry(repo, entry_id) do
+    case repo.one!(from je in JournalEntry, where: je.id == ^entry_id, lock: "FOR UPDATE") do
+      %JournalEntry{status: "uncategorized"} = entry -> {:ok, entry}
+      %JournalEntry{} -> {:error, :already_posted}
     end
   end
 

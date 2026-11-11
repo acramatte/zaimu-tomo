@@ -285,6 +285,43 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
       assert has_element?(live, "#invoice-status .pill", "Posted")
     end
 
+    test "a booking sent again after posting is refused and changes nothing", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      review =
+        scope
+        |> document_fixture()
+        |> extracted_content_fixture(user)
+        |> approved_review_fixture(user)
+
+      {:ok, live, _html} = live(conn, invoice_path(review))
+
+      live
+      |> form("#invoice-booking-form",
+        invoice: Map.put(@booking, "tax_treatment_status", "candidate")
+      )
+      |> render_submit()
+
+      refute has_element?(live, "#invoice-booking-form")
+
+      render_hook(live, "book", %{
+        "invoice" => %{
+          "category" => "Travel",
+          "need_or_want" => "want",
+          "tax_treatment_status" => "undecided"
+        }
+      })
+
+      assert flash(live, :error) == "This entry is already booked"
+
+      entry = review |> entry_for() |> Repo.preload(:tax_deduction_claim, force: true)
+      assert entry.category == @booking["category"]
+      assert entry.need_or_want == @booking["need_or_want"]
+      assert entry.tax_deduction_claim.status == "candidate"
+    end
+
     test "rejecting asks for a reason and keeps the invoice findable", %{
       conn: conn,
       scope: scope,
