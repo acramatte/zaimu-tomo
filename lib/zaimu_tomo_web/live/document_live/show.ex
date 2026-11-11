@@ -1040,7 +1040,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     |> assign(:verification, verifier_feedback(ec))
     |> assign(:typesafe_shadow, typesafe_shadow(ec))
     |> assign(:original_values, original_values)
-    |> assign(:rejection_form, rejection_form(rd))
+    |> assign(:rejection_form, to_form(%{}, as: :review_decision))
     |> assign(:amount_error, nil)
     |> assign_values(initial_values(socket, stage, original_values, rd))
     |> assign_current_duplicates()
@@ -1144,11 +1144,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   defp assign_current_duplicates(socket) do
     assign_duplicates(socket, %{verdict: :none, candidates: []})
   end
-
-  defp rejection_form(%ReviewDecision{} = rd),
-    do: to_form(ReviewDecision.decide_changeset(rd, "rejected", %{}))
-
-  defp rejection_form(_rd), do: to_form(%{}, as: :review_decision)
 
   # The worker broadcasts before Oban acknowledges the job, and cancelled or
   # discarded jobs never broadcast, so a broadcast alone can leave a stale
