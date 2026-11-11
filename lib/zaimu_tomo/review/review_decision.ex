@@ -60,7 +60,9 @@ defmodule ZaimuTomo.Review.ReviewDecision do
 
   `attrs` may carry `:review_notes`, `:rejection_reason` (required to reject),
   and `:decision_data` (the amended invoice data). Callers that must not act
-  on a stale read decide a row they hold locked; see `ZaimuTomo.Review`.
+  on a stale read decide a row they hold locked; see `ZaimuTomo.Review`. A
+  database trigger enforces the same rule for every writer, so a stale struct
+  that still reads pending gets the `:review_status` error on update.
   """
   def decide_changeset(%__MODULE__{} = review_decision, to, attrs) when to in @decisions do
     review_decision
@@ -74,6 +76,10 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     |> validate_pending(review_decision)
     |> validate_rejection_reason()
     |> check_constraint(:rejection_reason, name: :review_decisions_rejected_reason_check)
+    |> check_constraint(:review_status,
+      name: :review_decisions_transition_check,
+      message: "is already decided"
+    )
   end
 
   defp validate_pending(changeset, %__MODULE__{review_status: "pending"}), do: changeset

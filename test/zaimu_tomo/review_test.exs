@@ -21,7 +21,8 @@ defmodule ZaimuTomo.ReviewTest do
       approved_review_fixture: 2,
       extracted_content_fixture: 2,
       extracted_content_fixture: 3,
-      pending_review_fixture: 1
+      pending_review_fixture: 1,
+      rejected_review_fixture: 2
     ]
 
   setup do
@@ -137,16 +138,68 @@ defmodule ZaimuTomo.ReviewTest do
       user = user_fixture()
       scope = user_scope_fixture(user)
       content = scope |> document_fixture() |> extracted_content_fixture(user)
-      pending = pending_review_fixture(content)
-      row = from(rd in ReviewDecision, where: rd.id == ^pending.id)
 
-      assert_raise Postgrex.Error, ~r/review_decisions_review_status_check/, fn ->
-        Repo.update_all(row, set: [review_status: "reopened"])
+      assert_raise Ecto.ConstraintError, ~r/review_decisions_review_status_check/, fn ->
+        Repo.insert(%ReviewDecision{
+          extracted_content_id: content.id,
+          user_id: user.id,
+          review_status: "reopened",
+          decision_type: "initial"
+        })
       end
+
+      pending = pending_review_fixture(content)
 
       assert_raise Postgrex.Error, ~r/review_decisions_rejected_reason_check/, fn ->
-        Repo.update_all(row, set: [review_status: "rejected", rejection_reason: " "])
+        from(rd in ReviewDecision, where: rd.id == ^pending.id)
+        |> Repo.update_all(set: [review_status: "rejected", rejection_reason: " "])
       end
+    end
+
+    # Raw updates skip the changeset: only the database trigger stops them.
+    test "keeps its status in the database, whoever writes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      content = fn -> scope |> document_fixture() |> extracted_content_fixture(user) end
+
+      approved = approved_review_fixture(content.(), user)
+      rejected = rejected_review_fixture(content.(), user)
+      {:ok, failed} = Review.create_failed_decision(content.(), :ocr_failed)
+      pending = pending_review_fixture(content.())
+      row = fn decision -> from(rd in ReviewDecision, where: rd.id == ^decision.id) end
+
+      for {decision, to} <- [
+            {approved, "rejected"},
+            {approved, "pending"},
+            {rejected, "approved"},
+            {failed, "pending"},
+            {pending, "failed"}
+          ] do
+        assert_raise Postgrex.Error, ~r/review_decisions_transition_check/, fn ->
+          Repo.update_all(row.(decision), set: [review_status: to, rejection_reason: "Raw SQL"])
+        end
+      end
+
+      assert {1, _} = Repo.update_all(row.(approved), set: [review_notes: "Typo fixed"])
+      assert {1, _} = Repo.update_all(row.(pending), set: [review_status: "amended"])
+    end
+
+    test "refuses a decision made from a stale pending read" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      content = scope |> document_fixture() |> extracted_content_fixture(user)
+      stale = pending_review_fixture(content)
+      {:ok, approved} = Review.approve_invoice(content.id, user.id)
+      counts = ledger_counts(user)
+
+      assert {:error, changeset} =
+               stale
+               |> ReviewDecision.decide_changeset("rejected", %{rejection_reason: "Too late"})
+               |> Repo.update()
+
+      assert %{review_status: ["is already decided"]} = errors_on(changeset)
+      assert Repo.reload!(approved) == approved
+      assert ledger_counts(user) == counts
     end
   end
 
