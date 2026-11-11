@@ -24,13 +24,18 @@ defmodule ZaimuTomo.Review.ReviewDecision do
 
   @type t :: %__MODULE__{}
 
-  @statuses ~w(pending approved amended rejected failed)
+  @initial_statuses ~w(pending failed)
   @decisions ~w(approved amended rejected)
 
   def effective_data(%__MODULE__{} = decision) do
     decision.decision_data || decision.original_data || %ExtractedData{}
   end
 
+  @doc """
+  A review starts as pending, or as failed when extraction failed. Every other
+  status is reached only through `decide_changeset/3`; a database trigger
+  refuses an insert in any other status, whoever writes it.
+  """
   def changeset_for_create(attrs) do
     %__MODULE__{}
     |> cast(attrs, [
@@ -45,7 +50,9 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     |> cast_embed(:original_data, with: &ExtractedData.embedded_changeset/2)
     |> cast_embed(:decision_data, with: &ExtractedData.embedded_changeset/2)
     |> validate_required([:extracted_content_id, :user_id, :review_status, :decision_type])
-    |> validate_inclusion(:review_status, @statuses)
+    |> validate_inclusion(:review_status, @initial_statuses,
+      message: "must start as pending or failed"
+    )
     |> validate_rejection_reason()
     |> check_constraint(:review_status, name: :review_decisions_review_status_check)
     |> foreign_key_constraint(:extracted_content_id)

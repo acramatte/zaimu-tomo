@@ -134,20 +134,10 @@ defmodule ZaimuTomo.ReviewTest do
       assert entries == if(winner.review_status == "approved", do: 1, else: 0)
     end
 
-    test "is constrained in the database to a known status and a reason for rejection" do
+    test "is constrained in the database to a reason for rejection" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       content = scope |> document_fixture() |> extracted_content_fixture(user)
-
-      assert_raise Ecto.ConstraintError, ~r/review_decisions_review_status_check/, fn ->
-        Repo.insert(%ReviewDecision{
-          extracted_content_id: content.id,
-          user_id: user.id,
-          review_status: "reopened",
-          decision_type: "initial"
-        })
-      end
-
       pending = pending_review_fixture(content)
 
       assert_raise Postgrex.Error, ~r/review_decisions_rejected_reason_check/, fn ->
@@ -182,6 +172,35 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert {1, _} = Repo.update_all(row.(approved), set: [review_notes: "Typo fixed"])
       assert {1, _} = Repo.update_all(row.(pending), set: [review_status: "amended"])
+    end
+
+    # A raw insert skips the changeset: only the database trigger stops it.
+    test "starts as pending or failed in the database, whoever writes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      insert = fn status ->
+        content = scope |> document_fixture() |> extracted_content_fixture(user)
+
+        Repo.insert(%ReviewDecision{
+          extracted_content_id: content.id,
+          user_id: user.id,
+          review_status: status,
+          decision_type: status,
+          rejection_reason: "Raw SQL"
+        })
+      end
+
+      # An unknown status is refused here too, before the status check sees it.
+      for status <- ~w(approved amended rejected reopened) do
+        assert_raise Ecto.ConstraintError, ~r/review_decisions_initial_status_check/, fn ->
+          insert.(status)
+        end
+      end
+
+      for status <- ~w(pending failed) do
+        assert {:ok, %ReviewDecision{review_status: ^status}} = insert.(status)
+      end
     end
 
     test "refuses a decision made from a stale pending read" do
