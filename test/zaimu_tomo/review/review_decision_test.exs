@@ -45,6 +45,41 @@ defmodule ZaimuTomo.Review.ReviewDecisionTest do
     end
   end
 
+  describe "decide_changeset/3" do
+    test "moves a pending review to the decision and stamps it" do
+      changeset =
+        ReviewDecision.decide_changeset(%ReviewDecision{review_status: "pending"}, "approved", %{
+          review_notes: "Checked"
+        })
+
+      assert changeset.valid?
+
+      assert %{review_status: "approved", decision_type: "approved", review_notes: "Checked"} =
+               changeset.changes
+
+      assert %DateTime{} = changeset.changes.review_completed_at
+    end
+
+    test "refuses every state but pending" do
+      for status <- ~w(approved amended rejected failed), to <- ~w(approved amended rejected) do
+        changeset =
+          ReviewDecision.decide_changeset(%ReviewDecision{review_status: status}, to, %{
+            rejection_reason: "Duplicate"
+          })
+
+        assert {"is already %{status}", [status: ^status]} = changeset.errors[:review_status]
+      end
+    end
+
+    test "requires a reason to reject" do
+      pending = %ReviewDecision{review_status: "pending"}
+
+      refute ReviewDecision.decide_changeset(pending, "rejected", %{}).valid?
+
+      assert ReviewDecision.decide_changeset(pending, "rejected", %{rejection_reason: "Dup"}).valid?
+    end
+  end
+
   describe "effective_data/1" do
     test "prefers decision_data wholesale when present" do
       original = %ExtractedData{issuer: "Original Co", amount_to_pay_cents: 1000, currency: "USD"}
