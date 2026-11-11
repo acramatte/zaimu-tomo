@@ -606,9 +606,12 @@ defmodule ZaimuTomo.Accounting do
         to_deductible_amount_cents: revised.deductible_amount_cents,
         reason: revised.notes,
         correction: TaxDeductionClaim.correction?(previous && previous.status, revised.status),
-        tax_return_reference: revised.tax_return_reference,
-        authority_name: revised.authority_name,
-        authority_reference: revised.authority_reference
+        from_tax_return_reference: previous && previous.tax_return_reference,
+        to_tax_return_reference: revised.tax_return_reference,
+        from_authority_name: previous && previous.authority_name,
+        to_authority_name: revised.authority_name,
+        from_authority_reference: previous && previous.authority_reference,
+        to_authority_reference: revised.authority_reference
       }
     })
     |> repo.insert()

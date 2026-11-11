@@ -174,7 +174,8 @@ defmodule ZaimuTomo.AccountingTest do
                  "reason" => nil,
                  "tax_year" => 2026,
                  "correction" => false,
-                 "tax_return_reference" => "2026 return"
+                 "from_tax_return_reference" => nil,
+                 "to_tax_return_reference" => "2026 return"
                },
                %{
                  "from_status" => "claimed",
@@ -182,9 +183,9 @@ defmodule ZaimuTomo.AccountingTest do
                  "from_deductible_amount_cents" => 30_00,
                  "to_deductible_amount_cents" => 0,
                  "reason" => "Private use, per 2027 assessment",
-                 "authority_name" => "Steueramt Zürich",
-                 "authority_reference" => "A-77",
-                 "tax_return_reference" => "2026 return"
+                 "to_authority_name" => "Steueramt Zürich",
+                 "to_authority_reference" => "A-77",
+                 "to_tax_return_reference" => "2026 return"
                }
              ] = Enum.map(revisions, & &1.metadata)
     end
@@ -353,12 +354,18 @@ defmodule ZaimuTomo.AccountingTest do
                revise.(%{
                  status: "disallowed",
                  authority_name: "Steueramt",
-                 authority_reference: "A-77"
+                 authority_reference: "A-77",
+                 reason: "Private use"
                })
 
       # Corrections undo a refusal or a filing, and need a reason.
       assert {:error, changeset} = revise.(%{status: "claimed"})
       assert %{notes: ["is required to correct a filed or refused claim"]} = errors_on(changeset)
+
+      assert {:error, changeset} = revise.(%{status: "claimed", reason: " Private use "})
+
+      assert %{notes: ["must explain the correction, not repeat the last reason"]} =
+               errors_on(changeset)
 
       assert {:ok, reclaimed} = revise.(%{status: "claimed", reason: "Appeal upheld"})
       assert reclaimed.tax_deduction_claim.tax_return_reference == "2026 return"
@@ -374,14 +381,16 @@ defmodule ZaimuTomo.AccountingTest do
               e.event_type == "tax_deduction_claim_revised" and
                 e.invoice_id == ^to_string(entry.id) and e.user_id == ^user.id,
             order_by: e.id,
-            select: {e.metadata["to_status"], e.metadata["correction"]}
+            select:
+              {e.metadata["to_status"], e.metadata["correction"],
+               e.metadata["from_authority_name"]}
         )
 
       assert corrections == [
-               {"claimed", false},
-               {"disallowed", false},
-               {"claimed", true},
-               {"candidate", true}
+               {"claimed", false, nil},
+               {"disallowed", false, nil},
+               {"claimed", true, "Steueramt"},
+               {"candidate", true, nil}
              ]
     end
 

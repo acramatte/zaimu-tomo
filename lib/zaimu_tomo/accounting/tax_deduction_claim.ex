@@ -149,13 +149,25 @@ defmodule ZaimuTomo.Accounting.TaxDeductionClaim do
         )
 
       correction?(from, to) ->
-        validate_required(changeset, [:notes],
-          message: "is required to correct a filed or refused claim"
-        )
+        validate_correction_reason(changeset)
 
       true ->
         changeset
     end
+  end
+
+  # The form pre-fills the stored reason, so a correction must bring its own:
+  # keeping the reason for the refusal would log it as the reason for undoing it.
+  defp validate_correction_reason(changeset) do
+    changeset =
+      validate_required(changeset, [:notes],
+        message: "is required to correct a filed or refused claim"
+      )
+
+    if changeset.errors[:notes] || get_change(changeset, :notes),
+      do: changeset,
+      else:
+        add_error(changeset, :notes, "must explain the correction, not repeat the last reason")
   end
 
   defp validate_references(changeset) do

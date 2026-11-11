@@ -125,6 +125,18 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       assert has_element?(live, "label", "Reason (required for a correction)")
 
+      # A real submit carries the pre-filled refusal reason, which can't
+      # double as the reason for the correction.
+      assert has_element?(live, "#tax-revision-form-reason", "Tax office: private expense")
+
+      html =
+        live
+        |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+        |> render_submit()
+
+      assert html =~ "must explain the correction, not repeat the last reason"
+      assert has_element?(live, "#journal-entry-tax-treatment", "Not allowed")
+
       html =
         live
         |> form("#tax-revision-form", %{
