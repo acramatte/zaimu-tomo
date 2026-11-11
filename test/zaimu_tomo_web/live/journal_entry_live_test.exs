@@ -49,7 +49,11 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
     end
 
-    test "revises the tax treatment of a posted entry", %{conn: conn, scope: scope, user: user} do
+    test "revises the tax treatment through its lifecycle", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
       entry = create_entry(scope, user)
 
       {:ok, _entry} =
@@ -58,41 +62,91 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
       assert has_element?(live, "#tax-revision-form-status option[value=claimed]")
-      assert has_element?(live, "#tax-revision-form-status option[value=disallowed]")
+      refute has_element?(live, "#tax-revision-form-status option[value=disallowed]")
       assert has_element?(live, "#tax-revision-form-amount[value='42.00']")
+      refute has_element?(live, "#tax-revision-form-return-reference")
+
+      live
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+      |> render_change()
+
+      assert has_element?(live, "#tax-revision-form-return-reference")
+      refute has_element?(live, "#tax-revision-form-authority-name")
+
+      html =
+        live
+        |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+        |> render_submit()
+
+      assert html =~ "can&#39;t be blank"
 
       live
       |> form("#tax-revision-form", %{
         "tax_revision" => %{
           "status" => "claimed",
           "deductible_amount" => "12.50",
-          "reason" => "Half business use"
+          "reason" => "Half business use",
+          "tax_return_reference" => "2026 return"
         }
       })
       |> render_submit()
 
       assert has_element?(live, "#journal-entry-tax-treatment", "Included in tax return")
       assert has_element?(live, "#journal-entry-deductible-amount", "EUR 12.50")
+      assert has_element?(live, "#journal-entry-tax-return-reference", "2026 return")
       assert has_element?(live, "#flash-info", "Tax treatment revised")
       assert has_element?(live, "#tax-revision-form-amount[type=text][inputmode=decimal]")
       assert has_element?(live, "#journal-entry-tax-reason", "Half business use")
 
       live
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "disallowed"}})
+      |> render_change()
+
+      live
       |> form("#tax-revision-form", %{
         "tax_revision" => %{
           "status" => "disallowed",
-          "deductible_amount" => "12.50",
-          "reason" => "Tax office: private expense"
+          "reason" => "Tax office: private expense",
+          "authority_name" => "Steueramt Zürich",
+          "authority_reference" => "A-77"
         }
       })
       |> render_submit()
 
       assert has_element?(live, "#journal-entry-tax-treatment", "Not allowed")
       assert has_element?(live, "#journal-entry-deductible-amount", "EUR 0.00")
+      assert has_element?(live, "#journal-entry-tax-return-reference", "2026 return")
+      assert has_element?(live, "#journal-entry-tax-authority", "Steueramt Zürich (A-77)")
+      refute has_element?(live, "#tax-revision-form-status option[value=candidate]")
+
+      live
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+      |> render_change()
+
+      assert has_element?(live, "label", "Reason (required for a correction)")
+
+      html =
+        live
+        |> form("#tax-revision-form", %{
+          "tax_revision" => %{"status" => "claimed", "reason" => ""}
+        })
+        |> render_submit()
+
+      assert html =~ "is required to correct a filed or refused claim"
+
+      live
+      |> form("#tax-revision-form", %{
+        "tax_revision" => %{"status" => "claimed", "reason" => "Appeal upheld"}
+      })
+      |> render_submit()
+
+      assert has_element?(live, "#journal-entry-tax-treatment", "Included in tax return")
+      refute has_element?(live, "#journal-entry-tax-authority")
 
       {:ok, updated} = Accounting.get_journal_entry(entry.id, user.id)
-      assert updated.tax_deduction_claim.status == "disallowed"
-      assert updated.tax_deduction_claim.notes == "Tax office: private expense"
+      assert updated.tax_deduction_claim.status == "claimed"
+      assert updated.tax_deduction_claim.tax_return_reference == "2026 return"
+      assert updated.tax_deduction_claim.notes == "Appeal upheld"
     end
 
     test "rejects an invalid revision amount and keeps the claim", %{
@@ -138,11 +192,11 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
       live
-      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "candidate"}})
       |> render_submit()
 
       {:ok, revised} = Accounting.get_journal_entry(entry.id, user.id)
-      assert revised.tax_deduction_claim.status == "claimed"
+      assert revised.tax_deduction_claim.status == "candidate"
       assert revised.tax_deduction_claim.deductible_amount_cents == 42_00
     end
 
@@ -159,7 +213,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       html =
         live
         |> form("#tax-revision-form", %{
-          "tax_revision" => %{"status" => "claimed", "reason" => String.duplicate("a", 256)}
+          "tax_revision" => %{"status" => "candidate", "reason" => String.duplicate("a", 256)}
         })
         |> render_submit()
 
@@ -169,7 +223,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         live
         |> form("#tax-revision-form", %{
           "tax_revision" => %{
-            "status" => "claimed",
+            "status" => "candidate",
             "reason" => "",
             "deductible_amount" => "21474836.48"
           }
@@ -183,7 +237,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         html =
           live
           |> form("#tax-revision-form", %{
-            "tax_revision" => %{"status" => "claimed", "deductible_amount" => amount}
+            "tax_revision" => %{"status" => "candidate", "deductible_amount" => amount}
           })
           |> render_submit()
 
@@ -193,7 +247,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       html =
         live
         |> form("#tax-revision-form", %{
-          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "-1"}
+          "tax_revision" => %{"status" => "candidate", "deductible_amount" => "-1"}
         })
         |> render_submit()
 
@@ -202,7 +256,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       html =
         live
         |> form("#tax-revision-form", %{
-          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "42.01"}
+          "tax_revision" => %{"status" => "candidate", "deductible_amount" => "42.01"}
         })
         |> render_submit()
 
@@ -224,11 +278,11 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
       live
       |> form("#tax-revision-form", %{
-        "tax_revision" => %{"status" => "disallowed", "deductible_amount" => "12,50"}
+        "tax_revision" => %{"status" => "not_deductible", "deductible_amount" => "12,50"}
       })
       |> render_submit()
 
-      assert has_element?(live, "#journal-entry-tax-treatment", "Not allowed")
+      assert has_element?(live, "#journal-entry-tax-treatment", "Not deductible")
       assert has_element?(live, "#journal-entry-deductible-amount", "EUR 0.00")
     end
 
@@ -244,17 +298,17 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
       live
-      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "candidate"}})
       |> render_submit()
 
       {:ok, revised} = Accounting.get_journal_entry(entry.id, user.id)
-      assert revised.tax_deduction_claim.status == "claimed"
+      assert revised.tax_deduction_claim.status == "candidate"
       assert revised.tax_deduction_claim.deductible_amount_cents == -5000
 
       html =
         live
         |> form("#tax-revision-form", %{
-          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "10.00"}
+          "tax_revision" => %{"status" => "candidate", "deductible_amount" => "10.00"}
         })
         |> render_submit()
 
@@ -263,7 +317,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       html =
         live
         |> form("#tax-revision-form", %{
-          "tax_revision" => %{"status" => "claimed", "deductible_amount" => "-50.01"}
+          "tax_revision" => %{"status" => "candidate", "deductible_amount" => "-50.01"}
         })
         |> render_submit()
 
@@ -281,10 +335,10 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       {:ok, live, _html} = live(conn, ~p"/journal_entries/#{entry}")
 
       live
-      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "claimed"}})
+      |> form("#tax-revision-form", %{"tax_revision" => %{"status" => "candidate"}})
       |> render_submit()
 
-      assert has_element?(live, "#journal-entry-tax-treatment", "Included in tax return")
+      assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
     end
 
     test "lists need or want classification on the index", %{conn: conn, scope: scope, user: user} do
