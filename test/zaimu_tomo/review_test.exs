@@ -190,7 +190,7 @@ defmodule ZaimuTomo.ReviewTest do
       scope = user_scope_fixture(user)
       _original = posted_file_invoice(scope, user, @digest, @rent)
 
-      # Different extracted facts: only the fingerprint index can reject it.
+      # Different extracted facts: only the fingerprint links the two.
       duplicate =
         pending_file_invoice(scope, user, @digest, %{
           @rent
@@ -201,7 +201,7 @@ defmodule ZaimuTomo.ReviewTest do
 
       counts = ledger_counts(user)
 
-      assert {:error, :duplicate_invoice} =
+      assert {:error, {:confirmation_required, :file_reuse}} =
                Review.approve_invoice(duplicate.extracted_content_id, user.id)
 
       assert pending_review?(duplicate.id)
@@ -216,7 +216,7 @@ defmodule ZaimuTomo.ReviewTest do
       duplicate = pending_file_invoice(scope, user, @digest, %{@rent | issuer: "Misread"})
       counts = ledger_counts(user)
 
-      assert {:error, :duplicate_invoice} =
+      assert {:error, {:confirmation_required, :file_reuse}} =
                Review.amend_invoice(duplicate.extracted_content_id, user.id, %{
                  "issuer" => "Someone Else",
                  "invoice_date" => "2026-09-01",
@@ -241,7 +241,7 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert {:ok, decision} =
                Review.approve_invoice(next_month.extracted_content_id, user.id, nil,
-                 confirm_file_reuse: true
+                 confirm: :file_reuse
                )
 
       assert {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
@@ -263,12 +263,12 @@ defmodule ZaimuTomo.ReviewTest do
       # A third posting of the same bytes needs its own confirmation.
       third = pending_file_invoice(scope, user, @digest, %{@rent | invoice_date: "2026-07-01"})
 
-      assert {:error, :duplicate_invoice} =
+      assert {:error, {:confirmation_required, :file_reuse}} =
                Review.approve_invoice(third.extracted_content_id, user.id)
 
       assert {:ok, _} =
                Review.approve_invoice(third.extracted_content_id, user.id, nil,
-                 confirm_file_reuse: true
+                 confirm: :file_reuse
                )
     end
 
@@ -287,7 +287,7 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert {:error, :duplicate_invoice} =
                Review.approve_invoice(same_facts.extracted_content_id, user.id, nil,
-                 confirm_file_reuse: true
+                 confirm: :file_reuse
                )
 
       assert pending_review?(same_facts.id)
@@ -299,9 +299,9 @@ defmodule ZaimuTomo.ReviewTest do
       scope = user_scope_fixture(user)
       lone = pending_file_invoice(scope, user, @digest, @rent)
 
-      assert {:error, :file_reuse_not_applicable} =
+      assert {:error, :confirmation_not_applicable} =
                Review.approve_invoice(lone.extracted_content_id, user.id, nil,
-                 confirm_file_reuse: true
+                 confirm: :file_reuse
                )
 
       assert pending_review?(lone.id)
@@ -324,7 +324,7 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert {:ok, decision} =
                Review.amend_invoice(reused.extracted_content_id, user.id, amended, nil,
-                 confirm_file_reuse: true
+                 confirm: :file_reuse
                )
 
       assert {:ok, %{source_file_reuse_confirmed: true}} =
@@ -365,50 +365,150 @@ defmodule ZaimuTomo.ReviewTest do
     end
   end
 
+  describe "the duplicate gate at posting" do
+    @other_digest String.duplicate("9", 64)
+
+    test "a soft match posts only with its confirmation" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _original = posted_file_invoice(scope, user, @digest, @rent)
+      same_details = pending_file_invoice(scope, user, @other_digest, @rent)
+      counts = ledger_counts(user)
+
+      assert {:error, {:confirmation_required, :possible}} =
+               Review.approve_invoice(same_details.extracted_content_id, user.id)
+
+      assert pending_review?(same_details.id)
+      assert ledger_counts(user) == counts
+
+      assert {:ok, decision} =
+               Review.approve_invoice(same_details.extracted_content_id, user.id, nil,
+                 confirm: :possible
+               )
+
+      assert {:ok, %{source_file_reuse_confirmed: false}} =
+               Accounting.get_journal_entry_for_decision(decision.id)
+    end
+
+    test "amending into a soft match needs the confirmation too" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      _original = posted_file_invoice(scope, user, @digest, @rent)
+      misread = pending_file_invoice(scope, user, @other_digest, %{@rent | issuer: "Misread"})
+
+      corrected = %{
+        "issuer" => "Landlord AG",
+        "invoice_date" => "2026-05-01",
+        "amount_to_pay_cents" => "150000",
+        "currency" => "CHF",
+        "reason_for_payment" => "Rent"
+      }
+
+      assert {:error, {:confirmation_required, :possible}} =
+               Review.amend_invoice(misread.extracted_content_id, user.id, corrected)
+
+      pending = Repo.get!(ReviewDecision, misread.id)
+      assert pending.review_status == "pending"
+      assert pending.decision_data == nil
+
+      assert {:ok, _} =
+               Review.amend_invoice(misread.extracted_content_id, user.id, corrected, nil,
+                 confirm: :possible
+               )
+    end
+
+    test "a confirmation is never applied to another verdict" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      # Nothing matches: the reviewer confirmed a match that is not there.
+      lone = pending_file_invoice(scope, user, @digest, @rent)
+
+      assert {:error, :confirmation_not_applicable} =
+               Review.approve_invoice(lone.extracted_content_id, user.id, nil, confirm: :possible)
+
+      assert pending_review?(lone.id)
+      assert {:ok, _} = Review.approve_invoice(lone.extracted_content_id, user.id)
+
+      # "Post anyway" does not confirm a reused file.
+      reused = pending_file_invoice(scope, user, @digest, %{@rent | invoice_date: "2026-06-01"})
+
+      assert {:error, :confirmation_not_applicable} =
+               Review.approve_invoice(reused.extracted_content_id, user.id, nil,
+                 confirm: :possible
+               )
+
+      assert pending_review?(reused.id)
+      refute entry_exists_for?(reused.id)
+    end
+  end
+
   describe "concurrent identical postings" do
-    # Runs outside the SQL sandbox so the two approvals use separate
-    # connections and real transactions; the rows are deleted afterwards.
     test "commit at most one journal entry for the same file" do
       digest = String.duplicate("e", 64)
 
-      Sandbox.unboxed_run(Repo, fn ->
-        user = user_fixture()
+      {results, entries} =
+        race_approvals(fn scope, user ->
+          [
+            pending_file_invoice(scope, user, digest, %{@rent | issuer: "Reader A"}),
+            pending_file_invoice(scope, user, digest, %{@rent | issuer: "Reader B"})
+          ]
+        end)
 
-        try do
-          scope = user_scope_fixture(user)
-          a = pending_file_invoice(scope, user, digest, %{@rent | issuer: "Reader A"})
-          b = pending_file_invoice(scope, user, digest, %{@rent | issuer: "Reader B"})
-          parent = self()
-
-          tasks =
-            for pending <- [a, b] do
-              Task.async(fn ->
-                Sandbox.unboxed_run(Repo, fn ->
-                  send(parent, {:ready, self()})
-
-                  receive do
-                    :go -> Review.approve_invoice(pending.extracted_content_id, user.id)
-                  end
-                end)
-              end)
-            end
-
-          for _ <- tasks, do: assert_receive({:ready, _pid}, 5_000)
-          for task <- tasks, do: send(task.pid, :go)
-          results = Task.await_many(tasks, 10_000)
-
-          assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-          assert Enum.count(results, &(&1 == {:error, :duplicate_invoice})) == 1
-
-          assert Repo.aggregate(
-                   from(je in JournalEntry, where: je.user_id == ^user.id),
-                   :count
-                 ) == 1
-        after
-          delete_user_data!(user)
-        end
-      end)
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert {:error, {:confirmation_required, :file_reuse}} in results
+      assert entries == 1
     end
+
+    # No unique index covers a soft match: only the gate can stop the second.
+    test "commit at most one journal entry for the same unnumbered details" do
+      {results, entries} =
+        race_approvals(fn scope, user ->
+          [
+            pending_file_invoice(scope, user, String.duplicate("a", 64), @rent),
+            pending_file_invoice(scope, user, String.duplicate("b", 64), @rent)
+          ]
+        end)
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert {:error, {:confirmation_required, :possible}} in results
+      assert entries == 1
+    end
+  end
+
+  # Approves the pending invoices `build` creates at the same moment and
+  # returns the results with the number of journal entries committed. Runs
+  # outside the SQL sandbox so the approvals use separate connections and real
+  # transactions; the rows are deleted afterwards.
+  defp race_approvals(build) do
+    Sandbox.unboxed_run(Repo, fn ->
+      user = user_fixture()
+
+      try do
+        parent = self()
+
+        tasks =
+          for pending <- build.(user_scope_fixture(user), user) do
+            Task.async(fn ->
+              Sandbox.unboxed_run(Repo, fn ->
+                send(parent, {:ready, self()})
+
+                receive do
+                  :go -> Review.approve_invoice(pending.extracted_content_id, user.id)
+                end
+              end)
+            end)
+          end
+
+        for _ <- tasks, do: assert_receive({:ready, _pid}, 5_000)
+        for task <- tasks, do: send(task.pid, :go)
+        results = Task.await_many(tasks, 10_000)
+
+        {results, Repo.aggregate(from(je in JournalEntry, where: je.user_id == ^user.id), :count)}
+      after
+        delete_user_data!(user)
+      end
+    end)
   end
 
   defp pending_file_invoice(scope, user, digest, extracted_data) do

@@ -118,19 +118,22 @@ defmodule ZaimuTomo.Review do
 
   Options:
 
-    * `:confirm_file_reuse` — `true` when the reviewer explicitly confirmed
-      that the source file is a legitimate reuse (for example, a reused
-      QR-bill) of an already posted file. Honored only when the duplicate
-      check's verdict is `:file_reuse`; see `post_review_transaction/6`.
+    * `:confirm` — the duplicate verdict the reviewer explicitly confirmed:
+      `:possible` ("post anyway") or `:file_reuse` (the source file is a
+      legitimate reuse, for example a reused QR-bill). It applies only when
+      the duplicate check inside the transaction returns that same verdict;
+      see `posting_decision/2`.
     * `:booking` — `%{category, need_or_want, notes}`; when given, the journal
       entry is created already categorized and posted instead of
       `uncategorized`, in the same transaction.
     * `:tax_claim_attrs` — attributes for the entry's tax deduction claim,
       such as `%{"status" => "candidate"}`; defaults to undecided.
 
-  Returns `{:error, :duplicate_invoice}` when a duplicate blocks the posting
-  and `{:error, :file_reuse_not_applicable}` when a reuse was confirmed but
-  no confirmable file match exists.
+  Returns `{:error, {:confirmation_required, verdict}}` when the posting needs
+  the reviewer's confirmation of `verdict` first, `{:error, :duplicate_invoice}`
+  when a duplicate blocks the posting, and
+  `{:error, :confirmation_not_applicable}` when the confirmation given is not
+  for the current verdict.
   """
   def approve_invoice(extracted_content_id, user_id, notes \\ nil, opts \\ []) do
     with {:ok, decision} <- get_pending_decision(extracted_content_id, user_id) do
@@ -266,6 +269,41 @@ defmodule ZaimuTomo.Review do
     Accounting.duplicate_check(decision.user_id, data, source_document_sha256(Repo, decision))
   end
 
+  @typedoc "The duplicate verdict a reviewer explicitly confirmed, if any."
+  @type confirmation :: nil | :possible | :file_reuse
+
+  @doc """
+  The duplicate gate: what a posting does for a duplicate verdict and the
+  reviewer's confirmation.
+
+    * `:post` — nothing matches, or the reviewer confirmed this exact verdict.
+    * `{:confirm, verdict}` — a soft match or a reused file; ask the reviewer.
+    * `{:refuse, :duplicate_invoice}` — a hard block; no confirmation lifts it.
+    * `{:refuse, :confirmation_not_applicable}` — the confirmation is for
+      another verdict (the matches changed, or the data was edited), so it is
+      never applied to a match the reviewer did not see.
+
+  The posting transaction evaluates it on the data being posted; the invoice
+  page uses it only to know which confirmation to offer.
+  """
+  @spec posting_decision(Accounting.verdict(), confirmation()) ::
+          :post
+          | {:confirm, :possible | :file_reuse}
+          | {:refuse, :duplicate_invoice | :confirmation_not_applicable}
+  def posting_decision(:none, nil), do: :post
+
+  def posting_decision(verdict, nil) when verdict in [:possible, :file_reuse],
+    do: {:confirm, verdict}
+
+  def posting_decision(verdict, verdict) when verdict in [:possible, :file_reuse], do: :post
+
+  def posting_decision(verdict, _confirmation)
+      when verdict in [:invoice_number, :same_file_blocked],
+      do: {:refuse, :duplicate_invoice}
+
+  def posting_decision(_verdict, _other_confirmation),
+    do: {:refuse, :confirmation_not_applicable}
+
   def get_review_decision(id, user_id) do
     query =
       from rd in ReviewDecision,
@@ -319,19 +357,19 @@ defmodule ZaimuTomo.Review do
   #
   # The journal entry is created from the decision's effective data (amended data
   # when present, original otherwise) in the same transaction that updates the
-  # review, and carries the source document's fingerprint. A duplicate invoice —
-  # enforced by the unique (user, issuer, invoice number) index or the unique
-  # (user, source file digest) index over unconfirmed postings — rolls the whole
-  # transition back and the review stays pending. Returns
-  # `{:error, :duplicate_invoice}` in that case, `{:error, changeset}` for other
-  # failures.
+  # review, and carries the source document's fingerprint.
   #
-  # With `confirm_file_reuse: true`, the duplicate check is re-run inside the
-  # transaction on the effective data. Only a `:file_reuse` verdict marks the
-  # entry `source_file_reuse_confirmed` and records the confirmation with the
-  # matched entry IDs in the event log; a blocked verdict is refused as a
-  # duplicate, and any other verdict as `:file_reuse_not_applicable`, so a
-  # confirmation is never inferred or applied to the wrong match.
+  # The duplicate gate always runs inside the transaction, on the effective
+  # data, and `posting_decision/2` decides: anything but `:post` rolls the
+  # whole transition back and the review stays pending. A user's postings are
+  # serialized by an advisory lock, so the check sees every earlier posting.
+  # Only a confirmed `:file_reuse` marks the entry `source_file_reuse_confirmed`
+  # and records the confirmation with the matched entry IDs in the event log.
+  #
+  # The unique (user, issuer, invoice number) index and the unique (user, source
+  # file digest) index over unconfirmed postings remain as a backstop for any
+  # writer that skips the gate; a violation is `{:error, :duplicate_invoice}`.
+  # Other failures return `{:error, changeset}`.
   defp post_review_transaction(
          decision,
          changeset_attrs,
@@ -340,8 +378,7 @@ defmodule ZaimuTomo.Review do
          status,
          opts
        ) do
-    confirm_file_reuse? = Keyword.get(opts, :confirm_file_reuse, false) == true
-
+    confirmation = Keyword.get(opts, :confirm)
     booking = Keyword.get(opts, :booking)
     tax_claim_attrs = Keyword.get(opts, :tax_claim_attrs, %{})
 
@@ -351,6 +388,11 @@ defmodule ZaimuTomo.Review do
         else: event_metadata
 
     Multi.new()
+    |> Multi.run(:posting_lock, fn repo, _changes ->
+      repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        "journal_posting:#{decision.user_id}"
+      ])
+    end)
     |> Multi.run(:source_document_sha256, fn repo, _changes ->
       {:ok, source_document_sha256(repo, decision)}
     end)
@@ -358,13 +400,13 @@ defmodule ZaimuTomo.Review do
       :review_decision,
       ReviewDecision.changeset_for_update(decision, changeset_attrs)
     )
-    |> Multi.run(:file_reuse, fn _repo, changes ->
-      file_reuse_confirmation(confirm_file_reuse?, changes)
+    |> Multi.run(:duplicate_gate, fn _repo, changes ->
+      duplicate_gate(confirmation, changes)
     end)
     |> Multi.merge(fn %{review_decision: updated} = changes ->
       Accounting.create_multi_from_decision(updated, tax_claim_attrs,
         source_document_sha256: changes.source_document_sha256,
-        source_file_reuse_confirmed: changes.file_reuse != nil,
+        source_file_reuse_confirmed: changes.duplicate_gate.confirmed == :file_reuse,
         booking: booking
       )
     end)
@@ -386,7 +428,7 @@ defmodule ZaimuTomo.Review do
         emit_review_completed_event(updated, status)
         {:ok, updated}
 
-      {:error, :file_reuse, reason, _changes} ->
+      {:error, :duplicate_gate, reason, _changes} ->
         {:error, reason}
 
       {:error, :journal_entry, %Ecto.Changeset{} = changeset, _changes} ->
@@ -401,9 +443,7 @@ defmodule ZaimuTomo.Review do
     end
   end
 
-  defp file_reuse_confirmation(false, _changes), do: {:ok, nil}
-
-  defp file_reuse_confirmation(true, %{
+  defp duplicate_gate(confirmation, %{
          review_decision: updated,
          source_document_sha256: source_sha256
        }) do
@@ -414,22 +454,27 @@ defmodule ZaimuTomo.Review do
         source_sha256
       )
 
-    case check.verdict do
-      :file_reuse ->
-        {:ok, %{matched_journal_entry_ids: Enum.map(check.candidates, & &1.entry.id)}}
+    case posting_decision(check.verdict, confirmation) do
+      :post ->
+        {:ok,
+         %{
+           confirmed: confirmation,
+           matched_journal_entry_ids: Enum.map(check.candidates, & &1.entry.id)
+         }}
 
-      verdict when verdict in [:invoice_number, :same_file_blocked] ->
-        {:error, :duplicate_invoice}
+      {:confirm, verdict} ->
+        {:error, {:confirmation_required, verdict}}
 
-      _no_file_match ->
-        {:error, :file_reuse_not_applicable}
+      {:refuse, reason} ->
+        {:error, reason}
     end
   end
 
-  defp insert_file_reuse_event_log(_repo, %{file_reuse: nil}), do: {:ok, nil}
-
   defp insert_file_reuse_event_log(repo, %{
-         file_reuse: %{matched_journal_entry_ids: [matched_id | _] = matched_ids},
+         duplicate_gate: %{
+           confirmed: :file_reuse,
+           matched_journal_entry_ids: [matched_id | _] = matched_ids
+         },
          journal_entry: entry,
          review_decision: updated
        }) do
@@ -445,6 +490,8 @@ defmodule ZaimuTomo.Review do
       }
     )
   end
+
+  defp insert_file_reuse_event_log(_repo, _changes), do: {:ok, nil}
 
   # Loads the decision's source document fingerprint, scoped to the decision's
   # user through both the extraction and the document.

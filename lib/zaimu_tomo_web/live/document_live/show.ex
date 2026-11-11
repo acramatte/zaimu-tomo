@@ -40,7 +40,6 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
       |> assign(:categories, Accounting.list_categories(socket.assigns.current_scope))
       |> assign(:show_rejection_form, false)
       |> assign(:feedback_value, nil)
-      |> assign(:duplicate_error, false)
       |> load_document(document)
 
     if connected?(socket), do: schedule_refresh(socket.assigns.processing_state)
@@ -217,7 +216,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         </section>
 
         <div
-          :if={@stage == :check and (@duplicate_error or @duplicates.candidates != [])}
+          :if={@stage == :check and @duplicates.candidates != []}
           id="duplicate-panel"
           class="card"
           style="border-color:var(--warn)"
@@ -766,19 +765,14 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   end
 
   # The confirmation buttons submit the invoice form too (as `confirm`), so a
-  # confirmed posting always carries the booking and the data on screen, and
-  # it applies only to the verdict for that data: edits since the warning are
-  # checked again.
+  # confirmed posting always carries the booking and the data on screen. The
+  # posting itself decides whether that confirmation applies to that data.
   def handle_event("post", %{"invoice" => params} = event, socket) do
     socket = assign_values(socket, params)
 
     case parsed_data(socket) do
-      {:ok, data} ->
-        duplicates = Review.duplicate_check(socket.assigns.review_decision, data)
-        post_after_check(socket, data, duplicates, event["confirm"])
-
-      {:error, socket} ->
-        {:noreply, socket}
+      {:ok, data} -> post(socket, data, confirmation(event["confirm"]))
+      {:error, socket} -> {:noreply, socket}
     end
   end
 
@@ -901,44 +895,28 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   # ── Posting ────────────────────────────────────────────────────────────────
 
-  # A possible duplicate or an exact-file match always needs the explicit
-  # confirmation for the data just submitted; posting again re-checks.
-  defp post_after_check(socket, data, %{verdict: :none}, nil), do: post(socket, data, [])
+  defp confirmation("possible"), do: :possible
+  defp confirmation("file_reuse"), do: :file_reuse
+  defp confirmation(_none), do: nil
 
-  defp post_after_check(socket, data, %{verdict: :possible}, "possible"),
-    do: post(socket, data, [])
+  # The duplicate gate is `Review.posting_decision/2`, evaluated inside the
+  # posting transaction. This page only shows what it answered.
+  defp post(socket, data, confirmation) do
+    %{current_scope: scope, extracted_content: ec, values: values, review_decision: rd} =
+      socket.assigns
 
-  defp post_after_check(socket, data, %{verdict: :file_reuse}, "file_reuse"),
-    do: post(socket, data, confirm_file_reuse: true)
-
-  defp post_after_check(socket, _data, %{verdict: verdict} = duplicates, nil)
-       when verdict in [:possible, :file_reuse] do
-    {:noreply, socket |> assign_duplicates(duplicates) |> assign(:duplicate_error, false)}
-  end
-
-  defp post_after_check(socket, _data, %{verdict: verdict} = duplicates, _confirm) do
-    {:noreply,
-     socket
-     |> assign_duplicates(duplicates)
-     |> assign(:duplicate_error, verdict != :none)
-     |> put_flash(:error, Duplicates.refusal_message(verdict))}
-  end
-
-  defp post(socket, data, opts) do
-    %{current_scope: scope, extracted_content: ec, values: values} = socket.assigns
     changes = ExtractedData.changes(original_data(socket), data)
     comment = blank_to_nil(values["comment"])
 
-    opts =
-      opts ++
-        [
-          booking: %{
-            category: values["category"],
-            need_or_want: values["need_or_want"],
-            notes: comment
-          },
-          tax_claim_attrs: %{"status" => values["tax_treatment_status"] || "undecided"}
-        ]
+    opts = [
+      confirm: confirmation,
+      booking: %{
+        category: values["category"],
+        need_or_want: values["need_or_want"],
+        notes: comment
+      },
+      tax_claim_attrs: %{"status" => values["tax_treatment_status"] || "undecided"}
+    ]
 
     result =
       if changes == [] do
@@ -954,20 +932,20 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         {:noreply,
          socket
          |> assign(:pending_verdict, nil)
-         |> assign(:duplicate_error, false)
          |> put_flash(:info, "Invoice posted to the journal")
          |> reload()}
 
-      {:error, reason} when reason in [:duplicate_invoice, :file_reuse_not_applicable] ->
-        # Another posting may have landed since the page was rendered; show
-        # the current matches instead of a stale verdict.
-        duplicates = Review.duplicate_check(socket.assigns.review_decision, data)
+      {:error, {:confirmation_required, _verdict}} ->
+        {:noreply, assign_duplicates(socket, Review.duplicate_check(rd, data))}
+
+      {:error, reason} when reason in [:duplicate_invoice, :confirmation_not_applicable] ->
+        # The matches may have changed since the page was rendered; show the
+        # current ones instead of a stale verdict.
+        duplicates = Review.duplicate_check(rd, data)
 
         {:noreply,
          socket
-         |> assign(:duplicates, duplicates)
-         |> assign(:pending_verdict, nil)
-         |> assign(:duplicate_error, true)
+         |> assign_duplicates(duplicates)
          |> put_flash(:error, Duplicates.refusal_message(duplicates.verdict))}
 
       {:error, reason} when is_binary(reason) ->
@@ -1143,8 +1121,13 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     |> assign(:pending_verdict, confirmable(duplicates.verdict))
   end
 
-  defp confirmable(verdict) when verdict in [:possible, :file_reuse], do: verdict
-  defp confirmable(_verdict), do: nil
+  # The confirmation to offer: the one the gate asks for with none given.
+  defp confirmable(verdict) do
+    case Review.posting_decision(verdict, nil) do
+      {:confirm, verdict} -> verdict
+      _post_or_refuse -> nil
+    end
+  end
 
   # While checking, the verdict describes the values on screen, which a refresh
   # keeps. Stored data is the fallback for an amount that does not parse yet.

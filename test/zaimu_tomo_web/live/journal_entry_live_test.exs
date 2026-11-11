@@ -384,9 +384,18 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
 
   describe "Index" do
     test "orders the feed newest-first by last activity", %{conn: conn, scope: scope, user: user} do
-      e1 = create_entry(scope, user)
-      e2 = create_entry(scope, user)
-      e3 = create_entry(scope, user)
+      [e1, e2, e3] =
+        for issuer <- ["First AG", "Second AG", "Third AG"] do
+          create_entry(scope, user, %{
+            extracted_data: %{
+              amount_to_pay_cents: 4200,
+              invoice_date: "2026-05-08",
+              currency: "EUR",
+              reason_for_payment: "Office supplies",
+              issuer: issuer
+            }
+          })
+        end
 
       base = ~U[2026-06-01 00:00:00Z]
       set_timestamps(e1, inserted_at: base, updated_at: ~U[2026-06-01 10:00:00Z])
@@ -403,7 +412,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
     end
   end
 
-  defp create_entry(scope, user) do
+  defp create_entry(scope, user, extraction_attrs \\ %{}) do
     document =
       Repo.insert!(%Document{
         filename: "invoice.pdf",
@@ -411,7 +420,7 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
         user_id: scope.user.id
       })
 
-    extracted_content = extracted_content_fixture(document, user)
+    extracted_content = extracted_content_fixture(document, user, extraction_attrs)
     decision = approved_review_fixture(extracted_content, user)
     # Approving posts the journal entry transactionally in the review context.
     {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
