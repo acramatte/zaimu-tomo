@@ -1,0 +1,26 @@
+from two days ago:
+
+
+<pasted_content id="d3d2">
+### Medium finding
+
+**Location:** `lib/zaimu_tomo/accounting.ex:398-402`
+
+Legacy posted entries can lack a claim because `priv/repo/migrations/20260810102206_create_tax_deduction_claims.exs:4-24` creates the table without backfilling existing entries. The revision form is still offered (`lib/zaimu_tomo_web/live/journal_entry_live/show.ex:119-124`), but this `repo.one!` raises `Ecto.NoResultsError`, crashing the LiveView on submission. Create the missing claim transactionally or backfill these entries before allowing revisions.
+</pasted_content id="d3d2">
+
+
+from just now
+
+
+<pasted_content id="d3d2">
+### Low finding
+
+**Location:** `lib/zaimu_tomo_web/components/tax_treatment_components.ex:156`
+
+The comment says the format "rules out signs", but the regex on the next line now accepts a leading `-?` so that credit notes can be entered. Change the comment to say only that exponents, NaN and Infinity are ruled out, and that an optional minus sign is allowed.
+</pasted_content id="d3d2">
+
+---
+
+fold
