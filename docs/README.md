@@ -22,6 +22,7 @@ describe it are true again. Update them **in the same commit or PR**.
 |---|---|
 | adds or removes a context, schema, table, or major module | `architecture.md` §5 (building blocks) and §8 (data model) |
 | changes a user-visible flow, a job, a queue, retries, or PubSub topics | `architecture.md` §6 and §8 |
+| adds or changes a status, the moves allowed between statuses, or the code that writes one | `architecture.md` §8 (state machines), and §6 if the flow changes |
 | adds or changes an external service, provider, or model default | `architecture.md` §3, `configuration.md`, `local-ai.md` |
 | adds, renames, or removes an env var | `configuration.md`, `config/deploy.yml`, and `.kamal/secrets.example` for secrets |
 | touches `Dockerfile`, `config/deploy.yml`, accessories, CI, or release scripts | `deployment.md`, and `operations.md` if it changes a runbook |

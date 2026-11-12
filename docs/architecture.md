@@ -368,6 +368,105 @@ erDiagram
 - A partial unique index on `journal_entries (user_id, lower(btrim(issuer)), lower(btrim(invoice_number)))` blocks posting the same numbered invoice twice per user. An unnumbered invoice matching an existing entry's exact `(issuer, date, amount, currency)` tuple is a soft match that requires explicit reviewer confirmation to post. No index covers a soft match: the duplicate gate in the posting transaction enforces it (§6, D21) and logs the confirmation as a `possible_duplicate_confirmed` event with the matched entry IDs (D24). See `Accounting.duplicate_candidates/2`.
 - `journal_entries.source_document_sha256` is an immutable posting-time copy of the source document's `content_sha256`; `source_file_reuse_confirmed` (default false) marks a posting the reviewer explicitly confirmed as a reuse of the same file. The partial unique index `journal_entries (user_id, source_document_sha256) WHERE source_document_sha256 IS NOT NULL AND NOT source_file_reuse_confirmed` allows one unconfirmed posting per file per user. `Accounting.duplicate_check/3` ranks matches as same file > invoice number > same details; a file match is confirmable only when no field rule also matches (the tuple is compared against the file-matched entries even for numbered invoices). Confirmations are logged as `source_file_reuse_confirmed` events with the matched entry IDs. Fingerprints are user-scoped, redacted from inspect output, and never rendered or sent to an AI provider. Only `FingerprintBackfill` may set them on existing entries; there is no immutability trigger on `journal_entries` yet, and any future one must run after the backfill or allow it.
 
+### State machines
+
+Five things have a status with rules about how it may change. Each rule lives in
+one function. To change a rule, change that function. Do not add a second place
+that writes the status.
+
+```mermaid
+flowchart LR
+    review["<b>Review decision</b><br/>ReviewDecision.decide_changeset/3"]
+    gate{{"<b>Duplicate gate</b><br/>Review.posting_decision/2"}}
+    entry["<b>Journal entry</b><br/>JournalEntry.changeset_for_categorize/2"]
+    claim["<b>Tax claim</b><br/>Accounting.revise_tax_deduction_claim/3"]
+    status(["<b>Document status</b><br/>Review.document_status/2"])
+
+    review -->|"approve or amend"| gate
+    gate -->|"post"| entry
+    entry -->|"posting creates the claim"| claim
+    review -.->|"read by"| status
+    entry -.->|"read by"| status
+```
+
+**Document status** is shown, never stored. Every screen asks the same function.
+There is no column, so there is nothing for the database to guard. (D20)
+
+```mermaid
+flowchart LR
+    job{"OCR job and<br/>latest extraction"}
+    rev{"Review of that<br/>extraction"}
+
+    job -->|"a job is queued or running"| processing(["processing"])
+    job -->|"no job, nothing extracted"| stalled(["stalled"])
+    job -->|"extraction failed"| failed(["failed"])
+    job -->|"extraction succeeded"| rev
+    rev -->|"pending, or entry not booked"| needs(["review"])
+    rev -->|"approved or amended"| posted(["posted"])
+    rev -->|"rejected"| rejected(["rejected"])
+```
+
+**Review decision** (`review_decisions.review_status`). A review is decided
+once, on a locked row. Nothing leaves `approved`, `amended`, `rejected`, or
+`failed`. Two triggers refuse any other start or move, whoever writes it. Check
+constraints limit the values and require a reason on a rejection. (D22, D23,
+D25)
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: extraction succeeded
+    [*] --> failed: extraction failed
+    pending --> approved: approve
+    pending --> amended: approve with a changed field
+    pending --> rejected: reject, with a reason
+```
+
+**Duplicate gate** is an answer, not a stored status. It runs inside the posting
+transaction, on the data being posted. A confirmation counts only for the match
+it names; one that names another match is refused. Two unique indexes stop the
+two refusals below. Nothing in the database stops an unconfirmed "ask" case.
+(D10, D21, D24)
+
+```mermaid
+flowchart LR
+    none["nothing matches"]
+    soft["same issuer, date,<br/>amount and currency"]
+    file["same file,<br/>different details"]
+    number["same issuer and<br/>invoice number"]
+    both["same file and<br/>same details"]
+    asked{"reviewer confirmed<br/>this match?"}
+
+    none --> post(["post"])
+    soft --> asked
+    file --> asked
+    asked -->|"yes, logged"| post
+    asked -->|"no"| confirm(["ask the reviewer"])
+    number --> refuse(["refuse"])
+    both --> refuse
+```
+
+**Journal entry** (`journal_entries.status`). An entry is posted once. Approval
+creates and posts it in one transaction. `Accounting.post_entry/6` posts an
+older entry on a locked row and returns `:already_posted` on a repeat. The
+database does not guard this move. (D17, D19)
+
+```mermaid
+stateDiagram-v2
+    [*] --> uncategorized: approval creates the entry
+    uncategorized --> posted: category and need/want, once
+    posted --> posted: only the tax claim changes
+```
+
+**Tax claim** (`tax_deduction_claims.status`). The diagram is in §6.1. Posting
+sets one of `undecided`, `candidate`, or `not_deductible`. After that only
+`Accounting.revise_tax_deduction_claim/3` changes it, and
+`TaxDeductionClaim.next_statuses/1` lists the allowed moves. Check constraints
+limit the values and require the references. They do not check the order of
+moves. (D18, D19)
+
+A new status or move needs four changes: the function, the database guard if the
+row has one, the picture here, and a row in §9.
+
 ### Multi-tenancy and authorization
 
 Every context function takes `%Accounts.Scope{}` first and filters by
