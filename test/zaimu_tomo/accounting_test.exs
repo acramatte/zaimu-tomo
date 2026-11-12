@@ -557,7 +557,8 @@ defmodule ZaimuTomo.AccountingTest do
         })
 
       decision = pending_review_fixture(extracted_content)
-      {:ok, entry} = Accounting.create_from_decision(decision)
+      {:ok, _decision} = Review.approve_invoice(extracted_content.id, user.id)
+      {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
       {:ok, _entry} = Accounting.post_entry(entry, user.id, "Software", "need")
 
       assert %{
@@ -588,8 +589,9 @@ defmodule ZaimuTomo.AccountingTest do
 
       decision = pending_review_fixture(extracted_content)
 
-      assert {:error, changeset} = Accounting.create_from_decision(decision)
+      assert {:error, changeset} = Review.approve_invoice(extracted_content.id, user.id)
       assert %{date: ["can't be blank"]} = errors_on(changeset)
+      assert :error = Accounting.get_journal_entry_for_decision(decision.id)
     end
   end
 

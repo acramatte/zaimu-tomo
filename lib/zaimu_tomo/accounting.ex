@@ -197,28 +197,15 @@ defmodule ZaimuTomo.Accounting do
   # Entry creation (called after invoice approval / amendment)
   # ---------------------------------------------------------------------------
 
-  @spec create_from_decision(ReviewDecision.t(), map()) ::
-          {:ok, JournalEntry.t()} | {:error, Ecto.Changeset.t()}
-  def create_from_decision(%ReviewDecision{} = decision, tax_claim_attrs \\ %{}) do
-    create_multi_from_decision(decision, tax_claim_attrs)
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{journal_entry: entry, tax_deduction_claim: claim}} ->
-        {:ok, %{entry | tax_deduction_claim: claim}}
-
-      {:error, _operation, changeset, _changes} ->
-        {:error, changeset}
-    end
-  end
-
   @doc """
   Builds an `Ecto.Multi` that creates the journal entry and its tax deduction
   claim for an approved/amended review decision.
 
-  The step names (`:journal_entry`, `:tax_deduction_claim`) are stable so
-  callers can compose this multi into a larger transaction, such as the
-  review-to-journal-entry transition that must roll back on a duplicate
-  invoice.
+  Only `ZaimuTomo.Review`'s posting transaction composes this multi. That
+  transaction takes the user's posting lock and runs the duplicate gate
+  first, so composing it anywhere else would post without either. The step
+  names (`:journal_entry`, `:tax_deduction_claim`) are stable for that
+  composition.
 
   Options:
 
