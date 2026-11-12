@@ -30,6 +30,7 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
      |> assign(:current_path, "/activity")
      |> assign(:tabs, @tabs)
      |> assign(:tab, "all")
+     |> assign(:refresh_timer, nil)
      |> load_activity()}
   end
 
@@ -48,6 +49,9 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
       when user_id == socket.assigns.current_scope.user.id,
       do: {:noreply, load_activity(socket)}
 
+  def handle_info(:refresh_processing, socket),
+    do: {:noreply, socket |> assign(:refresh_timer, nil) |> load_activity()}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   defp load_activity(socket) do
@@ -62,7 +66,22 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
     |> assign(:activity_items, items)
     |> assign(:counts, counts)
     |> assign_visible()
+    |> schedule_refresh(counts["processing"] > 0)
   end
+
+  # The worker broadcasts before Oban acknowledges the job, so the reload a
+  # broadcast triggers can still see the job running. While anything is
+  # processing, re-read the durable state until it settles.
+  defp schedule_refresh(%{assigns: %{refresh_timer: nil}} = socket, true) do
+    if connected?(socket) do
+      interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
+      assign(socket, :refresh_timer, Process.send_after(self(), :refresh_processing, interval))
+    else
+      socket
+    end
+  end
+
+  defp schedule_refresh(socket, _processing?), do: socket
 
   defp assign_visible(socket) do
     {_key, _label, statuses} = List.keyfind!(@tabs, socket.assigns.tab, 0)
