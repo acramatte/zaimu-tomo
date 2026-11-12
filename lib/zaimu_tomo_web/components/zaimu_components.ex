@@ -507,68 +507,6 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     """
   end
 
-  # ── Static mock activity feed item ─────────────────────────────────────────
-
-  attr :item, :map, required: true
-  attr :categories, :list, default: []
-
-  def legacy_feed_item(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:cat, fn ->
-        Enum.find(assigns.categories, &(&1.id == assigns.item.category))
-      end)
-      |> assign_new(:amt_str, fn ->
-        if assigns.item.amount, do: fmt(assigns.item.amount), else: "—"
-      end)
-      |> assign_new(:ext, fn ->
-        if assigns.item.filename,
-          do:
-            assigns.item.filename
-            |> Path.extname()
-            |> String.trim_leading(".")
-            |> String.upcase()
-            |> String.slice(0, 3),
-          else: "DOC"
-      end)
-
-    ~H"""
-    <div class={"feed-item #{@item.status}"}>
-      <div class="stat">{@ext}</div>
-      <div class="body">
-        <div class="title">
-          {@item.merchant || if(@item.status == "processing", do: "Scanning…", else: "Untitled")}
-          <.status_pill status={@item.status} />
-        </div>
-        <div class="desc">
-          <%= case @item.status do %>
-            <% "processing" -> %>
-              Sent to OCR · extraction in progress
-            <% "review" -> %>
-              <span class="amt">{@amt_str}</span> · {@item.invoice_no || "—"} · ready to verify
-            <% "posted" -> %>
-              <span class="amt">{@amt_str}</span>{if @cat, do: " · #{@cat.name}", else: ""}
-            <% "failed" -> %>
-              {@item.error || "Processing failed"}
-            <% _ -> %>
-              {@amt_str}
-          <% end %>
-          · <span class="muted">{@item.filename}</span>
-        </div>
-      </div>
-      <div class="actions">
-        <%= if @item.status == "review" do %>
-          <a class="btn sm primary" href={~p"/documents"}>Check</a>
-        <% end %>
-        <%= if @item.status == "failed" do %>
-          <button class="btn sm">Retry</button>
-        <% end %>
-        <time>{ZaimuTomoWeb.Layouts.rel_time(@item.ts)}</time>
-      </div>
-    </div>
-    """
-  end
-
   # ── Auth pages: brand stage ────────────────────────────────────────────────
 
   # Sample ledger rows that scroll in the auth brand stage.

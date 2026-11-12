@@ -206,9 +206,13 @@ URLs redirect there. Entries approved before booking was merged into posting are
 still `uncategorized` and get a booking form on the same page.
 
 The status shown for a document comes from one rule, `Review.document_status/2`,
-on the document list, the dashboard feed (`Activity`), and the invoice page: the
-OCR job queue decides `processing`, `stalled`, or `failed`, and only a completed
-extraction is read for `review`, `posted`, or `rejected`.
+on the document list, the dashboard feed and the `/activity` page (both through
+`Activity`), and the invoice page: the OCR job queue decides `processing`,
+`stalled`, or `failed`, and only a completed extraction is read for `review`,
+`posted`, or `rejected`. The OCR worker broadcasts before Oban marks
+the job complete, so a reload on that broadcast can still see the job running.
+The invoice page and the `/activity` page therefore re-read the state every few
+seconds while something is processing.
 
 Whether a posting may go through is decided in one place, inside the posting
 transaction: `Review.posting_decision/2` maps the duplicate verdict for the data
