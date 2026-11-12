@@ -40,8 +40,10 @@ defmodule ZaimuTomo.DocumentProcessing do
 
   Messages are the maps broadcast by `broadcast_event/3`: a run finished
   (`:success` / `:failed`), a retry was enqueued (`:retried`), or an attempt
-  failed and Oban scheduled the next one (`:attempt_failed`). Topics are per
-  owner, so a subscriber never receives another user's extracted data.
+  failed and Oban scheduled the next one (`:attempt_failed`). A `:failed`
+  message without an `extraction_id` is a run that could not record its
+  failure, so the document reads `:stuck`. Topics are per owner, so a
+  subscriber never receives another user's extracted data.
   """
   @spec subscribe_events(Scope.t()) :: :ok | {:error, term()}
   def subscribe_events(%Scope{user: %{id: user_id}}) do
@@ -169,21 +171,28 @@ defmodule ZaimuTomo.DocumentProcessing do
   @spec retry_document(Scope.t(), Document.t()) ::
           {:ok, Oban.Job.t()} | {:error, :not_found | {:not_retryable, processing_state()}}
   def retry_document(%Scope{user: %{id: user_id}} = scope, %Document{user_id: user_id} = document) do
-    latest = ExtractedContentContext.get_latest_by_document(document.id)
+    # The terminal writes take this lock too, so the latest row cannot change
+    # before the job that supersedes it is inserted.
+    Repo.transact(fn ->
+      with %Document{} <-
+             Repo.one(from d in Document, where: d.id == ^document.id, lock: "FOR UPDATE"),
+           latest = ExtractedContentContext.get_latest_by_document(document.id),
+           state when state in [:failed, :stuck] <- classify_state(live_job?(document.id), latest) do
+        document
+        |> ocr_job(scope.user.base_currency, latest && latest.id, :manual_retry)
+        |> Oban.insert()
+      else
+        nil -> {:error, :not_found}
+        state -> {:error, {:not_retryable, state}}
+      end
+    end)
+    |> case do
+      {:ok, job} ->
+        broadcast_event(:retried, user_id, %{document_id: document.id, user_id: user_id})
+        {:ok, job}
 
-    case classify_state(live_job?(document.id), latest) do
-      state when state in [:failed, :stuck] ->
-        with {:ok, job} <-
-               document
-               |> ocr_job(scope.user.base_currency, latest && latest.id, :manual_retry)
-               |> Oban.insert() do
-          # Lets open Index / hero views pick up the new live run without a reload.
-          broadcast_event(:retried, user_id, %{document_id: document.id, user_id: user_id})
-          {:ok, job}
-        end
-
-      state ->
-        {:error, {:not_retryable, state}}
+      error ->
+        error
     end
   end
 

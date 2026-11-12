@@ -248,6 +248,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
 
     test "a job timeout and unknown codes" do
       assert ErrorClassification.describe("job_timeout") == "the run took too long"
+      assert ErrorClassification.describe("job_interrupted") == "the run was interrupted"
       assert ErrorClassification.describe("unclassified") == "an unexpected error"
       assert ErrorClassification.describe("new_stage:http_503") == "an unexpected error"
     end

@@ -203,12 +203,14 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   @doc """
   Describes a `summarize/1` code as a short phrase for the user, such as
   "the OCR service timed out". `"job_timeout"` is the job running past its
-  time limit. A code it does not know reads "an unexpected error".
+  time limit, and `"job_interrupted"` is a run its node stopped mid-run. A code
+  it does not know reads "an unexpected error".
   """
   @spec describe(String.t()) :: String.t()
   def describe("storage:" <> _detail), do: "couldn't read the uploaded file"
   def describe("scratch_unavailable:" <> _posix), do: "couldn't prepare the file for reading"
   def describe("job_timeout"), do: "the run took too long"
+  def describe("job_interrupted"), do: "the run was interrupted"
 
   def describe(code) when is_binary(code) do
     with [stage, detail] <- String.split(code, ":", parts: 2),

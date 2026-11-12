@@ -542,6 +542,53 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     end
   end
 
+  describe "a final OCR attempt that crashed" do
+    setup do
+      original_langfuse = Application.get_env(:zaimu_tomo, :langfuse)
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false, environment: "test")
+      on_exit(fn -> Application.put_env(:zaimu_tomo, :langfuse, original_langfuse) end)
+
+      original_mistral = Application.fetch_env!(:zaimu_tomo, :mistral)
+
+      Application.put_env(
+        :zaimu_tomo,
+        :mistral,
+        Keyword.merge(original_mistral,
+          api_key: "test-key",
+          req_options: [plug: {Req.Test, __MODULE__}]
+        )
+      )
+
+      on_exit(fn -> Application.put_env(:zaimu_tomo, :mistral, original_mistral) end)
+    end
+
+    test "turns the open list and invoice page to failed with the reason", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, doc} =
+        Documents.create_document(scope, %{filename: "crashed.pdf", object_key: "documents/a.pdf"})
+
+      Storage.put_object("documents/a.pdf", "invoice bytes")
+      {1, _} = Repo.update_all(Oban.Job, set: [max_attempts: 1])
+
+      {:ok, list_live, _html} = live(conn, ~p"/documents")
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+      assert list_live |> element("#documents-#{doc.id}") |> render() =~ "pill processing"
+
+      Req.Test.stub(__MODULE__, fn _conn -> raise "SECRET-INVOICE-TEXT" end)
+      assert %{discard: 1} = Oban.drain_queue(queue: :documents)
+
+      row = list_live |> element("#documents-#{doc.id}") |> render()
+      assert row =~ "pill failed"
+      assert row =~ "An unexpected error"
+      refute row =~ "SECRET-INVOICE-TEXT"
+
+      assert show_live |> element("#invoice-status") |> render() =~ "Failed"
+      assert show_live |> element("#invoice-processing") |> render() =~ "An unexpected error"
+    end
+  end
+
   describe "Show" do
     setup [:create_document]
 

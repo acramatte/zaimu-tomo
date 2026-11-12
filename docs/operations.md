@@ -45,8 +45,9 @@ code of the last failed attempt, such as `ocr_upload_failed:http_503`,
 ### Stuck documents
 
 A document is *stuck* when it has no extraction row and no live OCR job (for
-example, a job was discarded or cancelled without recording a failure). Users
-can retry stuck and failed documents from the UI. To sweep them in bulk:
+example, its failed row could not be written, or an operator cancelled its
+running job). Users can retry stuck and failed documents from the UI. To sweep
+them in bulk:
 
 1. Dry run: `kamal recover_stuck_documents` lists the stuck documents per user.
 2. Enqueue: `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.recover_stuck_documents!(confirm: true)'"`

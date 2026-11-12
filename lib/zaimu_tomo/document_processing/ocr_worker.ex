@@ -145,7 +145,16 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end
   end
 
-  def persist_and_emit_failure(document, error, expected_extraction_id \\ nil) do
+  @doc """
+  Appends a failed extraction and its failed review decision, then broadcasts
+  `:failed`.
+
+  Returns `{:error, :already_processed}` when a newer row exists than
+  `expected_extraction_id`. With `unless_live_run: true`, which a discarded
+  job's outcome passes, it also returns that when a live OCR job exists: Retry
+  processing started that run after the discard and expects the current row.
+  """
+  def persist_and_emit_failure(document, error, expected_extraction_id \\ nil, opts \\ []) do
     error_details = %{
       "type" => error_type(error),
       "message" => error_message(error),
@@ -170,6 +179,9 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
     Repo.transaction(fn ->
       lock_and_check_latest(document.id, expected_extraction_id)
+
+      if opts[:unless_live_run] && DocumentProcessing.live_job?(document.id),
+        do: Repo.rollback(:already_processed)
 
       with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
            {:ok, _review_decision} <- Review.create_failed_decision(content, error) do

@@ -1,7 +1,8 @@
 defmodule ZaimuTomo.DocumentProcessing.Recovery do
   @moduledoc """
   Unscoped maintenance recovery for stuck documents: no extraction row and no
-  live OCR job (e.g. a run that was lost to a crash or a discarded job).
+  live OCR job (e.g. a run whose failed row could not be written, or a job an
+  operator cancelled).
 
   Grouped per user so each run uses the owner's own base currency snapshot,
   mirroring the enqueue-time snapshot semantics of `DocumentProcessing.ocr_job/3`.

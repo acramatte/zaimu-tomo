@@ -3,18 +3,34 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   Records what happened to an OCR attempt once Oban has settled it, and tells
   the document owner's open pages.
 
-  A failed attempt with a retry ahead (`[:oban, :job, :exception]` with
-  `state: :failure`) stores its failure code in the job's `meta["last_error"]`,
-  where `Run` reads it, and then broadcasts `:attempt_failed`. `failure_code/1`
-  derives the code from the exception Oban reports, never from its message. A
-  final attempt is not handled here, because `OCRJob` records it and broadcasts
-  `:failed`.
+    * A failed attempt with a retry ahead (`[:oban, :job, :exception]` with
+      `state: :failure`) stores its failure code in the job's
+      `meta["last_error"]`, where `Run` reads it, and then broadcasts
+      `:attempt_failed`. `failure_code/1` derives the code from the exception
+      Oban reports, never from its message.
+    * A final attempt that raised, crashed, or hit the job timeout
+      (`state: :discard`) records one failed extraction through
+      `Worker.persist_and_emit_failure/4`, which broadcasts `:failed`. Its
+      message is the described code, never the exception's text. `OCRJob`
+      records its own final failures and completes, so only these reach
+      Oban's discard. It is a no-op when the document is gone, a newer run
+      already wrote its row, or Retry processing already started a new run.
+      `DocumentProcessing.retry_document/2` holds the same document row lock,
+      so a retry reads either the recorded failure or no failure at all.
+    * A run `OCRJob` cancelled because it could not record its failure
+      (`[:oban, :job, :stop]` with `{:cancel, {:failure_not_recorded, _}}`)
+      broadcasts `:failed` without an extraction, so open pages show the
+      document as stalled.
 
-  Oban emits the event after it has written the job's `retryable` state, so a
-  page that re-reads the job on the broadcast sees the attempt that failed and
-  its code. The handler runs in the job's process, or for a timeout or crash in
-  the task Oban starts to report it, so its database writes delay only that
-  process.
+  `Oban.Lifeline` reports the jobs it moves out of `executing` after their node
+  died (`[:oban, :plugin, :stop]`). A rescued OCR job is handled as a failed
+  attempt and a discarded one as a final attempt, both with
+  `"job_interrupted"`.
+
+  Oban emits each event after it has written the job's new state, so a page
+  that re-reads on the broadcast sees it. A handler runs in the job's process,
+  in the task Oban starts to report a timeout or crash, or in the Lifeline
+  process, so its database writes delay only that process.
   """
 
   import Ecto.Query
@@ -22,16 +38,19 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   require Logger
 
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.DocumentProcessing.OCRJob
+  alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
 
   @handler_id "zaimu-tomo-ocr-attempt-outcomes"
-  @events [[:oban, :job, :exception]]
+  @events [[:oban, :job, :exception], [:oban, :job, :stop], [:oban, :plugin, :stop]]
   @worker inspect(OCRJob)
+  @interrupted "job_interrupted"
 
   @doc """
-  Attaches the handler to Oban's job events. Safe to call repeatedly.
+  Attaches the handler to Oban's job and plugin events. Safe to call repeatedly.
   """
   def attach do
     case :telemetry.attach_many(@handler_id, @events, &__MODULE__.handle_event/4, nil) do
@@ -56,32 +75,90 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   def handle_event(event, _measurements, meta, _config) do
     handle(event, meta)
   rescue
-    # :telemetry detaches a handler that raises, which would end these
-    # outcomes until the next restart.
     error -> Logger.warning("[OCR] Attempt outcome not handled: #{inspect(error.__struct__)}")
   end
 
+  defp handle([:oban, :job, :exception], %{job: %Oban.Job{worker: @worker} = job} = meta) do
+    code = failure_code(meta.reason)
+
+    case meta.state do
+      :failure -> retrying(job, code)
+      :discard -> gave_up(job, code)
+    end
+  end
+
   defp handle(
-         [:oban, :job, :exception],
-         %{state: :failure, job: %Oban.Job{worker: @worker} = job} = meta
+         [:oban, :job, :stop],
+         %{
+           state: :cancelled,
+           result: {:cancel, {:failure_not_recorded, _summary}},
+           job: %Oban.Job{worker: @worker, args: %{"document_id" => id}}
+         }
        ) do
-    retrying(meta.conf, job, failure_code(meta.reason))
+    notify(:failed, id)
+  end
+
+  defp handle(
+         [:oban, :plugin, :stop],
+         %{plugin: Oban.Lifeline, rescued_jobs: rescued, discarded_jobs: discarded}
+       ) do
+    rescued
+    |> ocr_jobs()
+    |> Enum.filter(&(&1.state == "available"))
+    |> Enum.each(&retrying(&1, @interrupted))
+
+    Enum.each(ocr_jobs(discarded), &gave_up(&1, @interrupted))
   end
 
   defp handle(_event, _meta), do: :ok
 
-  defp retrying(conf, %Oban.Job{args: %{"document_id" => id}} = job, code) do
-    case Oban.update_job(conf.name, job, %{meta: Map.put(job.meta, "last_error", code)}) do
-      {:ok, _job} ->
-        :ok
+  # Lifeline commits a rescue before it reports it, so the job can run again
+  # first. Writing only while `attempted_at` is unchanged keeps a newer
+  # attempt's reason.
+  defp retrying(%Oban.Job{args: %{"document_id" => id}} = job, code) do
+    {updated, _} =
+      Repo.update_all(
+        from(j in Oban.Job, where: j.id == ^job.id and j.attempted_at == ^job.attempted_at),
+        set: [meta: Map.put(job.meta, "last_error", code)]
+      )
 
-      {:error, reason} ->
-        Logger.warning(
-          "[OCR] Could not store the last error of job #{job.id}: #{inspect(reason)}"
-        )
+    if updated == 1, do: notify(:attempt_failed, id)
+  end
+
+  defp gave_up(%Oban.Job{args: %{"document_id" => id} = args}, code) do
+    case Repo.get(Document, id) do
+      nil -> :ok
+      document -> record_failure(document, code, args["supersedes_extraction_id"])
     end
+  end
 
-    notify(:attempt_failed, id)
+  defp record_failure(document, code, expected_extraction_id) do
+    error = {:job_discarded, reason_text(code)}
+
+    case Worker.persist_and_emit_failure(document, error, expected_extraction_id,
+           unless_live_run: true
+         ) do
+      {:ok, _content} ->
+        Logger.warning("[OCR] Processing failed for document #{document.id} (discarded): #{code}")
+
+      {:error, {:persistence_failed, _errors}} ->
+        notify(:failed, document.id)
+
+      {:error, _already_processed_or_deleted} ->
+        :ok
+    end
+  end
+
+  defp reason_text(code) do
+    {first, rest} = code |> ErrorClassification.describe() |> String.split_at(1)
+    String.upcase(first) <> rest
+  end
+
+  defp ocr_jobs([]), do: []
+
+  defp ocr_jobs(lifeline_jobs) do
+    ids = Enum.map(lifeline_jobs, & &1.id)
+    Repo.all(from j in Oban.Job, where: j.id in ^ids and j.worker == @worker)
   end
 
   defp notify(kind, document_id) do
