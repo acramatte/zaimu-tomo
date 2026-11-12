@@ -5,35 +5,30 @@
   Every uploaded document, every OCR job, every posted journal entry — chronological, live over websocket.
 </p>
 
-<div class="tab-row">
-  <%= for {key, label} <- @tabs do %>
-    <div
-      class={"tab #{if @filter == key, do: "active", else: ""}"}
-      phx-click="filter"
-      phx-value-status={key}
-    >
-      {label}
-      <span class="count">{@counts[key]}</span>
-    </div>
-  <% end %>
-</div>
+<nav class="tab-row" id="activity-tabs" aria-label="Filter activity">
+  <.link
+    :for={{key, label, _statuses} <- @tabs}
+    patch={tab_path(key)}
+    class={["tab", @tab == key && "active"]}
+    aria-current={if @tab == key, do: "page"}
+  >
+    {label} <span class="count">{@counts[key]}</span>
+  </.link>
+</nav>
 
 <div class="card">
-  <div class="feed">
-    <%= if Enum.empty?(@items) do %>
-      <div class="muted" style="padding:32px;text-align:center">Nothing here yet.</div>
-    <% else %>
-      <%= for item <- @items do %>
-        <.legacy_feed_item item={item} categories={@categories} />
-      <% end %>
-    <% end %>
+  <div :if={@activity_items == []} id="activity-empty" class="empty-state">
+    <div class="h">No activity yet</div>
+    <div class="muted">
+      <.link navigate={~p"/documents/new"}>Upload a receipt or invoice</.link>
+      to start your activity feed.
+    </div>
   </div>
-</div>
-
-<div style="margin-top:20px;display:flex;gap:24px;font-size:12px" class="muted">
-  <span class="mono">events.zaimutomo.app · phx_socket connected</span>
-  <span>·</span>
-  <span>Average extraction confidence this week <span class="mono dim">0.91</span></span>
-  <span>·</span>
-  <span><span class="mono dim">{@counts["posted"]}</span> auto-posted via rules</span>
+  <div :if={@activity_items != [] and @items == []} id="activity-tab-empty" class="empty-state">
+    <div class="h">Nothing here right now</div>
+    <div class="muted">No documents are in this state.</div>
+  </div>
+  <div :if={@items != []} id="activity-feed" class="feed">
+    <.feed_item :for={item <- @items} item={item} />
+  </div>
 </div>
