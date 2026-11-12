@@ -5,6 +5,9 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
   use Phoenix.Component
   use ZaimuTomoWeb, :verified_routes
 
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
+  alias ZaimuTomo.DocumentProcessing.Run
+
   # ── Number formatting ──────────────────────────────────────────────────────
 
   def fmt(nil), do: "—"
@@ -57,12 +60,13 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
   # ── Status pill ────────────────────────────────────────────────────────────
 
   attr :status, :string, required: true
+  attr :run, Run, default: nil, doc: "the live OCR run; a retrying one reads Retrying"
 
   def status_pill(assigns) do
     ~H"""
     <%= case @status do %>
       <% "processing" -> %>
-        <span class="pill processing"><span class="pulse"></span>Processing</span>
+        <span class="pill processing"><span class="pulse"></span>{processing_label(@run)}</span>
       <% "review" -> %>
         <span class="pill review"><span class="pulse"></span>Needs review</span>
       <% "posted" -> %>
@@ -80,6 +84,37 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     <% end %>
     """
   end
+
+  defp processing_label(run),
+    do: if(run && Run.retrying?(run), do: "Retrying", else: "Processing")
+
+  @doc """
+  One line on a retrying run for a processing description, such as
+  "Attempt 2 of 5 · last try: the OCR service timed out · next try in under a
+  minute". Returns nil when there is no run or it is not a retry.
+  """
+  @spec retry_note(Run.t() | nil, DateTime.t()) :: String.t() | nil
+  def retry_note(run, now \\ DateTime.utc_now())
+  def retry_note(nil, _now), do: nil
+
+  def retry_note(%Run{} = run, now) do
+    if Run.retrying?(run),
+      do: run |> retry_parts(now) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
+  end
+
+  defp retry_parts(%Run{trigger: :manual_retry, last_error: nil} = run, _now),
+    do: ["Retrying after a failed run", "attempt #{run.attempt} of #{run.max_attempts}"]
+
+  defp retry_parts(%Run{} = run, now) do
+    [
+      "Attempt #{run.attempt} of #{run.max_attempts}",
+      run.last_error && "last try: #{ErrorClassification.describe(run.last_error)}",
+      run.next_attempt_at && next_try(DateTime.diff(run.next_attempt_at, now))
+    ]
+  end
+
+  defp next_try(seconds) when seconds < 60, do: "next try in under a minute"
+  defp next_try(seconds), do: "next try in #{div(seconds + 59, 60)} min"
 
   # ── Processing hero ────────────────────────────────────────────────────────
 
@@ -464,12 +499,12 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
       <div class="body">
         <div class="title">
           {@item.merchant || if(@item.status == "processing", do: "Scanning…", else: @item.filename)}
-          <.status_pill status={@item.status} />
+          <.status_pill status={@item.status} run={@item.run} />
         </div>
         <div class="desc">
           <%= case @item.status do %>
             <% "processing" -> %>
-              Sent to OCR · extraction in progress
+              {retry_note(@item.run) || "Sent to OCR · extraction in progress"}
             <% "review" -> %>
               <span class="amt">{@amount}</span> · {@item.invoice_no || "—"} · ready to verify
             <% "posted" -> %>

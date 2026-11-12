@@ -8,7 +8,9 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerLockTest do
   import Ecto.Query, only: [from: 2]
   import ZaimuTomo.AccountsFixtures, only: [user_fixture: 0, user_scope_fixture: 1]
 
+  alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents.Document
@@ -37,12 +39,17 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerLockTest do
 
     on_exit(fn ->
       Repo.put_dynamic_repo(@repo_name)
+
+      Repo.delete_all(
+        from(j in Oban.Job, where: fragment("?->>'document_id' = ?", j.args, ^"#{document.id}"))
+      )
+
       Repo.delete_all(from(d in Document, where: d.user_id == ^user.id))
       Repo.delete!(user)
       Supervisor.stop(repo)
     end)
 
-    %{document: document}
+    %{document: document, scope: scope}
   end
 
   defp success(document), do: fn -> terminal_write(:success, document) end
@@ -133,6 +140,39 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerLockTest do
     end
   end
 
+  # A terminal write in flight: holds the document row lock with a failed row
+  # written but not committed until the test sends :release.
+  defp write_failure_holding_lock(document) do
+    test = self()
+
+    writer =
+      Task.async(fn ->
+        Repo.put_dynamic_repo(@repo_name)
+
+        Repo.transaction(fn ->
+          Repo.query!("SELECT id FROM documents WHERE id = $1 FOR UPDATE", [document.id])
+
+          {:ok, failed} =
+            ExtractedContentContext.create_extracted_content(%{
+              document_id: document.id,
+              user_id: document.user_id,
+              extracted_data: %{},
+              status: "failed",
+              error_details: %{"message" => "An unexpected error"}
+            })
+
+          send(test, :row_written)
+
+          receive do
+            :release -> failed
+          end
+        end)
+      end)
+
+    assert_receive :row_written, 5_000
+    writer
+  end
+
   defp terminal_rows(document) do
     Repo.all(from(e in ExtractedContent, where: e.document_id == ^document.id, select: e.status))
   end
@@ -158,5 +198,56 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerLockTest do
       assert [{:error, :already_processed}, {:ok, winner}] = Enum.sort_by(results, &elem(&1, 0))
       assert terminal_rows(document) == [winner.status]
     end
+  end
+
+  describe "Retry processing across independent connections" do
+    test "waits for a terminal write in flight and supersedes the row it wrote",
+         %{document: document, scope: scope} do
+      writer = write_failure_holding_lock(document)
+
+      retry =
+        Task.async(fn ->
+          Repo.put_dynamic_repo(@repo_name)
+          DocumentProcessing.retry_document(scope, document)
+        end)
+
+      assert wait_for_blocked_backends(1), "Retry processing must wait on the document row lock"
+
+      send(writer.pid, :release)
+      assert {:ok, failed} = Task.await(writer)
+
+      assert {:ok, job} = Task.await(retry, 10_000)
+      assert job.args.supersedes_extraction_id == failed.id
+    end
+  end
+
+  describe "Recovery across independent connections" do
+    test "skips a document whose failure was written while it waited",
+         %{document: document, scope: scope} do
+      writer = write_failure_holding_lock(document)
+
+      recovery =
+        Task.async(fn ->
+          Repo.put_dynamic_repo(@repo_name)
+
+          DocumentProcessing.Recovery.enqueue_stuck([
+            %{user_id: scope.user.id, currency: "CHF", document_ids: [document.id]}
+          ])
+        end)
+
+      assert wait_for_blocked_backends(1), "Recovery must wait on the document row lock"
+
+      send(writer.pid, :release)
+      assert {:ok, _failed} = Task.await(writer)
+
+      assert Task.await(recovery, 10_000) == []
+      assert ocr_jobs(document) == []
+    end
+  end
+
+  defp ocr_jobs(document) do
+    Repo.all(
+      from(j in Oban.Job, where: fragment("?->>'document_id' = ?", j.args, ^"#{document.id}"))
+    )
   end
 end

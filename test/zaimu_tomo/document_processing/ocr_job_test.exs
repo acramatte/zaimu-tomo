@@ -45,6 +45,24 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       assert [_] = all_enqueued(worker: OCRJob)
     end
 
+    test "the database refuses a second live job for a document that skips Oban's check" do
+      scope = user_scope_fixture()
+
+      {:ok, document} =
+        Documents.create_document(scope, %{filename: "a.pdf", object_key: "documents/a.pdf"})
+
+      unchecked =
+        document
+        |> DocumentProcessing.ocr_job("CHF", nil)
+        |> Ecto.Changeset.put_change(:unique, nil)
+
+      assert {:error, %Ecto.Changeset{errors: [args: {"has already been taken", _}]}} =
+               Oban.insert(unchecked)
+
+      Repo.update_all(Oban.Job, set: [state: "completed"])
+      assert {:ok, %Oban.Job{conflict?: false}} = Oban.insert(unchecked)
+    end
+
     test "an invalid document enqueues no job and creates no row" do
       scope = user_scope_fixture()
 
@@ -87,7 +105,7 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
   end
 
   describe "perform/1 outcome matrix" do
-    test "transient error retries without persisting a failed row or broadcasting" do
+    test "transient error retries without persisting a failed row or broadcasting a failure" do
       scope = user_scope_fixture()
       document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
       Storage.put_object("documents/invoice.pdf", "invoice bytes")
@@ -100,6 +118,22 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
 
       assert Repo.aggregate(ExtractedContent, :count) == 0
       refute_received %{status: :failed}
+    end
+
+    test "the final attempt broadcasts the failure once, not an attempt failure" do
+      scope = user_scope_fixture()
+      document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
+      Storage.put_object("documents/invoice.pdf", "invoice bytes")
+      stub_mistral(fn conn -> Plug.Conn.send_resp(conn, 503, "unavailable") end)
+      document_id = document.id
+
+      DocumentProcessing.subscribe_events(scope)
+
+      assert :ok = perform_job(OCRJob, args_for(document), attempt: 5, max_attempts: 5)
+
+      assert_received %{status: :failed, document_id: ^document_id}
+      refute_received %{status: :failed}
+      refute_received %{status: :attempt_failed}
     end
 
     test "a transient retry returns and logs only a body-free summary" do

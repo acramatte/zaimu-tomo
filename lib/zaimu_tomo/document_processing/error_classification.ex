@@ -21,6 +21,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
 
   `summarize/1` renders a bounded, body-free error class for Oban error
   history and logs, so raw provider response bodies never reach `oban_jobs`.
+  `describe/1` turns that class into a short phrase for the user.
   """
 
   @type class :: :transient | :permanent
@@ -176,6 +177,9 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def summarize({:prompt_fetch_failed, status}) when is_integer(status),
     do: "prompt_fetch_failed:http_#{status}"
 
+  def summarize({:unexpected_status, status}) when is_integer(status),
+    do: "storage:http_#{status}"
+
   def summarize({:persistence_failed, _errors}), do: "persistence_failed"
   def summarize({:validation_failed, _errors}), do: "validation_failed"
   def summarize({:local_prompt_not_found, _name}), do: "local_prompt_not_found"
@@ -187,4 +191,45 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def summarize(reason) when reason in @pipeline_atoms, do: Atom.to_string(reason)
   def summarize(reason) when is_atom(reason), do: "storage:#{reason}"
   def summarize(_other), do: "unclassified"
+
+  @services %{
+    "ocr_upload_failed" => "the OCR service",
+    "ocr_url_failed" => "the OCR service",
+    "ocr_request_failed" => "the OCR service",
+    "llm_request_failed" => "the extraction service",
+    "prompt_fetch_failed" => "the prompt service"
+  }
+
+  @doc """
+  Describes a `summarize/1` code as a short phrase for the user, such as
+  "the OCR service timed out". `"job_timeout"` is the job running past its
+  time limit, and `"job_interrupted"` is a run its node stopped mid-run. A code
+  it does not know reads "an unexpected error".
+  """
+  @spec describe(String.t()) :: String.t()
+  def describe("storage:" <> _detail), do: "couldn't read the uploaded file"
+  def describe("scratch_unavailable:" <> _posix), do: "couldn't prepare the file for reading"
+  def describe("job_timeout"), do: "the run took too long"
+  def describe("job_interrupted"), do: "the run was interrupted"
+
+  def describe(code) when is_binary(code) do
+    with [stage, detail] <- String.split(code, ":", parts: 2),
+         {:ok, service} <- Map.fetch(@services, stage) do
+      describe_service(service, detail)
+    else
+      _unknown -> "an unexpected error"
+    end
+  end
+
+  defp describe_service(service, detail) when detail in ["http_408", "transport_timeout"],
+    do: "#{service} timed out"
+
+  defp describe_service(service, "http_429"), do: "#{service} was rate-limited"
+
+  defp describe_service(service, detail) when detail in ["http_409", "http_425"],
+    do: "#{service} was busy"
+
+  defp describe_service(service, "http_5" <> _status), do: "#{service} returned an error"
+  defp describe_service(service, "transport" <> _reason), do: "couldn't reach #{service}"
+  defp describe_service(service, _detail), do: "#{service} refused the request"
 end

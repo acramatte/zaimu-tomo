@@ -63,7 +63,10 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
       </.link>
       <.link :if={!@from_journal?} class="btn sm" navigate={~p"/documents"}>← Documents</.link>
       <span id="invoice-status">
-        <.status_pill status={Review.document_status(@processing_state, @extracted_content)} />
+        <.status_pill
+          status={Review.document_status(@processing_state, @extracted_content)}
+          run={@run}
+        />
       </span>
       <button
         :if={@processing_state in [:failed, :stuck]}
@@ -291,7 +294,11 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
         <%= case @stage do %>
           <% :processing -> %>
-            <.processing_card document={@document} processing_state={@processing_state} />
+            <.processing_card
+              document={@document}
+              processing_state={@processing_state}
+              run={@run}
+            />
           <% :check -> %>
             <.check_card
               values={@values}
@@ -331,8 +338,16 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   attr :document, :map, required: true
   attr :processing_state, :atom, required: true
+  attr :run, DocumentProcessing.Run, default: nil
 
   defp processing_card(assigns) do
+    assigns =
+      assign(assigns,
+        retry_note: retry_note(assigns.run),
+        earlier_failures:
+          Enum.filter(assigns.document.extracted_content, &(&1.status == "failed"))
+      )
+
     ~H"""
     <div class="card" id="invoice-processing">
       <div class="card-head">
@@ -342,6 +357,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         <%= case @processing_state do %>
           <% :processing -> %>
             OCR in progress. The form appears here when extraction is done, usually within a minute.
+            <div :if={@retry_note} id="invoice-retry" class="mt-2 text-[color:var(--info)]">
+              {@retry_note}
+            </div>
           <% :stuck -> %>
             Processing stalled. No OCR run is active; retry processing to try again.
           <% :failed -> %>
@@ -349,6 +367,15 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
           <% _ -> %>
             No extracted data available
         <% end %>
+      </div>
+      <div :if={@processing_state == :processing and @earlier_failures != []}>
+        <div class="invoice-section-title">Earlier attempts</div>
+        <ul class="invoice-history" id="invoice-earlier-attempts">
+          <li :for={failure <- @earlier_failures}>
+            <time>{fmt_datetime(failure.inserted_at)}</time>
+            <span>{failed_run_message(failure)}</span>
+          </li>
+        </ul>
       </div>
     </div>
     """
@@ -846,12 +873,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     case DocumentProcessing.retry_document(scope, document) do
       {:ok, _job} ->
         schedule_refresh(:processing)
-
-        {:noreply,
-         socket
-         |> assign(:processing_state, :processing)
-         |> assign(:stage, :processing)
-         |> put_flash(:info, "Processing restarted")}
+        {:noreply, socket |> reload() |> put_flash(:info, "Processing restarted")}
 
       {:error, {:not_retryable, state}} ->
         {:noreply,
@@ -1028,6 +1050,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   defp load_document(socket, document) do
     processing_state = DocumentProcessing.processing_state(document)
+    run = DocumentProcessing.live_runs([document.id])[document.id]
     ec = List.first(document.extracted_content)
     rd = ec && ec.review_decision
     stage = stage(processing_state, rd)
@@ -1039,6 +1062,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     socket
     |> assign(:document, document)
     |> assign(:processing_state, processing_state)
+    |> assign(:run, run)
     |> assign(:stage, stage)
     |> assign(:extracted_content, ec)
     |> assign(:review_decision, rd)
@@ -1257,12 +1281,20 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   defp tax_label(%{status: status}), do: TaxDeductionClaim.status_label(status)
   defp tax_label(_claim), do: "—"
 
-  defp failure_message(document) do
-    case List.first(document.extracted_content) do
-      %{error_details: %{"message" => message}} when is_binary(message) -> message
-      _ -> "Processing failed. Retry processing to try again."
-    end
-  end
+  defp failed_run_message(content, fallback \\ "Processing failed")
+
+  defp failed_run_message(%{error_details: %{"message" => message}}, _fallback)
+       when is_binary(message),
+       do: message
+
+  defp failed_run_message(_content, fallback), do: fallback
+
+  defp failure_message(document),
+    do:
+      failed_run_message(
+        List.first(document.extracted_content),
+        "Processing failed. Retry processing to try again."
+      )
 
   defp error_summary(%Ecto.Changeset{} = changeset) do
     changeset
