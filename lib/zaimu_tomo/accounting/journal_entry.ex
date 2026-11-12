@@ -48,8 +48,8 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     field :need_or_want, :string
     field :status, :string
     field :notes, :string
-    # Posting-time snapshot of the source document's fingerprint. Only the
-    # one-off backfill may set it on an existing row (see the backfill module).
+    # Posting-time snapshot of the source document's fingerprint. A database
+    # trigger refuses any change once it is set (see FingerprintBackfill).
     field :source_document_sha256, :string, redact: true
     field :source_file_reuse_confirmed, :boolean, default: false
 

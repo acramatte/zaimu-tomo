@@ -84,9 +84,9 @@ safe while the app stays online; no upload or approval pause is needed.
 4. Rerun after any resolution until it reports complete coverage, or until the
    only remaining rows are documented missing objects.
 
-This is the only permitted update of an existing entry's fingerprint. If a
-database-level immutability trigger on `journal_entries` is ever added, run the
-backfill first or allow this update explicitly.
+This is the only permitted update of an existing entry's fingerprint. The
+`journal_entries_guard_fingerprint` trigger allows it because it fills a missing
+digest. The trigger refuses any change once a digest is set.
 
 ### Throttling
 

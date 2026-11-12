@@ -1090,6 +1090,53 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
+  describe "journal entry fingerprint" do
+    test "cannot change once set, whoever writes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user, content_sha256: @file_a)
+      row = from(je in JournalEntry, where: je.id == ^entry.id)
+
+      for set <- [
+            [source_document_sha256: @file_b],
+            [source_document_sha256: nil],
+            [source_file_reuse_confirmed: true]
+          ] do
+        assert_raise Postgrex.Error, ~r/journal_entries_fingerprint_immutable_check/, fn ->
+          Repo.update_all(row, set: set)
+        end
+      end
+
+      assert %JournalEntry{source_document_sha256: @file_a, source_file_reuse_confirmed: false} =
+               Repo.get!(JournalEntry, entry.id)
+
+      assert {1, _} = Repo.update_all(row, set: [notes: "Typo fixed"])
+    end
+
+    test "a missing fingerprint can be filled once, with its reuse confirmation" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      entry = create_entry(scope, user)
+      row = from(je in JournalEntry, where: je.id == ^entry.id)
+
+      assert_raise Postgrex.Error, ~r/journal_entries_fingerprint_immutable_check/, fn ->
+        Repo.update_all(row, set: [source_file_reuse_confirmed: true])
+      end
+
+      assert {1, _} =
+               Repo.update_all(row,
+                 set: [source_document_sha256: @file_a, source_file_reuse_confirmed: true]
+               )
+
+      assert_raise Postgrex.Error, ~r/journal_entries_fingerprint_immutable_check/, fn ->
+        Repo.update_all(row, set: [source_file_reuse_confirmed: false])
+      end
+
+      assert %JournalEntry{source_document_sha256: @file_a, source_file_reuse_confirmed: true} =
+               Repo.get!(JournalEntry, entry.id)
+    end
+  end
+
   defp create_entry(scope, user, overrides \\ []) do
     {content_sha256, overrides} = Keyword.pop(overrides, :content_sha256)
     document = document_fixture(scope, %{content_sha256: content_sha256})
