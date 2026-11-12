@@ -9,6 +9,7 @@ This is a web application written using the Phoenix web framework.
 
 - The system design, infrastructure, and runbooks live in `docs/`. Start at `docs/README.md`. `docs/architecture.md` is a lightweight arc42 document and is the source of truth for how the system fits together. Read it before non-trivial work.
 - **Docs are part of the change.** If your change alters a context, schema, flow, Oban queue or job, external service, env var, deployment unit, or runbook, update the matching `docs/` page in the same commit. The "Keeping the docs current" table in `docs/README.md` maps change types to sections. Structural or infrastructure decisions get a dated row in `docs/architecture.md` §9. New or resolved risks and debt go in §11.
+- A status changes in one function only. Before writing to a status field, read "State machines" in `docs/architecture.md` §8 and change the function listed there. Do not add a second writer.
 - New env vars must appear in `docs/configuration.md`, `config/deploy.yml`, and (if secret) `.kamal/secrets.example`.
 - `specs/` holds historical spec-kit design records. Do not treat them as current. The `docs/` pages win when they disagree.
 - Never put secrets, real hostnames or IPs, host port allocations, or backup destinations in docs. Name the variable instead.
