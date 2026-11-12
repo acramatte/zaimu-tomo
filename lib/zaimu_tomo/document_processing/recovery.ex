@@ -62,21 +62,22 @@ defmodule ZaimuTomo.DocumentProcessing.Recovery do
   @doc """
   Enqueues one fresh OCR job per stuck document and returns the enqueued jobs.
 
-  Idempotent through OCRJob uniqueness: when a live job already exists for a
-  document, Oban reports a conflict and no second job is created.
+  Each document is rechecked under its row lock through
+  `DocumentProcessing.recover_stuck/2`, so a document that gained a live job
+  or an extraction row since `list_stuck/0` is skipped.
   """
   @spec enqueue_stuck([group()]) :: [Oban.Job.t()]
   def enqueue_stuck(groups) when is_list(groups) do
     Enum.flat_map(groups, fn %{currency: currency, document_ids: document_ids} ->
-      Enum.flat_map(document_ids, fn document_id ->
-        %Document{id: document_id}
-        |> DocumentProcessing.ocr_job(currency, nil)
-        |> Oban.insert()
-        |> case do
-          {:ok, %Oban.Job{conflict?: true}} -> []
-          {:ok, %Oban.Job{} = job} -> [job]
-        end
-      end)
+      Enum.flat_map(document_ids, &recover(&1, currency))
     end)
+  end
+
+  defp recover(document_id, currency) do
+    case DocumentProcessing.recover_stuck(document_id, currency) do
+      {:ok, %Oban.Job{conflict?: true}} -> []
+      {:ok, %Oban.Job{} = job} -> [job]
+      {:error, _not_stuck} -> []
+    end
   end
 end

@@ -82,6 +82,7 @@ defmodule ZaimuTomo.DocumentProcessing do
       },
       meta: Run.job_meta(trigger)
     )
+    |> Ecto.Changeset.unique_constraint(:args, name: :oban_jobs_one_live_ocr_job_per_document)
   end
 
   @doc """
@@ -143,8 +144,6 @@ defmodule ZaimuTomo.DocumentProcessing do
 
     live_jobs()
     |> where([j], fragment("?->>'document_id'", j.args) in ^Map.keys(ids_by_text))
-    # Uniqueness keeps one live job per document; should two exist, the newest wins.
-    |> order_by([j], asc: j.id)
     |> select([j], {fragment("?->>'document_id'", j.args), j})
     |> Repo.all()
     |> Map.new(fn {id_text, job} -> {ids_by_text[id_text], Run.from_job(job)} end)
@@ -171,22 +170,7 @@ defmodule ZaimuTomo.DocumentProcessing do
   @spec retry_document(Scope.t(), Document.t()) ::
           {:ok, Oban.Job.t()} | {:error, :not_found | {:not_retryable, processing_state()}}
   def retry_document(%Scope{user: %{id: user_id}} = scope, %Document{user_id: user_id} = document) do
-    # The terminal writes take this lock too, so the latest row cannot change
-    # before the job that supersedes it is inserted.
-    Repo.transact(fn ->
-      with %Document{} <-
-             Repo.one(from d in Document, where: d.id == ^document.id, lock: "FOR UPDATE"),
-           latest = ExtractedContentContext.get_latest_by_document(document.id),
-           state when state in [:failed, :stuck] <- classify_state(live_job?(document.id), latest) do
-        document
-        |> ocr_job(scope.user.base_currency, latest && latest.id, :manual_retry)
-        |> Oban.insert()
-      else
-        nil -> {:error, :not_found}
-        state -> {:error, {:not_retryable, state}}
-      end
-    end)
-    |> case do
+    case rerun(document.id, scope.user.base_currency, [:failed, :stuck], :manual_retry) do
       {:ok, job} ->
         broadcast_event(:retried, user_id, %{document_id: document.id, user_id: user_id})
         {:ok, job}
@@ -197,6 +181,44 @@ defmodule ZaimuTomo.DocumentProcessing do
   end
 
   def retry_document(%Scope{}, %Document{}), do: {:error, :not_found}
+
+  @doc """
+  Enqueues a recovery run for a document that is still stuck: no extraction
+  row and no live job. Unscoped, for `Recovery`. Returns
+  `{:error, {:not_retryable, state}}` when a terminal write or another run got
+  there first.
+  """
+  @spec recover_stuck(pos_integer(), String.t()) ::
+          {:ok, Oban.Job.t()} | {:error, :not_found | {:not_retryable, processing_state()}}
+  def recover_stuck(document_id, currency_hint),
+    do: rerun(document_id, currency_hint, [:stuck], :upload)
+
+  # The terminal writes take this lock too, so the state checked here cannot
+  # change before the job that supersedes the latest row is inserted.
+  defp rerun(document_id, currency_hint, allowed_states, trigger) do
+    Repo.transact(fn ->
+      with %Document{} = document <-
+             Repo.one(from d in Document, where: d.id == ^document_id, lock: "FOR UPDATE"),
+           latest = ExtractedContentContext.get_latest_by_document(document_id),
+           state = classify_state(live_job?(document_id), latest),
+           :ok <- ensure_allowed(state, allowed_states) do
+        document
+        |> ocr_job(currency_hint, latest && latest.id, trigger)
+        |> Oban.insert()
+      else
+        nil -> {:error, :not_found}
+        error -> error
+      end
+    end)
+    |> case do
+      {:error, %Ecto.Changeset{}} -> {:error, {:not_retryable, :processing}}
+      result -> result
+    end
+  end
+
+  defp ensure_allowed(state, allowed_states) do
+    if state in allowed_states, do: :ok, else: {:error, {:not_retryable, state}}
+  end
 
   @doc """
   Returns true when a live OCR job exists for the document.

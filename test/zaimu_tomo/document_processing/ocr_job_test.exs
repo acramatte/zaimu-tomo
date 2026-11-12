@@ -45,6 +45,24 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
       assert [_] = all_enqueued(worker: OCRJob)
     end
 
+    test "the database refuses a second live job for a document that skips Oban's check" do
+      scope = user_scope_fixture()
+
+      {:ok, document} =
+        Documents.create_document(scope, %{filename: "a.pdf", object_key: "documents/a.pdf"})
+
+      unchecked =
+        document
+        |> DocumentProcessing.ocr_job("CHF", nil)
+        |> Ecto.Changeset.put_change(:unique, nil)
+
+      assert {:error, %Ecto.Changeset{errors: [args: {"has already been taken", _}]}} =
+               Oban.insert(unchecked)
+
+      Repo.update_all(Oban.Job, set: [state: "completed"])
+      assert {:ok, %Oban.Job{conflict?: false}} = Oban.insert(unchecked)
+    end
+
     test "an invalid document enqueues no job and creates no row" do
       scope = user_scope_fixture()
 
