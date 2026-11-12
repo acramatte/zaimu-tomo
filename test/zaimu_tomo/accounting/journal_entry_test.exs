@@ -72,8 +72,7 @@ defmodule ZaimuTomo.Accounting.JournalEntryTest do
         user_id: 1,
         amount_cents: 1_000,
         currency: "USD",
-        date: ~D[2026-07-31],
-        status: "uncategorized"
+        date: ~D[2026-07-31]
       },
       overrides
     )

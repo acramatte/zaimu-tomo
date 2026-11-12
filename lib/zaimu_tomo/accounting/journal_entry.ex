@@ -60,6 +60,10 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
     timestamps(type: :utc_datetime)
   end
 
+  @doc """
+  An entry starts uncategorized, and `changeset_for_categorize/2` posts it.
+  Database triggers refuse any other start or move, whoever writes it.
+  """
   @spec changeset_for_create(map()) :: Ecto.Changeset.t(t())
   def changeset_for_create(attrs) do
     %__MODULE__{}
@@ -72,13 +76,12 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
       :description,
       :issuer,
       :invoice_number,
-      :status,
       :source_document_sha256,
       :source_file_reuse_confirmed
     ])
     |> Currency.normalize_and_validate(:currency)
     |> validate_required([:review_decision_id, :user_id, :amount_cents, :currency, :date])
-    |> validate_inclusion(:status, ["uncategorized", "posted"])
+    |> put_change(:status, "uncategorized")
     |> foreign_key_constraint(:review_decision_id)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint(:review_decision_id)

@@ -454,9 +454,13 @@ flowchart LR
 ```
 
 **Journal entry** (`journal_entries.status`). An entry is posted once. Approval
-creates and posts it in one transaction. `Accounting.post_entry/6` posts an
-older entry on a locked row and returns `:already_posted` on a repeat. The
-database does not guard this move. (D17, D19)
+creates and posts it in one transaction: it inserts the entry uncategorized and
+then posts it. `Accounting.post_entry/6` posts an older entry on a locked row
+and returns `:already_posted` on a repeat. Two triggers refuse any other start
+or move, whoever writes it. An insert in any status but `uncategorized` fails as
+`journal_entries_initial_status_check`. A status change other than
+uncategorized → posted fails as `journal_entries_transition_check`. A check
+constraint limits the values. (D17, D19, D30)
 
 ```mermaid
 stateDiagram-v2
@@ -582,6 +586,7 @@ is in [`specs/`](../specs/README.md).
 | D27 | 2026-11 | Every way an OCR run ends is recorded and broadcast: `AttemptOutcomes` also handles a final attempt Oban discards after a raise, crash, or job timeout, `Oban.Lifeline`'s rescues and discards (`[:oban, :plugin, :stop]`), and `OCRJob`'s `failure_not_recorded` cancel (`[:oban, :job, :stop]`) | These runs ended with no failed row and no broadcast, so the document turned stalled with no reason and open pages kept showing Processing. Oban runs no worker code after a raise, crash, or timeout, and Lifeline acts after the node is gone, so only Oban's telemetry sees these, and it fires after the job's state is written. The failed row goes through `Worker.persist_and_emit_failure/4`, so the supersede check keeps one terminal row per run. A discarded run's failure is dropped when Retry processing already started a new run, and both take the document row lock, so the failure can never cancel that retry. Consequences: a telemetry handler writes extraction rows and review decisions, in the job's process, Oban's reporting task, or the Lifeline process; if that write itself fails, stuck detection is the fallback; an operator's `Oban.cancel_job/1` on a running OCR job still leaves the document stalled without a broadcast. |
 | D28 | 2026-11 | Enforce one live OCR job per document with a partial unique index on `oban_jobs`, instead of relying on Oban's unique option alone | Every reader of a document's run assumed a single live job, and `live_runs/1` carried a "newest wins" fallback for a state nothing prevented. Oban's open-source uniqueness is an advisory lock and a select, not a constraint. Retry processing and Recovery now enqueue under the document row lock, and the index makes the database refuse a second job from any path, so the fallback is gone. Consequence: the app owns an index on Oban's table, which a future Oban migration that rebuilds `oban_jobs` must keep. |
 | D29 | 2026-11 | Enforce the fingerprint's immutability in the database: the `BEFORE UPDATE` row trigger `journal_entries_guard_fingerprint` lets an update set `source_document_sha256` and `source_file_reuse_confirmed` only while the digest is null, and only to a digest, and raises a check violation named `journal_entries_fingerprint_immutable_check` otherwise | The rule that a posting-time fingerprint never changes lived only in a comment and in this document. A raw update or a later backfill could overwrite or clear a digest, or flip a confirmation, and so reopen or hide a duplicate the unique index exists to catch. The backfill only fills null digests, so the trigger allows exactly its update. Consequences: the rule lives in the trigger function, and a deliberate manual correction of a fingerprint needs the trigger disabled for that transaction; existing rows are not checked. |
+| D30 | 2026-11 | Enforce the journal entry state machine in the database: the check constraint `journal_entries_status_check` limits the status to `uncategorized` and `posted`, the `BEFORE UPDATE` row trigger `journal_entries_guard_transition` allows only uncategorized → posted (`journal_entries_transition_check`), and the `BEFORE INSERT` row trigger `journal_entries_guard_initial_status` refuses any status but `uncategorized` (`journal_entries_initial_status_check`) | D19 made posting a one-way latch in the application only, so a raw update could unpost an entry or set an unknown status, and an insert could create an entry already posted with no posting event. Approval with a booking inserts the entry uncategorized and posts it with an update in the same transaction, so every writer starts uncategorized and the insert rule breaks no path. `JournalEntry.changeset_for_create/1` sets the status itself and no longer takes it as input. Consequences: the status check validates existing rows, so the migration fails on a legacy row with another status; a data-only load of posted entries needs `--disable-triggers` ([operations.md](operations.md)); a deliberate manual unposting needs the trigger disabled for that transaction. |
 
 ---
 

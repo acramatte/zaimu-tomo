@@ -905,8 +905,7 @@ defmodule ZaimuTomo.AccountingTest do
           currency: "CHF",
           date: ~D[2026-06-09],
           issuer: " acme corp ",
-          invoice_number: "inv-777 ",
-          status: "uncategorized"
+          invoice_number: "inv-777 "
         })
 
       assert {:error, changeset} = Repo.insert(changeset)
@@ -1087,6 +1086,56 @@ defmodule ZaimuTomo.AccountingTest do
 
       assert {:ok, _} = insert.(user_fixture(), %{})
       assert {:ok, _} = insert.(user, %{source_document_sha256: @file_b})
+    end
+  end
+
+  describe "journal entry status" do
+    test "moves only from uncategorized to posted, whoever writes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      uncategorized = create_entry(scope, user)
+
+      {:ok, posted} =
+        Accounting.post_entry(create_entry(scope, user), user.id, "Software", "need")
+
+      row = fn entry -> from(je in JournalEntry, where: je.id == ^entry.id) end
+
+      for {entry, to} <- [{posted, "uncategorized"}, {posted, "void"}, {uncategorized, "void"}] do
+        assert_raise Postgrex.Error, ~r/journal_entries_transition_check/, fn ->
+          Repo.update_all(row.(entry), set: [status: to])
+        end
+      end
+
+      assert %JournalEntry{status: "posted"} = Repo.get!(JournalEntry, posted.id)
+      assert {1, _} = Repo.update_all(row.(posted), set: [notes: "Typo fixed"])
+      assert {1, _} = Repo.update_all(row.(uncategorized), set: [status: "posted"])
+    end
+
+    test "starts uncategorized, whoever writes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      insert = fn status ->
+        content = extracted_content_fixture(document_fixture(scope), user, %{})
+        {:ok, decision} = Review.create_initial_decision(content)
+
+        Repo.insert(%JournalEntry{
+          review_decision_id: decision.id,
+          user_id: user.id,
+          amount_cents: 42_00,
+          currency: "CHF",
+          date: ~D[2026-06-09],
+          status: status
+        })
+      end
+
+      for status <- ~w(posted void) do
+        assert_raise Ecto.ConstraintError, ~r/journal_entries_initial_status_check/, fn ->
+          insert.(status)
+        end
+      end
+
+      assert {:ok, %JournalEntry{status: "uncategorized"}} = insert.("uncategorized")
     end
   end
 

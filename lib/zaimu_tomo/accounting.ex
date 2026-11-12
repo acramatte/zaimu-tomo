@@ -235,7 +235,6 @@ defmodule ZaimuTomo.Accounting do
       description: data.reason_for_payment,
       issuer: data.issuer,
       invoice_number: data.invoice_number,
-      status: "uncategorized",
       source_document_sha256: Keyword.get(opts, :source_document_sha256),
       source_file_reuse_confirmed: Keyword.get(opts, :source_file_reuse_confirmed, false)
     }
