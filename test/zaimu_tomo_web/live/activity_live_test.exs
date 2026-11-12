@@ -7,7 +7,9 @@ defmodule ZaimuTomoWeb.ActivityLiveTest do
 
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.Repo
 
   setup :register_and_log_in_user
 
@@ -112,7 +114,7 @@ defmodule ZaimuTomoWeb.ActivityLiveTest do
     assert has_element?(view, "#activity-tabs a[href$='/activity?tab=processing'] .count", "1")
 
     {:ok, _content} =
-      ZaimuTomo.DocumentProcessing.Worker.persist_and_emit_success(
+      Worker.persist_and_emit_success(
         doc,
         %{
           "amount_to_pay_cents" => 4200,
@@ -143,7 +145,7 @@ defmodule ZaimuTomoWeb.ActivityLiveTest do
     {1, _} =
       from(j in Oban.Job, where: j.worker == "ZaimuTomo.DocumentProcessing.OCRJob")
       |> where([j], fragment("?->>'document_id' = ?", j.args, ^to_string(doc.id)))
-      |> ZaimuTomo.Repo.update_all(set: [state: state])
+      |> Repo.update_all(set: [state: state])
   end
 
   defp await(view, selector, text, attempts \\ 40) do
