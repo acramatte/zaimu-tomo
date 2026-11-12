@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01PAdbTugbF9Qy9bdcxEnm44",
+  "agent_id": "ad5ff2669eceb8e5b",
+  "subagent_type": "egm:egm-design",
+  "task_description": "Design review of revised brief",
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 141127,
+    "cache_read_tokens": 620412,
+    "output_tokens": 43071,
+    "api_call_count": 9
+  },
+  "started_at": "2026-11-09T10:49:32.48962+01:00",
+  "completed_at": "2026-11-09T10:56:34.223842972+01:00"
+}

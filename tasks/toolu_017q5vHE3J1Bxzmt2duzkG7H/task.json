@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_017q5vHE3J1Bxzmt2duzkG7H",
+  "agent_id": "a6265eab3896c15e1",
+  "subagent_type": "egm:egm-zoom-out",
+  "task_description": "Zoom-out review of revised brief",
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 104404,
+    "cache_read_tokens": 358785,
+    "output_tokens": 28380,
+    "api_call_count": 8
+  },
+  "started_at": "2026-11-09T10:49:32.486791327+01:00",
+  "completed_at": "2026-11-09T10:54:08.522242057+01:00"
+}
