@@ -193,7 +193,7 @@ sequenceDiagram
     J-->>LV: PubSub user:id:document_processing:success
     U->>LV: invoice page: check + correct fields, book (category, need/want, tax), post or reject<br/>(+ explicit file-reuse confirmation)
     LV->>DB: txn: lock the pending review_decision, decide it (approved, or amended when a field changed),<br/>create posted journal_entry (source_document_sha256 snapshot) + tax claim + event_log
-    Note over LV,DB: the duplicate gate runs inside the txn (Review.posting_decision/2):<br/>same issuer + number or same file + same details are refused;<br/>a soft issuer/date/amount/currency match or a reused file rolls back<br/>until the reviewer confirms that verdict. Unique indexes are the backstop
+    Note over LV,DB: the duplicate gate runs inside the txn (Review.posting_decision/2):<br/>same issuer + number or same file + same details are refused.<br/>A soft issuer/date/amount/currency match or a reused file rolls back<br/>until the reviewer confirms that verdict. Unique indexes are the backstop
     LV-->>L: async Langfuse score on the trace: 1 when posted as extracted, 0 with the corrected<br/>fields (extracted → posted values, never the comment), unless the user picked 👍/👎
 ```
 
