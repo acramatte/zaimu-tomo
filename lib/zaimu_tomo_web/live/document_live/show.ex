@@ -25,7 +25,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   @max_amount_cents 2_147_483_647
 
   @impl true
-  def mount(%{"id" => id}, _session, socket) do
+  def mount(%{"id" => id} = params, _session, socket) do
     if connected?(socket) do
       Documents.subscribe_documents(socket.assigns.current_scope)
       DocumentProcessing.subscribe_events(socket.assigns.current_scope)
@@ -36,6 +36,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     socket =
       socket
       |> assign(:current_path, "/documents")
+      # Opened from the journal's booking queue: going back returns there.
+      |> assign(:from_journal?, params["from"] == "journal")
       |> assign(:preview_kind, preview_kind(document))
       |> assign(:categories, Accounting.list_categories(socket.assigns.current_scope))
       |> assign(:show_rejection_form, false)
@@ -51,7 +53,15 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   def render(assigns) do
     ~H"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-      <.link class="btn sm" navigate={~p"/documents"}>← Documents</.link>
+      <.link
+        :if={@from_journal?}
+        id="invoice-back-to-journal"
+        class="btn sm"
+        navigate={~p"/journal_entries"}
+      >
+        ← Journal entries
+      </.link>
+      <.link :if={!@from_journal?} class="btn sm" navigate={~p"/documents"}>← Documents</.link>
       <span id="invoice-status">
         <.status_pill status={Review.document_status(@processing_state, @extracted_content)} />
       </span>

@@ -670,90 +670,49 @@ defmodule ZaimuTomo.AccountingTest do
     end
   end
 
-  describe "list_journal_entries/1" do
-    test "sorts entries with newer updated_at above older ones" do
+  describe "journal ledger queries" do
+    test "split unbooked entries from posted ones, grouped by invoice month and year" do
       user = user_fixture()
       scope = user_scope_fixture(user)
+      other_scope = user_scope_fixture()
 
-      e1 = create_entry(scope, user)
-      e2 = create_entry(scope, user)
-      e3 = create_entry(scope, user)
+      unbooked = create_entry(scope, user, ~D[2026-06-15], 999, "CHF", nil)
+      june_chf = create_entry(scope, user, ~D[2026-06-01], 100, "CHF", "Software")
+      june_eur = create_entry(scope, user, ~D[2026-06-30], 250, "EUR", "Software")
+      june_chf2 = create_entry(scope, user, ~D[2026-06-20], 50, "CHF", "Groceries")
+      july = create_entry(scope, user, ~D[2026-07-01], 7, "CHF", "Software")
+      last_year = create_entry(scope, user, ~D[2025-12-31], 1, "CHF", "Software")
+      create_entry(other_scope, other_scope.user, ~D[2026-06-10], 5000, "CHF", "Software")
 
-      base = ~U[2026-06-01 12:00:00Z]
-      set_timestamps(e1, inserted_at: base, updated_at: ~U[2026-06-01 13:00:00Z])
-      set_timestamps(e2, inserted_at: base, updated_at: ~U[2026-06-02 13:00:00Z])
-      set_timestamps(e3, inserted_at: base, updated_at: ~U[2026-06-03 13:00:00Z])
+      assert Enum.map(Accounting.list_unbooked_journal_entries(user.id), & &1.id) == [unbooked.id]
+      assert Accounting.posted_journal_entry_years(user.id) == [2026, 2025]
 
-      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) ==
-               [e3.id, e2.id, e1.id]
-    end
+      assert Accounting.posted_journal_months(user.id, 2026) == [
+               %{month: ~D[2026-07-01], count: 1, totals: [{"CHF", 7}]},
+               %{month: ~D[2026-06-01], count: 3, totals: [{"CHF", 150}, {"EUR", 250}]}
+             ]
 
-    test "sorts by inserted_at descending when updated_at has not advanced" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
+      assert Accounting.posted_journal_months(user.id, 2025) == [
+               %{month: ~D[2025-12-01], count: 1, totals: [{"CHF", 1}]}
+             ]
 
-      e1 = create_entry(scope, user)
-      e2 = create_entry(scope, user)
+      # The upper bound is exclusive, so July stays out of June's range.
+      june = Accounting.list_posted_journal_entries(user.id, ~D[2026-06-01], ~D[2026-07-01])
+      assert Enum.map(june, & &1.id) == [june_eur.id, june_chf2.id, june_chf.id]
 
-      # updated_at is NOT NULL (Ecto timestamps), so an entry never edited has
-      # updated_at == inserted_at; ordering then falls back to created_at (inserted_at).
-      set_timestamps(e1,
-        inserted_at: ~U[2026-06-01 12:00:00Z],
-        updated_at: ~U[2026-06-01 12:00:00Z]
-      )
+      assert Accounting.posted_journal_months(user.id, 2026, "candidate") == []
 
-      set_timestamps(e2,
-        inserted_at: ~U[2026-06-02 12:00:00Z],
-        updated_at: ~U[2026-06-02 12:00:00Z]
-      )
+      assert Accounting.list_posted_journal_entries(
+               user.id,
+               ~D[2026-06-01],
+               ~D[2026-07-01],
+               "undecided"
+             )
+             |> length() == 3
 
-      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) == [e2.id, e1.id]
-    end
-
-    test "breaks ties with id descending when timestamps match" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
-
-      e1 = create_entry(scope, user)
-      e2 = create_entry(scope, user)
-      e3 = create_entry(scope, user)
-
-      ts = ~U[2026-06-01 12:00:00Z]
-      set_timestamps(e1, inserted_at: ts, updated_at: ts)
-      set_timestamps(e2, inserted_at: ts, updated_at: ts)
-      set_timestamps(e3, inserted_at: ts, updated_at: ts)
-
-      assert Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id) ==
-               [e3.id, e2.id, e1.id]
-    end
-
-    test "returns correct ordered slices when paginating" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
-
-      entries = for _ <- 1..5, do: create_entry(scope, user)
-
-      Enum.with_index(entries, 1)
-      |> Enum.each(fn {entry, i} ->
-        set_timestamps(entry, updated_at: DateTime.add(~U[2026-06-01 00:00:00Z], i, :day))
-      end)
-
-      full = Accounting.list_journal_entries(user.id) |> Enum.map(& &1.id)
-
-      page =
-        from(je in JournalEntry,
-          where: je.user_id == ^user.id,
-          order_by: [
-            desc: je.updated_at,
-            desc: je.id
-          ],
-          limit: 2,
-          offset: 1
-        )
-        |> Repo.all()
-        |> Enum.map(& &1.id)
-
-      assert page == Enum.slice(full, 1, 2)
+      assert Accounting.list_posted_journal_entries(user.id, ~D[2025-12-01], ~D[2026-08-01])
+             |> Enum.map(& &1.id) ==
+               [july.id, june_eur.id, june_chf2.id, june_chf.id, last_year.id]
     end
   end
 

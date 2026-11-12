@@ -515,17 +515,97 @@ defmodule ZaimuTomo.Accounting do
     |> Repo.all()
   end
 
-  @spec list_journal_entries(integer()) :: [JournalEntry.t()]
-  def list_journal_entries(user_id) do
+  @doc """
+  Entries approved before booking moved to the invoice page (D17) that still
+  need a category and need/want choice, most recently changed first.
+  """
+  @spec list_unbooked_journal_entries(integer()) :: [JournalEntry.t()]
+  def list_unbooked_journal_entries(user_id) do
     from(je in JournalEntry,
-      where: je.user_id == ^user_id,
-      preload: [:tax_deduction_claim],
-      order_by: [
-        desc: je.updated_at,
-        desc: je.id
-      ]
+      where: je.user_id == ^user_id and je.status == "uncategorized",
+      order_by: [desc: je.updated_at, desc: je.id]
     )
     |> Repo.all()
+  end
+
+  @doc "Invoice years that have posted entries, newest first."
+  @spec posted_journal_entry_years(integer()) :: [integer()]
+  def posted_journal_entry_years(user_id) do
+    from(je in JournalEntry,
+      where: je.user_id == ^user_id and je.status == "posted",
+      distinct: true,
+      order_by: [desc: fragment("extract(year from ?)::integer", je.date)],
+      select: fragment("extract(year from ?)::integer", je.date)
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  One summary per invoice month of `year` that has posted entries, newest
+  month first: `%{month: first_day, count: n, totals: [{currency, cents}]}`,
+  with currency totals in alphabetical order. `tax_status` keeps only entries
+  whose tax claim has that status.
+  """
+  @spec posted_journal_months(integer(), integer(), String.t() | nil) :: [map()]
+  def posted_journal_months(user_id, year, tax_status \\ nil) do
+    user_id
+    |> posted_entries_query(Date.new!(year, 1, 1), Date.new!(year + 1, 1, 1), tax_status)
+    |> group_by([je], [fragment("date_trunc('month', ?)::date", je.date), je.currency])
+    |> select([je], %{
+      month: fragment("date_trunc('month', ?)::date", je.date),
+      currency: je.currency,
+      count: count(je.id),
+      cents: sum(je.amount_cents)
+    })
+    |> Repo.all()
+    |> Enum.group_by(& &1.month)
+    |> Enum.map(fn {month, rows} ->
+      rows = Enum.sort_by(rows, & &1.currency)
+
+      %{
+        month: month,
+        count: Enum.sum_by(rows, & &1.count),
+        totals: Enum.map(rows, &{&1.currency, &1.cents})
+      }
+    end)
+    |> Enum.sort_by(& &1.month, {:desc, Date})
+  end
+
+  @doc """
+  Posted entries with an invoice date in `[from_date, to_date)`, newest invoice
+  date first. `tax_status` keeps only entries whose tax claim has that status.
+  """
+  @spec list_posted_journal_entries(integer(), Date.t(), Date.t(), String.t() | nil) ::
+          [JournalEntry.t()]
+  def list_posted_journal_entries(
+        user_id,
+        %Date{} = from_date,
+        %Date{} = to_date,
+        tax_status \\ nil
+      ) do
+    user_id
+    |> posted_entries_query(from_date, to_date, tax_status)
+    |> order_by([je], desc: je.date, desc: je.id)
+    |> preload(:tax_deduction_claim)
+    |> Repo.all()
+  end
+
+  defp posted_entries_query(user_id, from_date, to_date, tax_status) do
+    query =
+      from(je in JournalEntry,
+        where:
+          je.user_id == ^user_id and je.status == "posted" and je.date >= ^from_date and
+            je.date < ^to_date
+      )
+
+    if tax_status do
+      from(je in query,
+        join: c in assoc(je, :tax_deduction_claim),
+        where: c.status == ^tax_status
+      )
+    else
+      query
+    end
   end
 
   @spec get_journal_entry(integer(), integer()) :: {:ok, JournalEntry.t()} | {:error, String.t()}

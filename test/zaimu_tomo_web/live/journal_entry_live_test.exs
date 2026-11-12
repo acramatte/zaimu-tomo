@@ -353,18 +353,6 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       assert has_element?(live, "#journal-entry-tax-treatment", "Potentially deductible")
     end
 
-    test "lists need or want classification on the index", %{conn: conn, scope: scope, user: user} do
-      entry = create_entry(scope, user)
-      {:ok, _entry} = Accounting.post_entry(entry, user.id, "Subscriptions", "want")
-
-      {:ok, _live, html} = live(conn, ~p"/journal_entries")
-
-      assert html =~ "Subscriptions"
-      assert html =~ "Want"
-      assert html =~ "EUR 42.00"
-      refute html =~ "€42.00"
-    end
-
     test "displays the invoice amount with the journal entry currency", %{
       conn: conn,
       scope: scope,
@@ -383,33 +371,155 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
   end
 
   describe "Index" do
-    test "orders the feed newest-first by last activity", %{conn: conn, scope: scope, user: user} do
-      [e1, e2, e3] =
-        for issuer <- ["First AG", "Second AG", "Third AG"] do
-          create_entry(scope, user, %{
-            extracted_data: %{
-              amount_to_pay_cents: 4200,
-              invoice_date: "2026-05-08",
-              currency: "EUR",
-              reason_for_payment: "Office supplies",
-              issuer: issuer
-            }
-          })
-        end
+    test "queues unbooked entries above a ledger of posted entries grouped by month", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      unbooked = create_entry(scope, user)
+      june = posted_entry(scope, user, ~D[2026-06-09], 4200, "EUR", "Subscriptions", "want")
+      june_chf = posted_entry(scope, user, ~D[2026-06-20], 1050, "CHF", "Groceries", "need")
 
-      base = ~U[2026-06-01 00:00:00Z]
-      set_timestamps(e1, inserted_at: base, updated_at: ~U[2026-06-01 10:00:00Z])
-      set_timestamps(e2, inserted_at: base, updated_at: ~U[2026-06-02 10:00:00Z])
-      set_timestamps(e3, inserted_at: base, updated_at: ~U[2026-06-03 10:00:00Z])
+      {:ok, live, _html} = live(conn, ~p"/journal_entries")
 
-      {:ok, _live, html} = live(conn, ~p"/journal_entries")
+      assert has_element?(live, "#booking-queue #entry-#{unbooked.id}", "Needs booking")
+      refute has_element?(live, "#ledger #entry-#{unbooked.id}")
 
-      ids =
-        Regex.scan(~r/id="entries-(\d+)"/, html)
-        |> Enum.map(fn [_full, id] -> id end)
-
-      assert ids == [Integer.to_string(e3.id), Integer.to_string(e2.id), Integer.to_string(e1.id)]
+      assert has_element?(live, "#month-2026-06-01", "June 2026")
+      assert has_element?(live, "#month-2026-06-01", "CHF 10.50 · EUR 42.00")
+      assert has_element?(live, "#month-2026-06-01 #entry-#{june.id}", "Subscriptions")
+      assert has_element?(live, "#month-2026-06-01 #entry-#{june.id}", "Want")
+      assert has_element?(live, "#month-2026-06-01 #entry-#{june_chf.id}", "CHF 10.50")
     end
+
+    test "loads earlier months on demand and switches year", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      for month <- 1..5, do: posted_entry(scope, user, Date.new!(2026, month, 3), 100, "CHF")
+      old = posted_entry(scope, user, ~D[2025-04-03], 100, "CHF")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries")
+
+      assert has_element?(live, "#month-2026-05-01")
+      assert has_element?(live, "#month-2026-03-01")
+      refute has_element?(live, "#month-2026-02-01")
+      assert has_element?(live, "#ledger", "3 of 5 entries")
+
+      live |> element("#ledger-load-more", "Load Jan – Feb 2026") |> render_click()
+
+      assert has_element?(live, "#month-2026-01-01")
+      refute has_element?(live, "#ledger-load-more")
+      assert has_element?(live, "#ledger", "All of 2026 shown")
+
+      live |> form("#ledger-year", %{"year" => "2025"}) |> render_change()
+
+      assert_patch(live, ~p"/journal_entries?year=2025")
+      assert has_element?(live, "#month-2025-04-01 #entry-#{old.id}")
+      refute has_element?(live, "#month-2026-05-01")
+    end
+
+    test "expands a row into its details and links an unbooked one to its invoice", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      unbooked = create_entry(scope, user)
+      posted = posted_entry(scope, user, ~D[2026-06-09], 4200, "EUR", "Software")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries")
+
+      refute has_element?(live, "#entry-#{posted.id}-detail")
+      live |> element("#entry-#{posted.id} .ledger-row") |> render_click()
+      assert has_element?(live, "#entry-#{posted.id}-detail", "Potentially deductible")
+      assert has_element?(live, "#entry-#{posted.id}-detail", "Software · Need")
+
+      live |> element("#entry-#{unbooked.id} .ledger-row") |> render_click()
+      refute has_element?(live, "#entry-#{posted.id}-detail")
+
+      decision =
+        ZaimuTomo.Review.ReviewDecision
+        |> Repo.get!(unbooked.review_decision_id)
+        |> Repo.preload(:extracted_content)
+
+      path = ~p"/documents/#{decision.extracted_content.document_id}?from=journal"
+      assert has_element?(live, ~s(#entry-#{unbooked.id}-book[href="#{path}"]))
+
+      live |> element("#entry-#{unbooked.id} .ledger-row") |> render_click()
+      refute has_element?(live, "#entry-#{unbooked.id}-detail")
+
+      # The invoice page opened from the queue leads back to the journal.
+      {:ok, invoice, _html} = live(conn, path)
+      assert has_element?(invoice, ~s(#invoice-back-to-journal[href="/journal_entries"]))
+      refute has_element?(invoice, "a", "← Documents")
+    end
+
+    test "filters to the booking queue or to tax candidates", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      unbooked = create_entry(scope, user)
+      candidate = posted_entry(scope, user, ~D[2026-06-09], 4200, "EUR")
+
+      not_deductible =
+        posted_entry(
+          scope,
+          user,
+          ~D[2026-06-10],
+          1000,
+          "EUR",
+          "Software",
+          "need",
+          "not_deductible"
+        )
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries")
+
+      assert has_element?(live, "#ledger-filters a", "All 3")
+      assert has_element?(live, "#ledger-filters a", "Not booked 1")
+      assert has_element?(live, "#ledger-filters a", "Tax candidates 1")
+
+      live |> element("#ledger-filters a", "Not booked") |> render_click()
+      assert_patch(live, ~p"/journal_entries?filter=not_booked&year=2026")
+      assert has_element?(live, "#booking-queue #entry-#{unbooked.id}")
+      refute has_element?(live, "#ledger")
+
+      live |> element("#ledger-filters a", "Tax candidates") |> render_click()
+      refute has_element?(live, "#booking-queue")
+      assert has_element?(live, "#month-2026-06-01 #entry-#{candidate.id}")
+      refute has_element?(live, "#entry-#{not_deductible.id}")
+      assert has_element?(live, "#month-2026-06-01", "EUR 42.00")
+    end
+  end
+
+  defp posted_entry(
+         scope,
+         user,
+         date,
+         cents,
+         currency,
+         category \\ "Software",
+         nw \\ "need",
+         tax_status \\ "candidate"
+       ) do
+    entry =
+      create_entry(scope, user, %{
+        extracted_data: %{
+          amount_to_pay_cents: cents,
+          invoice_date: Date.to_iso8601(date),
+          currency: currency,
+          issuer: "Issuer #{System.unique_integer([:positive])}"
+        }
+      })
+      |> Ecto.Changeset.change(date: date, amount_cents: cents, currency: currency)
+      |> Repo.update!()
+
+    {:ok, entry} =
+      Accounting.post_entry(entry, user.id, category, nw, nil, %{"status" => tax_status})
+
+    entry
   end
 
   defp create_entry(scope, user, extraction_attrs \\ %{}) do
@@ -425,10 +535,5 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
     # Approving posts the journal entry transactionally in the review context.
     {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
     entry
-  end
-
-  defp set_timestamps(entry, opts) do
-    from(je in JournalEntry, where: je.id == ^entry.id)
-    |> Repo.update_all(set: opts)
   end
 end

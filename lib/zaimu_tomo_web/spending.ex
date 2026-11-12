@@ -22,6 +22,13 @@ defmodule ZaimuTomoWeb.Spending do
     "oklch(0.55 0.10 280)"
   ]
 
+  @doc "A stable color for a category name, from the same palette as the charts."
+  @spec category_color(String.t()) :: String.t()
+  def category_color(category) do
+    key = category |> String.trim() |> String.downcase()
+    Enum.at(@category_colors, :erlang.phash2(key, length(@category_colors)))
+  end
+
   @doc """
   Returns the last `month_count` monthly spending summaries ending at the
   month containing `reference_date`, oldest first.

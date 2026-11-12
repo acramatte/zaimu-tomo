@@ -1890,3 +1890,100 @@ body:has(.settings-page) .app-version { position: absolute; }
 .invoice-tab .count { color: var(--faint); font-variant-numeric: tabular-nums; }
 .invoice-section-title .btn { text-transform: none; letter-spacing: 0; font-size: 12.5px; color: var(--ink); }
 .detail-row + .invoice-section-title { border-top: 0; padding-top: 0; }
+
+/* Journal ledger: one 33px line per entry, grouped by invoice month. */
+.ledger-card { padding: 0; overflow: hidden; margin-bottom: var(--gap-grid); }
+.ledger-queue { border-color: color-mix(in oklab, var(--warn) 35%, var(--hairline)); }
+.ledger-queue > .ledger-group-head { background: var(--warn-tint); }
+.ledger-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.ledger-toolbar form { margin: 0; }
+.ledger-toolbar select.ledger-select { height: 28px; padding: 0 28px 0 10px; font-size: 12.5px; width: auto; }
+.ledger-cols, .ledger-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 140px 44px 96px 120px 14px;
+  gap: 10px; align-items: center;
+  padding: 0 14px;
+}
+.ledger-cols {
+  height: 28px;
+  font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+}
+.ledger-cols .right { text-align: right; }
+.ledger-group-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 2px 12px; flex-wrap: wrap;
+  padding: 6px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12.5px;
+}
+.ledger-group-head strong { font-weight: 500; }
+.ledger-group-head .num,
+.ledger-row .num,
+.ledger-detail .num { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+.ledger-group-head .num { color: var(--ink-2); font-size: 12px; }
+.ledger-entry { border-bottom: 1px solid var(--hairline); }
+.ledger-month:last-of-type .ledger-entry:last-child,
+.ledger-queue .ledger-entry:last-child { border-bottom: 0; }
+.ledger-row {
+  width: 100%; height: 32px;
+  background: transparent; border: 0; cursor: pointer;
+  text-align: left; font: inherit; font-size: 13px; color: var(--ink);
+  transition: background 120ms;
+}
+.ledger-row:hover { background: var(--panel-2); }
+.ledger-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ledger-entry.open .ledger-row { background: var(--accent-tint); }
+.ledger-row > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ledger-row .date { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--ink-2); }
+.ledger-row .issuer .inv { margin-left: 6px; font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--faint); }
+.ledger-row .category { display: flex; align-items: center; gap: 6px; }
+.ledger-row .category .ellipsis { overflow: hidden; text-overflow: ellipsis; }
+.ledger-row .cat-dot { width: 8px; height: 8px; }
+.ledger-row .faint { color: var(--faint); font-size: 12px; }
+.ledger-row .amount { text-align: right; }
+.ledger-row .ledger-chevron { width: 14px; height: 14px; color: var(--faint); transition: transform 160ms, color 120ms; }
+.ledger-row:hover .ledger-chevron { color: var(--ink-2); }
+.ledger-entry.open .ledger-chevron { transform: rotate(90deg); color: var(--accent); }
+.ledger-detail {
+  padding: 14px 14px 14px 88px;
+  background: color-mix(in oklab, var(--accent-tint) 40%, var(--panel));
+  border-top: 1px solid var(--hairline);
+}
+.ledger-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.ledger-detail-head .detail-issuer { font-weight: 500; font-size: 14px; }
+.ledger-detail-head .num { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+.ledger-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin: 0 0 12px; font-size: 13px; }
+.ledger-detail-grid .wide { grid-column: 1 / -1; }
+.ledger-detail-grid dt { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ledger-detail-grid dd { margin: 2px 0 0; color: var(--ink); }
+.ledger-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ledger-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: 1px solid var(--hairline);
+  font-size: 12px; color: var(--muted);
+}
+.ledger-empty { padding: 24px 14px; font-size: 13px; margin: 0; }
+
+@media (max-width: 640px) {
+  .ledger-cols { display: none; }
+  .ledger-row {
+    grid-template-columns: minmax(0, 1fr) auto 14px;
+    grid-template-areas: "issuer amount chevron" "meta tax chevron";
+    height: auto; padding: 6px 14px; row-gap: 2px;
+  }
+  .ledger-row .issuer { grid-area: issuer; }
+  .ledger-row .amount { grid-area: amount; }
+  .ledger-row .ledger-chevron { grid-area: chevron; }
+  .ledger-row .date { grid-area: meta; font-size: 11px; }
+  .ledger-row .category, .ledger-row > span:nth-child(4) { display: none; }
+  .ledger-row > span:nth-child(5) { grid-area: tax; justify-self: end; }
+  .ledger-detail { padding-left: 14px; }
+  .ledger-detail-grid { grid-template-columns: 1fr; }
+}
