@@ -374,16 +374,98 @@ Five things have a status with rules about how it may change. Each rule lives in
 one function. To change a rule, change that function. Do not add a second place
 that writes the status.
 
-| What | Statuses | The one function | Database guard | Decisions |
-|---|---|---|---|---|
-| Document status (shown, not stored) | `processing`, `stalled`, `failed`, `review`, `posted`, `rejected` | `Review.document_status/2` works it out from the OCR job and the latest extraction. Every screen calls it. | None. There is no column. | D20 |
-| Review decision (`review_decisions.review_status`) | Starts as `pending` or `failed`. `pending` moves to `approved`, `amended`, or `rejected`. Nothing else moves. | `ReviewDecision.decide_changeset/3`, which `Review` applies to a locked row | Two triggers refuse any other start or move. Check constraints limit the values and require a reason on a rejection. | D22, D23, D25 |
-| Duplicate gate (an answer, not stored) | Post, ask the reviewer to confirm, or refuse | `Review.posting_decision/2`, inside the posting transaction | Two unique indexes stop the hard duplicates. Nothing in the database stops an unconfirmed soft match. | D10, D21, D24 |
-| Journal entry (`journal_entries.status`) | `uncategorized` moves to `posted`, once | `JournalEntry.changeset_for_categorize/2`. Approval uses it in the transaction that creates the entry. `Accounting.post_entry/6` uses it on a locked row for older entries. | None | D17, D19 |
-| Tax claim (`tax_deduction_claims.status`) | `undecided`, `candidate`, `not_deductible`, `claimed`, `disallowed` (diagram in §6.1) | Posting sets one of the first three. After that only `Accounting.revise_tax_deduction_claim/3` changes it, and `TaxDeductionClaim.next_statuses/1` lists the allowed moves. | Check constraints limit the values and require the references. They do not check the order of moves. | D18, D19 |
+```mermaid
+flowchart LR
+    review["<b>Review decision</b><br/>ReviewDecision.decide_changeset/3"]
+    gate{{"<b>Duplicate gate</b><br/>Review.posting_decision/2"}}
+    entry["<b>Journal entry</b><br/>JournalEntry.changeset_for_categorize/2"]
+    claim["<b>Tax claim</b><br/>Accounting.revise_tax_deduction_claim/3"]
+    status(["<b>Document status</b><br/>Review.document_status/2"])
+
+    review -->|"approve or amend"| gate
+    gate -->|"post"| entry
+    entry -->|"posting creates the claim"| claim
+    review -.->|"read by"| status
+    entry -.->|"read by"| status
+```
+
+**Document status** is shown, never stored. Every screen asks the same function.
+There is no column, so there is nothing for the database to guard. (D20)
+
+```mermaid
+flowchart LR
+    job{"OCR job and<br/>latest extraction"}
+    rev{"Review of that<br/>extraction"}
+
+    job -->|"a job is queued or running"| processing(["processing"])
+    job -->|"no job, nothing extracted"| stalled(["stalled"])
+    job -->|"extraction failed"| failed(["failed"])
+    job -->|"extraction succeeded"| rev
+    rev -->|"pending, or entry not booked"| needs(["review"])
+    rev -->|"approved or amended"| posted(["posted"])
+    rev -->|"rejected"| rejected(["rejected"])
+```
+
+**Review decision** (`review_decisions.review_status`). A review is decided
+once, on a locked row. Nothing leaves `approved`, `amended`, `rejected`, or
+`failed`. Two triggers refuse any other start or move, whoever writes it. Check
+constraints limit the values and require a reason on a rejection. (D22, D23,
+D25)
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: extraction succeeded
+    [*] --> failed: extraction failed
+    pending --> approved: approve
+    pending --> amended: approve with a changed field
+    pending --> rejected: reject, with a reason
+```
+
+**Duplicate gate** is an answer, not a stored status. It runs inside the posting
+transaction, on the data being posted. A confirmation counts only for the match
+it names; one that names another match is refused. Two unique indexes stop the
+two refusals below. Nothing in the database stops an unconfirmed "ask" case.
+(D10, D21, D24)
+
+```mermaid
+flowchart LR
+    none["nothing matches"]
+    soft["same issuer, date,<br/>amount and currency"]
+    file["same file,<br/>different details"]
+    number["same issuer and<br/>invoice number"]
+    both["same file and<br/>same details"]
+    asked{"reviewer confirmed<br/>this match?"}
+
+    none --> post(["post"])
+    soft --> asked
+    file --> asked
+    asked -->|"yes, logged"| post
+    asked -->|"no"| confirm(["ask the reviewer"])
+    number --> refuse(["refuse"])
+    both --> refuse
+```
+
+**Journal entry** (`journal_entries.status`). An entry is posted once. Approval
+creates and posts it in one transaction. `Accounting.post_entry/6` posts an
+older entry on a locked row and returns `:already_posted` on a repeat. The
+database does not guard this move. (D17, D19)
+
+```mermaid
+stateDiagram-v2
+    [*] --> uncategorized: approval creates the entry
+    uncategorized --> posted: category and need/want, once
+    posted --> posted: only the tax claim changes
+```
+
+**Tax claim** (`tax_deduction_claims.status`). The diagram is in §6.1. Posting
+sets one of `undecided`, `candidate`, or `not_deductible`. After that only
+`Accounting.revise_tax_deduction_claim/3` changes it, and
+`TaxDeductionClaim.next_statuses/1` lists the allowed moves. Check constraints
+limit the values and require the references. They do not check the order of
+moves. (D18, D19)
 
 A new status or move needs four changes: the function, the database guard if the
-row has one, this table, and a row in §9.
+row has one, the picture here, and a row in §9.
 
 ### Multi-tenancy and authorization
 
