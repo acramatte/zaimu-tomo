@@ -6,10 +6,17 @@ defmodule ZaimuTomo.Activity do
   document list's rule (`Review.document_status/2`): the OCR job queue decides
   between processing, stalled, and failed, and a completed extraction's review
   state then decides between review, posted, and rejected.
+
+  An item's `run` is the document's live OCR run (`DocumentProcessing.Run`), or
+  nil when no job is live. A processing document is dated by the later of its
+  last change and its run's start. Retry processing starts a new run, so it
+  brings the document back to the top. Oban's automatic retries reuse the job,
+  so they leave the document where it is.
   """
 
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.Run
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Review
@@ -22,10 +29,12 @@ defmodule ZaimuTomo.Activity do
     limit = Keyword.get(opts, :limit, 10)
 
     documents = Documents.list_documents(scope)
-    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
+    document_ids = Enum.map(documents, & &1.id)
+    states = DocumentProcessing.processing_states(document_ids)
+    runs = DocumentProcessing.live_runs(document_ids)
 
     documents
-    |> Enum.map(&to_activity_item(&1, states[&1.id]))
+    |> Enum.map(&to_activity_item(&1, states[&1.id], runs[&1.id]))
     |> Enum.sort_by(& &1.occurred_at, {:desc, DateTime})
     |> maybe_take(limit)
   end
@@ -33,24 +42,31 @@ defmodule ZaimuTomo.Activity do
   defp maybe_take(items, :all), do: items
   defp maybe_take(items, limit), do: Enum.take(items, limit)
 
-  defp to_activity_item(%Document{} = document, state) do
+  defp to_activity_item(%Document{} = document, state, run) do
     content = List.first(document.extracted_content)
     decision = content && content.review_decision
     data = effective_activity_data(content, decision)
+    status = Review.document_status(state, content)
 
     %{
       id: activity_id(document, content, decision),
-      status: Review.document_status(state, content),
+      status: status,
       merchant: data && data.issuer,
       filename: document.filename,
       amount_cents: data && data.amount_to_pay_cents,
       currency: data && data.currency,
       invoice_no: data && data.invoice_number,
       error: activity_error(content, decision),
-      occurred_at: activity_timestamp(document, content, decision),
-      document_id: document.id
+      occurred_at: occurred_at(status, run, activity_timestamp(document, content, decision)),
+      document_id: document.id,
+      run: run
     }
   end
+
+  defp occurred_at("processing", %Run{started_at: started_at}, timestamp),
+    do: Enum.max([timestamp, started_at], DateTime)
+
+  defp occurred_at(_status, _run, timestamp), do: timestamp
 
   defp effective_activity_data(_content, %{decision_data: data}) when not is_nil(data),
     do: data

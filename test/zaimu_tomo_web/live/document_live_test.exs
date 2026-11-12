@@ -449,6 +449,99 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
     end
   end
 
+  describe "retry visibility" do
+    defp uploaded_document(scope, filename) do
+      {:ok, document} =
+        Documents.create_document(scope, %{filename: filename, object_key: "documents/a.pdf"})
+
+      document
+    end
+
+    # The job as Oban and AttemptOutcomes leave it after attempt 1 failed with
+    # this failure code.
+    defp waiting_to_retry(document, code) do
+      {1, _} =
+        from(j in Oban.Job,
+          where: fragment("?->>'document_id' = ?", j.args, ^to_string(document.id))
+        )
+        |> Repo.update_all(
+          set: [
+            state: "retryable",
+            attempt: 1,
+            scheduled_at: DateTime.add(DateTime.utc_now(), 20),
+            meta: %{"trigger" => "upload", "last_error" => code}
+          ]
+        )
+    end
+
+    test "the list says which attempt a retrying document is on and why", %{
+      conn: conn,
+      scope: scope
+    } do
+      retrying = uploaded_document(scope, "retrying.pdf")
+      waiting_to_retry(retrying, "llm_request_failed:http_429")
+      plain = uploaded_document(scope, "plain.pdf")
+
+      {:ok, view, _html} = live(conn, ~p"/documents")
+
+      row = view |> element("#documents-#{retrying.id}") |> render()
+      assert row =~ "Retrying"
+
+      assert row =~
+               "Attempt 2 of 5 · last try: the extraction service was rate-limited · " <>
+                 "next try in under a minute"
+
+      row = view |> element("#documents-#{plain.id}") |> render()
+      assert row =~ "Processing"
+      assert row =~ "Sent to OCR · extraction in progress"
+      refute row =~ "Retrying"
+      refute row =~ "Attempt"
+    end
+
+    test "a retry started from the invoice page shows on the page and in the list", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      doc = document_fixture(scope)
+
+      failed =
+        extracted_content_fixture(doc, user, %{
+          status: "failed",
+          error_details: %{"message" => "Image too blurry"}
+        })
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+      refute has_element?(show_live, "#invoice-earlier-attempts")
+
+      show_live |> element("button[phx-click=retry_processing]") |> render_click()
+
+      assert show_live |> element("#invoice-status") |> render() =~ "Retrying"
+
+      assert show_live |> element("#invoice-retry") |> render() =~
+               "Retrying after a failed run · attempt 1 of 5"
+
+      earlier = show_live |> element("#invoice-earlier-attempts") |> render()
+      assert earlier =~ "Image too blurry"
+      assert earlier =~ Calendar.strftime(failed.inserted_at, "%d %b %Y %H:%M")
+
+      {:ok, list_live, _html} = live(conn, ~p"/documents")
+      row = list_live |> element("#documents-#{doc.id}") |> render()
+      assert row =~ "Retrying after a failed run · attempt 1 of 5"
+      assert row =~ "earlier run failed: Image too blurry"
+    end
+
+    test "a first attempt shows no retry on the invoice page", %{conn: conn, scope: scope} do
+      doc = uploaded_document(scope, "first.pdf")
+
+      {:ok, show_live, _html} = live(conn, ~p"/documents/#{doc}")
+
+      assert show_live |> element("#invoice-status") |> render() =~ "Processing"
+      refute has_element?(show_live, "#invoice-retry")
+      refute has_element?(show_live, "#invoice-earlier-attempts")
+    end
+  end
+
   describe "Show" do
     setup [:create_document]
 
@@ -487,7 +580,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert has_element?(show_live, "span.pill.processing")
       refute has_element?(show_live, "span.pill.failed")
       pill = show_live |> element("span.pill.processing") |> render()
-      assert pill =~ "Processing"
+      assert pill =~ "Retrying"
       refute pill =~ "Failed"
 
       # The retry moves the document to :processing, so the button disappears.

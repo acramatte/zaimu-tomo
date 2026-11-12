@@ -37,6 +37,10 @@ ZaimuTomo.Repo.all(from j in Oban.Job, where: j.state in ~w(available scheduled 
 Failed attempts are logged by `ZaimuTomo.ObanFailureLogger` as body-free
 summaries. Terminal failures log `[OCR] Processing failed for document …`.
 `oban_jobs.errors` holds the same bounded summaries, never OCR text.
+An OCR job's `meta.trigger` is `manual_retry` when a user started it with
+Retry processing and `upload` otherwise. Its `meta.last_error` is the failure
+code of the last failed attempt, such as `ocr_upload_failed:http_503`,
+`job_timeout`, or `unclassified` for a raise or crash.
 
 ### Stuck documents
 

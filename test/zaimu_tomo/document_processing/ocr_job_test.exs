@@ -87,7 +87,7 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
   end
 
   describe "perform/1 outcome matrix" do
-    test "transient error retries without persisting a failed row or broadcasting" do
+    test "transient error retries without persisting a failed row or broadcasting a failure" do
       scope = user_scope_fixture()
       document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
       Storage.put_object("documents/invoice.pdf", "invoice bytes")
@@ -100,6 +100,22 @@ defmodule ZaimuTomo.DocumentProcessing.OCRJobTest do
 
       assert Repo.aggregate(ExtractedContent, :count) == 0
       refute_received %{status: :failed}
+    end
+
+    test "the final attempt broadcasts the failure once, not an attempt failure" do
+      scope = user_scope_fixture()
+      document = document_fixture(scope, %{object_key: "documents/invoice.pdf"})
+      Storage.put_object("documents/invoice.pdf", "invoice bytes")
+      stub_mistral(fn conn -> Plug.Conn.send_resp(conn, 503, "unavailable") end)
+      document_id = document.id
+
+      DocumentProcessing.subscribe_events(scope)
+
+      assert :ok = perform_job(OCRJob, args_for(document), attempt: 5, max_attempts: 5)
+
+      assert_received %{status: :failed, document_id: ^document_id}
+      refute_received %{status: :failed}
+      refute_received %{status: :attempt_failed}
     end
 
     test "a transient retry returns and logs only a body-free summary" do

@@ -142,12 +142,12 @@ flowchart TB
 |---|---|---|
 | `Accounts` | `lib/zaimu_tomo/accounts*` | Users, sessions and tokens (phx.gen.auth), `Scope`, and per-user settings (display name, base currency). |
 | `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Stores uploads and fingerprints their exact bytes (`store_upload/2`, `Fingerprint`), creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
-| `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, retry, stuck-document `Recovery`, and `ErrorClassification`. |
+| `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, live runs (`Run`), retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
 | `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want; `list_categories/1` suggests the user's own earlier categories), tax deduction claims (set at posting, revised afterwards with `revise_tax_deduction_claim/3`), spending aggregates, and the journal ledger reads: unbooked entries for the booking queue, and posted entries per invoice month and year (`posted_journal_months/2`, `list_posted_journal_entries/3`). |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency. |
-| `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state for the feeds. |
+| `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state and live run for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. |
 | `LLMClient` | `lib/zaimu_tomo/llm_client.ex` | Per-role (extractor and verifier) backend and model resolution through ReqLLM, and response parsing and validation. |
 | `Langfuse` | `lib/zaimu_tomo/langfuse.ex` | Prompt fetch (with built-in local fallbacks), OpenTelemetry spans, and feedback scores. |
@@ -159,7 +159,9 @@ flowchart TB
 |---|---|
 | `DocumentProcessing.OCRJob` | Oban worker (`documents` queue, 5 attempts, 10-minute timeout, unique per `document_id` while live). Decides retry, failure recording, or cancellation. |
 | `DocumentProcessing.Worker` | One attempt: download the object to a temp file → `DocumentOCR` → `LLMClient.extract_invoice` → `LLMClient.verify_extraction` → persist. Persists success only. |
-| `DocumentProcessing.ErrorClassification` | Classifies each error as `:transient` or `:permanent`, and produces bounded, body-free summaries. |
+| `DocumentProcessing.ErrorClassification` | Classifies each error as `:transient` or `:permanent`, produces bounded, body-free summaries, and describes a summary in plain words for the user (`describe/1`). |
+| `DocumentProcessing.Run` | Read model of a document's live OCR job, built by `DocumentProcessing.live_runs/1`: the attempt running or next, the phase (queued, running, waiting to retry), the last failed attempt's failure code (`meta.last_error`), the next try, and the trigger (upload or Retry processing). |
+| `DocumentProcessing.AttemptOutcomes` | Telemetry handler on Oban's job events that records what happened to an OCR attempt once Oban has settled it. For a failed attempt with a retry ahead it stores the failure code in the job's `meta.last_error` and broadcasts `attempt_failed` to the owner. |
 | `DocumentProcessing.Recovery` | Finds documents with no extraction and no live job, and re-enqueues them. |
 | `ObanFailureLogger` | Telemetry handler that logs failed attempts without payloads. |
 
@@ -268,12 +270,14 @@ the form pre-fills the last reason.
 
 ### 6.2 Failure, retry and recovery
 
-- **Transient error** (timeouts, 408, 429, 5xx, transport errors) on a non-final attempt: the job returns `{:error, summary}` and **persists nothing**. Oban backs off and retries.
+- **Transient error** (timeouts, 408, 429, 5xx, transport errors) on a non-final attempt: the job returns `{:error, summary}` and **persists nothing**. Oban backs off and retries. After Oban has stored the error and the `retryable` state, `AttemptOutcomes` stores the attempt's failure code in the job's `meta.last_error` and then broadcasts `user:<id>:document_processing:attempt_failed`, so a view that re-reads the job sees the failed attempt and why. The code comes from the exception Oban reports, never from its text (`AttemptOutcomes.failure_code/1`). An `{:error, code}` return keeps its `ErrorClassification.summarize/1` code, the job timeout is `job_timeout`, and a raise or crash is `unclassified`. A raise, a crash, or the job timeout on a non-final attempt is recorded and broadcast the same way.
 - **Permanent error**, or a transient error on the final attempt (5): the job appends one `failed` `extracted_content` row and a `failed` review decision, broadcasts `user:<id>:document_processing:failed`, and completes.
 - **Concurrency safety:** every terminal write locks the document row and checks that the latest extraction is still the one expected when the job was enqueued. Otherwise it cancels with `:already_processed`.
 - **Crash or deploy mid-run:** `Oban.Lifeline` moves `executing` jobs back after 30 minutes.
-- **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history. A successful enqueue broadcasts `user:<id>:document_processing:retried` so open views refresh.
-- **UI state:** the documents Index and the processing hero derive each row's state from `DocumentProcessing.processing_states/1` (live job + latest extraction, two batched queries), the same semantics as `processing_state/1` on Show. A failed row with a live re-run shows "Processing" and keeps the failure note.
+- **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history. Its job carries `meta.trigger = "manual_retry"` (other jobs carry `"upload"`). A successful enqueue broadcasts `user:<id>:document_processing:retried` so open views refresh.
+- **Live run:** `DocumentProcessing.live_runs/1` reads each document's live job as a `Run` in one query, from the job's state, attempt, schedule, and `meta` (`trigger` and `last_error`). `Run.retrying?/1` is true for a run the user started with Retry processing or one past its first attempt. A retrying document is still `processing`. Retry is detail on top of the status, never a status of its own.
+- **UI state:** the documents Index and the processing hero derive each row's state from `DocumentProcessing.processing_states/1` (live job + latest extraction, two batched queries), the same semantics as `processing_state/1` on Show. A failed row with a live re-run keeps the failure note ("earlier run failed").
+- **Retry display:** the dashboard feed, the documents Index, and the invoice page read `live_runs/1` too. When `Run.retrying?/1`, `status_pill` reads "Retrying" in the processing style, and `ZaimuComponents.retry_note/2` writes the one line all three surfaces show. An automatic retry reads "Attempt 2 of 5 · last try: the OCR service timed out · next try in under a minute", with the reason from `ErrorClassification.describe/1`. A run started with Retry processing reads "Retrying after a failed run · attempt 1 of 5". The invoice page also lists the earlier failed runs under "Earlier attempts". The feed dates a processing document by the later of its last change and its run's start. Retry processing starts a new run and moves the document to the top. An automatic retry reuses the job and leaves the document in place.
 - **Operator recovery:** `bin/recover_stuck_documents` (see [operations.md](operations.md#stuck-documents)).
 
 ```mermaid
@@ -478,7 +482,7 @@ stuck recovery, fingerprint backfill) and say so in their docs.
 
 | Queue | Worker | Concurrency (env) | Attempts | Notes |
 |---|---|---|---|---|
-| `documents` | `DocumentProcessing.OCRJob` | `OBAN_DOCUMENTS_CONCURRENCY` (2) | 5 | Unique per document while live. 10-minute timeout. |
+| `documents` | `DocumentProcessing.OCRJob` | `OBAN_DOCUMENTS_CONCURRENCY` (2) | 5 | Unique per document while live. 10-minute timeout. `meta.trigger` is `upload` or `manual_retry`. `meta.last_error` is the failure code of the last failed attempt, written by `AttemptOutcomes`. |
 | `typesafe` | `TypeSafeVerification.Worker` | `TYPESAFE_MAX_CONCURRENCY` (2) | 3 | Fail-open shadow run. |
 
 Plugins: `Oban.Pruner` (7 days) and `Oban.Lifeline` (30 minutes, which must exceed
@@ -508,7 +512,7 @@ otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.m
 
 ### Real-time UI
 
-PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried`,
+PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried|attempt_failed`,
 `invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
 subscribe in `mount/3` when connected.
 
@@ -570,6 +574,7 @@ is in [`specs/`](../specs/README.md).
 | D23 | 2026-11 | Enforce the review transition in the database: the `BEFORE UPDATE` row trigger `review_decisions_guard_transition` allows a status change only from pending to approved, amended, or rejected and raises a check violation named `review_decisions_transition_check` otherwise | D22 put the rule in the application only, and its check constraints cannot see the previous status, so a raw update, a backfill, or a changeset built on a stale pending read could still move an approved review to rejected and leave its journal entry. Consequences: this is the first trigger in the schema, so the rule now lives in two places (`ReviewDecision.decide_changeset/3` and the trigger function) and a new status or move needs a migration that replaces the function; a deliberate manual correction of a decided review needs the trigger disabled for that transaction. |
 | D24 | 2026-11 | Every duplicate confirmation is audited: confirming a soft match ("Post anyway") writes a `possible_duplicate_confirmed` event in the posting transaction, with the new entry ID and the matched entry IDs, beside the existing `source_file_reuse_confirmed` event | A confirmed file reuse left a flag on the entry and an event; a confirmed soft match left neither, so a pair of look-alike entries could not be told apart from an override the reviewer chose, and nothing recorded which entry was overridden. Consequences: the event type follows the confirmation through one table in `Review`, so a new confirmable verdict needs its event type there; a confirmation whose event cannot be written rolls the posting back; soft matches confirmed before this change have no event and are not backfilled. |
 | D25 | 2026-11 | A review starts as pending or failed, in the database: the `BEFORE INSERT` row trigger `review_decisions_guard_initial_status` refuses any other status with a check violation named `review_decisions_initial_status_check`, and `ReviewDecision.changeset_for_create/1` validates the same | D23 guarded updates only, so a raw insert, an import, or `changeset_for_create/1` (which accepted all five statuses) could create a review already approved or rejected, with no pending state, no lock, no event log, and no journal entry. A check constraint cannot tell an insert from an update. The trigger is fail-closed: it lists the two allowed statuses, so a future status is not insertable until a migration allows it. Consequences: a full `pg_dump` restore is unaffected because rows load before triggers are created, but a data-only load of decided reviews needs `--disable-triggers` ([operations.md](operations.md)); the rule lives in the changeset and in the trigger function; existing rows are not checked. |
+| D26 | 2026-11 | Make OCR retries visible: `DocumentProcessing.live_runs/1` reads a document's live job as a `Run` (attempt, phase, last failure, next try, trigger), the job records its trigger in `meta`, and `AttemptOutcomes` stores each failed attempt's failure code in the job's `meta.last_error` and broadcasts `attempt_failed`, from Oban's `[:oban, :job, :exception]` telemetry event. A retrying document keeps the `processing` status | Every surface showed a plain "Processing" for a first attempt, a third automatic retry, and a run the user restarted, and a failed attempt with a retry ahead told no open page. Keeping retry out of the status leaves the tabs, the Needs action count, and `Review.document_status/2` unchanged. A broadcast from `OCRJob` would fire before Oban stores the `retryable` state, so a page re-reading on it would miss the attempt that just failed. The telemetry event fires after that write and also covers raises, crashes, and the job timeout. The trigger is explicit because a retried stalled document has no `supersedes_extraction_id` to infer it from. The failure code is derived from the exception struct Oban reports and stored as data, because Oban keeps only a formatted error text, whose wording is not part of its API. |
 
 ---
 
@@ -597,6 +602,7 @@ is in [`specs/`](../specs/README.md).
 | Shared S3 credential | The app's S3 key is the RustFS root credential. Per-application credentials are not yet introduced. |
 | `force_ssl` off | HTTP behind the VPN is by design. Enable `FORCE_SSL` at build time if the app is ever exposed publicly. |
 | Fingerprint coverage of legacy postings | Exact-file protection covers historical entries only after `bin/backfill_document_fingerprints` reports complete coverage. Missing objects and unresolved same-user collisions stay null and are not protected (see [operations.md](operations.md#document-fingerprint-backfill)). |
+| Final attempt crash is not broadcast | A raise, crash, or job timeout on the final OCR attempt, or a `failure_not_recorded` cancel, leaves the document stalled without a broadcast. The invoice page polls while processing; the document list catches up on its 30-second refresh and the dashboard feed on the next event. |
 | Confirmed reuses are not DB-constrained | A confirmed file reuse is excluded from the unique index; the "no field match" condition is checked in the posting transaction, not by a constraint, so two simultaneous postings by the same user could both pass it. |
 | Temporary test-only `hackney` override | Testcontainers 2.4.0 requires vulnerable Hackney 1.x. A test-only `~> 4.9` override keeps it on the patched line; the locked Tesla 1.21.2 supports Hackney 4.x. Hackney remains excluded from production, but its required IDNA 7.1 upgrade is shared with production's JSV and Swoosh dependencies, whose constraints allow it. Remove the override once a published Testcontainers release includes [upstream's Hackney 4 support](https://github.com/testcontainers/testcontainers-elixir/commit/f73bac030ffa40beb34793470d8d29d56ad4b03c), preserving a patched lockfile. Validate Docker compatibility with `RUN_INTEGRATION=true mix test test/zaimu_tomo/storage/rustfs_integration_test.exs` when updating this dependency. |
 | Hackney 4 Unix-socket pooling | Hackney 4.8.5's default pool replaces the Unix-socket transport with TCP, producing `:nxdomain` for Testcontainers' Docker socket path. `config/test.exs` disables Hackney's default pool so Docker requests retain their Unix-socket transport. Remove this test-only workaround once a fixed Hackney release passes the RustFS integration tests with pooling enabled. |
@@ -616,6 +622,7 @@ is in [`specs/`](../specs/README.md).
 | Review decision | A human verdict on an extraction: pending, approved, amended, rejected, or failed. |
 | Journal entry | A booked expense, posted with a category and need/want label. Entries approved before D17 may still be `uncategorized` until booked. |
 | Stuck document | Has no extraction row and no live OCR job. |
+| Live run | A document's queued, running, or waiting OCR job (`DocumentProcessing.Run`). It is a retry when the user started it with Retry processing or it is past its first attempt. |
 | Currency hint | The user's base currency, snapshotted when the job is enqueued, to guide extraction. |
 | Accessory | A Kamal-managed sidecar container (Postgres, RustFS). |
 | Orb | An Amp cloud sandbox used for agent development. |

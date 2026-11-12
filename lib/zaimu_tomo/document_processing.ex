@@ -6,8 +6,9 @@ defmodule ZaimuTomo.DocumentProcessing do
   with the document insert (see `ZaimuTomo.Documents.create_document/2`), so an
   upload can never exist without its processing job.
 
-  Also owns the processing state of a document and the scope-checked retry
-  entry point for failed or stuck runs.
+  Also owns the processing state of a document, the live run behind it
+  (`live_runs/1`), and the scope-checked retry entry point for failed or stuck
+  runs.
   """
 
   import Ecto.Query
@@ -16,12 +17,13 @@ defmodule ZaimuTomo.DocumentProcessing do
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.OCRJob
+  alias ZaimuTomo.DocumentProcessing.Run
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
 
   @ocr_job_worker "ZaimuTomo.DocumentProcessing.OCRJob"
   @live_job_states ~w(available scheduled executing retryable)
-  @event_kinds [:success, :failed, :retried]
+  @event_kinds [:success, :failed, :retried, :attempt_failed]
 
   @typedoc """
   Processing state of a document:
@@ -37,7 +39,8 @@ defmodule ZaimuTomo.DocumentProcessing do
   Subscribes the caller to the scope owner's processing events.
 
   Messages are the maps broadcast by `broadcast_event/3`: a run finished
-  (`:success` / `:failed`) or a retry was enqueued (`:retried`). Topics are per
+  (`:success` / `:failed`), a retry was enqueued (`:retried`), or an attempt
+  failed and Oban scheduled the next one (`:attempt_failed`). Topics are per
   owner, so a subscriber never receives another user's extracted data.
   """
   @spec subscribe_events(Scope.t()) :: :ok | {:error, term()}
@@ -51,7 +54,7 @@ defmodule ZaimuTomo.DocumentProcessing do
   end
 
   @doc false
-  @spec broadcast_event(:success | :failed | :retried, integer(), map()) ::
+  @spec broadcast_event(:success | :failed | :retried | :attempt_failed, integer(), map()) ::
           :ok | {:error, term()}
   def broadcast_event(kind, user_id, payload) when kind in @event_kinds do
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, event_topic(user_id, kind), payload)
@@ -65,14 +68,18 @@ defmodule ZaimuTomo.DocumentProcessing do
   The command is self-contained and resolved at enqueue time: the document id,
   a queue-time snapshot of the owner's base currency (`currency_hint`), and the
   latest extraction id to supersede (or `nil` when there is none). The worker
-  pattern-matches this command and never queries Accounts.
+  pattern-matches this command and never queries Accounts. The job meta records
+  the `trigger` (`:upload` or `:manual_retry`) for `live_runs/1`.
   """
-  def ocr_job(%Document{} = document, currency_hint, supersedes_extraction_id) do
-    OCRJob.new(%{
-      document_id: document.id,
-      currency_hint: currency_hint,
-      supersedes_extraction_id: supersedes_extraction_id
-    })
+  def ocr_job(%Document{} = document, currency_hint, supersedes_extraction_id, trigger \\ :upload) do
+    OCRJob.new(
+      %{
+        document_id: document.id,
+        currency_hint: currency_hint,
+        supersedes_extraction_id: supersedes_extraction_id
+      },
+      meta: Run.job_meta(trigger)
+    )
   end
 
   @doc """
@@ -120,6 +127,27 @@ defmodule ZaimuTomo.DocumentProcessing do
     end)
   end
 
+  @doc """
+  Returns the live OCR run of each document that has one, as a `Run`.
+
+  One query regardless of how many ids are given. A document without a live
+  job has no entry; it has the same live jobs `processing_states/1` counts.
+  """
+  @spec live_runs([pos_integer()]) :: %{pos_integer() => Run.t()}
+  def live_runs([]), do: %{}
+
+  def live_runs(document_ids) when is_list(document_ids) do
+    ids_by_text = Map.new(document_ids, &{to_string(&1), &1})
+
+    live_jobs()
+    |> where([j], fragment("?->>'document_id'", j.args) in ^Map.keys(ids_by_text))
+    # Uniqueness keeps one live job per document; should two exist, the newest wins.
+    |> order_by([j], asc: j.id)
+    |> select([j], {fragment("?->>'document_id'", j.args), j})
+    |> Repo.all()
+    |> Map.new(fn {id_text, job} -> {ids_by_text[id_text], Run.from_job(job)} end)
+  end
+
   defp classify_state(true, _latest), do: :processing
   defp classify_state(false, nil), do: :stuck
   defp classify_state(false, %{status: "failed"}), do: :failed
@@ -147,7 +175,7 @@ defmodule ZaimuTomo.DocumentProcessing do
       state when state in [:failed, :stuck] ->
         with {:ok, job} <-
                document
-               |> ocr_job(scope.user.base_currency, latest && latest.id)
+               |> ocr_job(scope.user.base_currency, latest && latest.id, :manual_retry)
                |> Oban.insert() do
           # Lets open Index / hero views pick up the new live run without a reload.
           broadcast_event(:retried, user_id, %{document_id: document.id, user_id: user_id})

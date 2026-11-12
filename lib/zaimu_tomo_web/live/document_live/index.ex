@@ -89,7 +89,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
       {live_render(@socket, ZaimuTomoWeb.DocumentUploadLive, id: "doc-upload")}
       <div class="feed" id="documents-feed" phx-update="stream" style="margin-top:16px">
         <div
-          :for={{dom_id, %{document: document, state: state}} <- @streams.documents}
+          :for={{dom_id, %{document: document, state: state, run: run}} <- @streams.documents}
           id={dom_id}
           class={"feed-item #{Review.document_status(state, List.first(document.extracted_content))}"}
         >
@@ -112,14 +112,14 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
             <div class="body">
               <div class="title">
                 {(data && data.issuer) || document.filename}
-                <.status_pill status={status} />
+                <.status_pill status={status} run={run} />
               </div>
               <div class="desc">
                 <%= case status do %>
                   <% "processing" -> %>
-                    Sent to OCR · extraction in progress
+                    {retry_note(run) || "Sent to OCR · extraction in progress"}
                     <%= if ec && ec.status == "failed" do %>
-                      · previous attempt failed: {get_in(ec.error_details || %{}, ["message"]) ||
+                      · earlier run failed: {get_in(ec.error_details || %{}, ["message"]) ||
                         "Processing failed"}
                     <% end %>
                   <% "stalled" -> %>
@@ -289,12 +289,16 @@ defmodule ZaimuTomoWeb.DocumentLive.Index do
     {:noreply, refresh_documents(socket)}
   end
 
-  # Loads the documents with their durable processing state (two batched
-  # queries, independent of the row count) and resets the stream and hero.
+  # Loads the documents with their durable processing state and live runs, and
+  # resets the stream and hero.
   defp refresh_documents(socket) do
     documents = Documents.list_documents(socket.assigns.current_scope)
-    states = DocumentProcessing.processing_states(Enum.map(documents, & &1.id))
-    rows = Enum.map(documents, &%{id: &1.id, document: &1, state: states[&1.id]})
+    document_ids = Enum.map(documents, & &1.id)
+    states = DocumentProcessing.processing_states(document_ids)
+    runs = DocumentProcessing.live_runs(document_ids)
+
+    rows =
+      Enum.map(documents, &%{id: &1.id, document: &1, state: states[&1.id], run: runs[&1.id]})
 
     statuses =
       Map.new(

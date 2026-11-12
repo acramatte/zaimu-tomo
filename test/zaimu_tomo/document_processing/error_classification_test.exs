@@ -205,6 +205,52 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
       assert ErrorClassification.summarize({:ocr_request_failed, "SECRET-INVOICE-TEXT"}) ==
                "unclassified"
     end
+
+    test "a storage status summarizes to the storage stage and status" do
+      assert ErrorClassification.summarize({:unexpected_status, 503}) == "storage:http_503"
+    end
+  end
+
+  describe "describe/1" do
+    test "says which service failed and how, for each failure that is retried" do
+      cases = [
+        {{:ocr_upload_failed, %Req.TransportError{reason: :timeout}},
+         "the OCR service timed out"},
+        {{:ocr_request_failed, {:http_status, 408, "body"}}, "the OCR service timed out"},
+        {{:ocr_upload_failed, {:http_status, 429, "body"}}, "the OCR service was rate-limited"},
+        {{:ocr_url_failed, {:http_status, 503, "body"}}, "the OCR service returned an error"},
+        {{:ocr_request_failed, %Req.TransportError{reason: :econnrefused}},
+         "couldn't reach the OCR service"},
+        {{:llm_request_failed, %{status: 429, reason: "slow down"}},
+         "the extraction service was rate-limited"},
+        {{:llm_request_failed, %{status: 425, reason: "busy"}},
+         "the extraction service was busy"},
+        {{:llm_request_failed, %{status: 500, reason: "oops"}},
+         "the extraction service returned an error"},
+        {{:llm_request_failed, %{status: nil, reason: "closed"}},
+         "couldn't reach the extraction service"},
+        {{:prompt_fetch_failed, 502}, "the prompt service returned an error"},
+        {{:prompt_fetch_failed, %Req.TransportError{reason: :closed}},
+         "couldn't reach the prompt service"},
+        {{:unexpected_status, 503}, "couldn't read the uploaded file"},
+        {%Req.TransportError{reason: :econnrefused}, "couldn't read the uploaded file"},
+        {:eio, "couldn't read the uploaded file"},
+        {{:scratch_unavailable, :enospc}, "couldn't prepare the file for reading"}
+      ]
+
+      for {reason, phrase} <- cases do
+        assert ErrorClassification.classify(reason) == :transient
+
+        assert reason |> ErrorClassification.summarize() |> ErrorClassification.describe() ==
+                 phrase
+      end
+    end
+
+    test "a job timeout and unknown codes" do
+      assert ErrorClassification.describe("job_timeout") == "the run took too long"
+      assert ErrorClassification.describe("unclassified") == "an unexpected error"
+      assert ErrorClassification.describe("new_stage:http_503") == "an unexpected error"
+    end
   end
 
   describe "classify/1 (property)" do

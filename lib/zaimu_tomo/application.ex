@@ -5,10 +5,13 @@ defmodule ZaimuTomo.Application do
 
   use Application
 
+  alias ZaimuTomo.DocumentProcessing.AttemptOutcomes
+
   @impl true
   def start(_type, _args) do
     ZaimuTomo.Langfuse.setup()
     ZaimuTomo.ObanFailureLogger.attach()
+    AttemptOutcomes.attach()
 
     children =
       [

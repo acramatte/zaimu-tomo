@@ -25,7 +25,7 @@ defmodule ZaimuTomoWeb.RecentActivityLive do
       <div class="h">No activity yet</div>
       <div class="muted">Upload a receipt or invoice to start your activity feed.</div>
     </div>
-    <div :if={@activity != []} id="dashboard-recent-activity" class="feed">
+    <div :if={@activity != []} id="dashboard-recent-activity-feed" class="feed">
       <.feed_item :for={item <- @activity} item={item} />
     </div>
     """

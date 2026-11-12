@@ -7,6 +7,8 @@ defmodule ZaimuTomo.ActivityTest do
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.Activity
   alias ZaimuTomo.DocumentProcessing
+  alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentProcessing.Run
 
   setup do
     user = ZaimuTomo.AccountsFixtures.user_fixture()
@@ -52,6 +54,14 @@ defmodule ZaimuTomo.ActivityTest do
 
     Repo.update_all(from(d in ZaimuTomo.Documents.Document, where: d.id == ^processing.id),
       set: [updated_at: ~U[2026-05-08 10:00:00Z]]
+    )
+
+    # The upload enqueues its job in the same transaction as the document.
+    Repo.update_all(
+      from(j in Oban.Job,
+        where: fragment("?->>'document_id' = ?", j.args, ^to_string(processing.id))
+      ),
+      set: [inserted_at: ~U[2026-05-08 10:00:00Z]]
     )
 
     Repo.update_all(
@@ -140,6 +150,31 @@ defmodule ZaimuTomo.ActivityTest do
            }
   end
 
+  test "a retried document carries its run and moves above newer activity", %{
+    scope: scope,
+    user: user
+  } do
+    retried = document_fixture(scope, %{filename: "retried.pdf"})
+    failed_content = extracted_content_fixture(retried, user, %{status: "failed"})
+
+    newer = document_fixture(scope, %{filename: "newer.pdf"})
+    newer_content = extracted_content_fixture(newer, user)
+    pending_review_fixture(newer_content)
+
+    set_updated_at(failed_content, -7200)
+    set_updated_at(newer_content, -60)
+
+    assert [%{filename: "newer.pdf"}, %{filename: "retried.pdf", status: "failed", run: nil}] =
+             Activity.list_recent(scope, limit: :all)
+
+    assert {:ok, _job} = DocumentProcessing.retry_document(scope, retried)
+
+    assert [
+             %{filename: "retried.pdf", status: "processing", run: %Run{trigger: :manual_retry}},
+             %{filename: "newer.pdf", status: "review", run: nil}
+           ] = Activity.list_recent(scope, limit: :all)
+  end
+
   test "limits the feed after ordering activity", %{scope: scope} do
     first = document_fixture(scope, %{filename: "first.pdf"})
     second = document_fixture(scope, %{filename: "second.pdf"})
@@ -153,6 +188,14 @@ defmodule ZaimuTomo.ActivityTest do
     )
 
     assert [%{filename: "second.pdf"}] = Activity.list_recent(scope, limit: 1)
+  end
+
+  defp set_updated_at(content, seconds_from_now) do
+    at = NaiveDateTime.add(NaiveDateTime.utc_now(), seconds_from_now)
+
+    Repo.update_all(from(ec in ExtractedContent, where: ec.id == ^content.id),
+      set: [updated_at: at]
+    )
   end
 
   defp live_ocr_job(document),
