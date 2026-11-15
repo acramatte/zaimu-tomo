@@ -127,7 +127,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
         assert_receive {:statement_updated, ^statement_id}, 2_000
       end)
 
-      read = Statements.get_statement!(scope, statement_id)
+      read = Statements.get_reconciliation!(scope, statement_id).statement
       assert read.failure_code == "job_timeout"
       assert Statements.status(read) == :failed
       assert %Oban.Job{state: "discarded"} = Repo.one!(Oban.Job)
@@ -147,7 +147,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
         assert %{discard: 1} = Oban.drain_queue(queue: :statements)
       end)
 
-      read = Statements.get_statement!(scope, statement_id)
+      read = Statements.get_reconciliation!(scope, statement_id).statement
       assert read.failure_code == "unclassified"
       refute read.failure_code =~ "secret body"
       assert Statements.status(read) == :failed
@@ -185,7 +185,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
         [{~D[2026-10-03], "SBB CFF FFS", -4_200}]
       )
 
-      extracted = Statements.get_statement!(scope, statement_id)
+      extracted = Statements.get_reconciliation!(scope, statement_id).statement
       assert Statements.status(extracted) == :ready
       assert Statements.balance(extracted) == {:off_by, -7_500}
 
@@ -214,7 +214,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
 
       assert_received {:statement_updated, ^statement_id}
 
-      after_discard = Statements.get_statement!(scope, statement_id)
+      after_discard = Statements.get_reconciliation!(scope, statement_id).statement
       assert after_discard.failure_code == "job_timeout"
       assert after_discard.extracted_at == extracted.extracted_at
       assert length(after_discard.lines) == 1
@@ -246,7 +246,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
           assert_receive {:statement_updated, ^statement_id}, 2_000
         end)
 
-      read = Statements.get_statement!(scope, statement_id)
+      read = Statements.get_reconciliation!(scope, statement_id).statement
       assert read.failure_code == "job_interrupted"
       assert Statements.status(read) == :failed
       assert %Oban.Job{state: "discarded"} = Repo.reload!(other_job)
@@ -278,7 +278,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
         nil
       )
 
-      read = Statements.get_statement!(scope, statement_id)
+      read = Statements.get_reconciliation!(scope, statement_id).statement
       assert read.failure_code == nil
       assert Statements.status(read) == :processing
       refute_received {:statement_updated, ^statement_id}
@@ -295,7 +295,7 @@ defmodule ZaimuTomo.Statements.AttemptOutcomesTest do
         assert %{failure: 1} = Oban.drain_queue(queue: :statements)
       end)
 
-      read = Statements.get_statement!(scope, statement.id)
+      read = Statements.get_reconciliation!(scope, statement.id).statement
       assert read.failure_code == nil
       assert Statements.status(read) == :processing
       assert %Oban.Job{state: "retryable"} = Repo.one!(Oban.Job)

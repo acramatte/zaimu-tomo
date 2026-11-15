@@ -19,7 +19,8 @@ defmodule ZaimuTomo.StatementsFixtures do
 
   @doc """
   Writes an extraction result directly, as `ExtractJob` would, for tests of
-  readers. Lines are `{booking_date, description, signed_cents}` tuples.
+  readers. Lines are `{booking_date, description, signed_cents}` tuples, with
+  a fourth `{signed_original_cents, original_currency}` for foreign spend.
   """
   def put_extraction(%Statement{} = statement, header \\ %{}, lines \\ []) do
     header =
@@ -46,7 +47,13 @@ defmodule ZaimuTomo.StatementsFixtures do
       StatementLine,
       lines
       |> Enum.with_index(1)
-      |> Enum.map(fn {{date, description, cents}, position} ->
+      |> Enum.map(fn {line, position} ->
+        {date, description, cents, {original_cents, original_currency}} =
+          case line do
+            {date, description, cents} -> {date, description, cents, {nil, nil}}
+            {_date, _description, _cents, {_original_cents, _original_currency}} -> line
+          end
+
         %{
           statement_id: updated.id,
           user_id: updated.user_id,
@@ -54,7 +61,9 @@ defmodule ZaimuTomo.StatementsFixtures do
           booking_date: date,
           description: description,
           amount_cents: cents,
-          currency: header.currency
+          currency: header.currency,
+          original_amount_cents: original_cents,
+          original_currency: original_currency
         }
       end)
     )

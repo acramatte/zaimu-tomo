@@ -577,6 +577,31 @@ defmodule ZaimuTomo.Accounting do
     |> Repo.all()
   end
 
+  @doc """
+  Posted entries of the scope's user whose `{amount_cents, currency}` is one of
+  `keys`, in one query.
+  """
+  @spec list_posted_entries_for_amount_keys(Scope.t(), [{integer(), String.t()}]) ::
+          [JournalEntry.t()]
+  def list_posted_entries_for_amount_keys(%Scope{}, []), do: []
+
+  def list_posted_entries_for_amount_keys(%Scope{user: user}, keys) do
+    {cents, currencies} = keys |> Enum.uniq() |> Enum.unzip()
+
+    from(je in JournalEntry,
+      where: je.user_id == ^user.id and je.status == "posted",
+      where:
+        fragment(
+          "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
+          je.amount_cents,
+          je.currency,
+          ^cents,
+          ^currencies
+        )
+    )
+    |> Repo.all()
+  end
+
   defp posted_entries_query(user_id, from_date, to_date, filters) do
     query =
       from(je in JournalEntry,

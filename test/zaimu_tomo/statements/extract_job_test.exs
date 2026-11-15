@@ -147,7 +147,7 @@ defmodule ZaimuTomo.Statements.ExtractJobTest do
     perform_job(ExtractJob, %{statement_id: statement.id}, opts)
   end
 
-  defp read(statement), do: Statements.get_statement!(statement_scope(statement), statement.id)
+  defp read(statement), do: Statement |> Repo.get!(statement.id) |> Repo.preload(:lines)
 
   defp statement_scope(statement),
     do: %ZaimuTomo.Accounts.Scope{user: %ZaimuTomo.Accounts.User{id: statement.user_id}}
