@@ -2024,11 +2024,17 @@ body:has(.settings-page) .app-version { position: absolute; }
 .statement-coverage .budget-bar .fill { background: var(--positive); }
 .statement-coverage-chip { font-family: 'Geist Mono', monospace; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 @media (max-width: 760px) {
-  .statement-line-cols, .statement-line { grid-template-columns: 80px minmax(0, 1fr) 110px; }
-  .statement-line-cols > :nth-child(3), .statement-line > :nth-child(3) { display: none; }
-  .statement-line-cols > :nth-child(5) { display: none; }
-  .statement-line { height: auto; min-height: 32px; padding-top: 6px; padding-bottom: 6px; row-gap: 2px; }
-  .statement-line .backing { grid-column: 2 / -1; padding-left: 0; }
+  .statement-line-cols { display: none; }
+  .statement-line {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "date amount" "description description" "backing backing";
+    height: auto; padding-top: 8px; padding-bottom: 8px; row-gap: 2px;
+  }
+  .statement-line > .date { grid-area: date; }
+  .statement-line > :nth-child(3) { display: none; }
+  .statement-line > :nth-child(4) { grid-area: amount; }
+  .statement-line > .description { grid-area: description; white-space: normal; }
+  .statement-line > .backing { grid-area: backing; white-space: normal; padding-left: 0; }
 }
 .ledger-detail {
   padding: 14px 14px 14px 88px;
