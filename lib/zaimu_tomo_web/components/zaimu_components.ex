@@ -81,6 +81,8 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
         <span class="pill review"><span class="pulse"></span>Needs review</span>
       <% "posted" -> %>
         <span class="pill posted">Posted</span>
+      <% "ready" -> %>
+        <span class="pill posted">Read</span>
       <% "verified" -> %>
         <span class="pill verified">Verified</span>
       <% "failed" -> %>

@@ -14,6 +14,7 @@ defmodule ZaimuTomo.Statements do
 
   alias Ecto.Multi
   alias ZaimuTomo.Accounts.Scope
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.FinancialAccounts.FinancialAccount
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Statements.{ExtractJob, Statement}
@@ -156,6 +157,18 @@ defmodule ZaimuTomo.Statements do
   end
 
   @doc """
+  Gets one of the scope's statements with its account and lines, or `nil` for
+  a missing or foreign id, such as a statement deleted while a page shows it.
+  """
+  @spec get_statement(Scope.t(), term()) :: Statement.t() | nil
+  def get_statement(%Scope{} = scope, id) do
+    case Repo.get_by(Statement, id: id, user_id: scope.user.id) do
+      nil -> nil
+      statement -> Repo.preload(statement, [:financial_account, :lines])
+    end
+  end
+
+  @doc """
   The status of a statement, as `status/2` reads it with its live job.
   """
   @spec status(Statement.t()) :: status()
@@ -234,6 +247,27 @@ defmodule ZaimuTomo.Statements do
   def retryable?(status, _balance) when status in [:failed, :stalled], do: true
   def retryable?(:ready, {:off_by, _gap}), do: true
   def retryable?(_status, _balance), do: false
+
+  @failures %{
+    "currency_mismatch" => "its currency is not the account's currency",
+    "account_mismatch" => "it names another account than this one",
+    "inconsistent_header" => "two pages print a different period, currency, or account",
+    "missing_header" => "the period, currency, or a balance could not be found",
+    "no_lines" => "no lines were found although the balance moved",
+    "line_outside_period" => "a line is dated months away from the statement's period",
+    "duplicate_period" => "this account already has a statement for this period"
+  }
+
+  @doc """
+  Describes a statement's `failure_code` as a short phrase for the user.
+
+  The ways a read can fail to fit its account (`ParsedStatement`'s refusals
+  and `duplicate_period`) are worded here; every other code is a processing
+  failure and is worded by `ErrorClassification.describe/1`.
+  """
+  @spec describe_failure(String.t()) :: String.t()
+  def describe_failure(code),
+    do: Map.get_lazy(@failures, code, fn -> ErrorClassification.describe(code) end)
 
   @doc """
   Deletes a statement and its lines, then its stored file.
