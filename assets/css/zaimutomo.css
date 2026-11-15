@@ -1976,6 +1976,40 @@ body:has(.settings-page) .app-version { position: absolute; }
 .ledger-row .ledger-chevron { width: 14px; height: 14px; color: var(--faint); transition: transform 160ms, color 120ms; }
 .ledger-row:hover .ledger-chevron { color: var(--ink-2); }
 .ledger-entry.open .ledger-chevron { transform: rotate(90deg); color: var(--accent); }
+/* Statements: upload panel and one 32px line per statement line. */
+.statement-upload-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start; }
+@media (max-width: 760px) { .statement-upload-grid { grid-template-columns: 1fr; } }
+.statement-upload-entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; padding: 8px 0 0; }
+.statement-upload-entry .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statement-upload-entry progress { width: 80px; }
+.statement-upload-error { flex-basis: 100%; color: var(--danger); font-size: 11.5px; margin: 4px 0 0; }
+.statement-note { font-size: 13px; margin: 12px 0 0; }
+.statement-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.statement-line-cols, .statement-line {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 132px 132px;
+  gap: 10px; align-items: center;
+  padding: 0 14px;
+}
+.statement-line-cols {
+  height: 28px;
+  font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+}
+.statement-line { height: 32px; font-size: 13px; border-bottom: 1px solid var(--hairline); transition: background 120ms; }
+.statement-line:last-child { border-bottom: 0; }
+.statement-line:hover { background: var(--panel-2); }
+.statement-line > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.statement-line .date { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--ink-2); }
+.statement-line .num { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+.statement-line .faint { color: var(--faint); font-size: 12px; }
+.statement-line .credit { color: var(--positive); }
+.statement-line-cols .right, .statement-line .right { text-align: right; }
+@media (max-width: 760px) {
+  .statement-line-cols, .statement-line { grid-template-columns: 80px minmax(0, 1fr) 110px; }
+  .statement-line-cols > :nth-child(3), .statement-line > :nth-child(3) { display: none; }
+}
 .ledger-detail {
   padding: 14px 14px 14px 88px;
   background: color-mix(in oklab, var(--accent-tint) 40%, var(--panel));

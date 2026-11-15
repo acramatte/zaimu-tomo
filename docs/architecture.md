@@ -148,7 +148,7 @@ flowchart TB
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
 | `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want; `list_categories/1` suggests the user's own earlier categories), tax deduction claims (set at posting, revised afterwards with `revise_tax_deduction_claim/3`), spending aggregates, and the journal ledger reads: unbooked entries for the booking queue, and posted entries per invoice month and year (`posted_journal_months/3`, `list_posted_journal_entries/4`), each narrowed by an optional case-insensitive text search over issuer, invoice number, category, description, and notes (the journal page's `?q=`). |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency, and accounts grouped by type for the dashboard (`list_accounts_with_latest_balance_by_type/1`). The `account_type` enum (current, savings, cash, investment, credit card) is the one list of types: the account form reads its options from it. A current account is the everyday bank account that pays bills and receives salary. |
-| `Statements` | `lib/zaimu_tomo/statements*` | Bank and card statements: upload (file and `ExtractJob` in one transaction, one statement per file per user), list, get, retry, delete, the statement status rule (`status/2`), the balance check (`balance/1`), and which statements may be read again (`retryable?/2`). The only writer of `statements` and `statement_lines`. |
+| `Statements` | `lib/zaimu_tomo/statements*` | Bank and card statements: upload (file and `ExtractJob` in one transaction, one statement per file per user), list, get, retry, delete, the statement status rule (`status/2`), the balance check (`balance/1`), which statements may be read again (`retryable?/2`), and the wording of a failure (`describe_failure/1`: a read that does not fit its account is worded here, every other code by `ErrorClassification.describe/1`). The only writer of `statements` and `statement_lines`. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state and live run for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. `store_upload/3` stores an uploaded file under a key prefix (`documents`) and fingerprints the same bytes. |
 | `Fingerprint` | `lib/zaimu_tomo/fingerprint.ex` | Pure. The exact-byte SHA-256 of an uploaded file (`sha256/1`) and the format every stored digest must match (`format/0`). Outside every context so that `Storage`, `Documents`, `Accounting`, and `Statements` can share it without depending on each other. |
@@ -358,6 +358,20 @@ interruption is recorded the same way by `Statements.AttemptOutcomes` through
 `{:statement_updated, id}`.
 Retry only enqueues a job. Deleting a statement deletes its row and lines,
 then its file; a job still queued for it cancels itself.
+
+`/statements` (`StatementLive.Index`) lists statements by account with their
+status and period, and `/statements/new?account=<id>` opens the upload panel
+with that account chosen; each account page links to both. `/statements/:id`
+(`StatementLive.Show`) shows the account, period, opening and closing
+balances, whether the lines add up (balanced, or off by an amount), the status
+with the failure in plain words (`Statements.describe_failure/1`), the lines,
+and the Read again and Delete actions. Read again is offered only where
+`Statements.retryable?/2` allows it. Both pages subscribe to
+`user:<id>:statements` before their first read and reload on it and, like the
+invoice page, re-read every few seconds while a statement is processing,
+because the job broadcasts before Oban marks it complete. A statement deleted
+while its page is open, by its own Delete or elsewhere, sends the page back to
+`/statements`.
 
 ### 6.4 TypeSafe shadow verification (optional)
 

@@ -95,6 +95,19 @@
           </svg>
           <span class="nav-label">Accounts</span>
         </.nav_item>
+        <.nav_item navigate={~p"/statements"} current_path={@current_path} label="Statements">
+          <svg
+            class="ico"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path d="M3 2h10v12l-2-1.2L9 14l-2-1.2L5 14l-2-1.2V2z" />
+            <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
+          </svg>
+          <span class="nav-label">Statements</span>
+        </.nav_item>
         <.nav_item navigate={~p"/activity"} current_path={@current_path} label="Activity">
           <svg
             class="ico"

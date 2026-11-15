@@ -227,6 +227,11 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def describe("job_interrupted"), do: "the run was interrupted"
   def describe("invalid_verifier_output"), do: "the verifier's answer was unreadable"
 
+  def describe("validation_failed"),
+    do: "the extraction service returned an answer that could not be understood"
+
+  def describe("missing_structured_output"), do: "the extraction service returned no answer"
+
   def describe(code) when is_binary(code) do
     with [stage, detail] <- String.split(code, ":", parts: 2),
          {:ok, service} <- Map.fetch(@services, stage) do
