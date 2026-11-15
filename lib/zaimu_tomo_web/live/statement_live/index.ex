@@ -143,6 +143,14 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
             <div class="desc muted">{row_detail(statement)}</div>
           </div>
           <div class="actions">
+            <span
+              :if={@coverage[statement.id]}
+              class="statement-coverage-chip"
+              id={"statement-#{statement.id}-coverage"}
+              title="Payments backed by a booked invoice"
+            >
+              backed {@coverage[statement.id].debits_backed}/{@coverage[statement.id].debits}
+            </span>
             <.status_pill status={Atom.to_string(status)} />
             <.link class="btn sm" navigate={~p"/statements/#{statement}"}>View</.link>
           </div>
@@ -159,6 +167,7 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     if connected?(socket) do
       Statements.subscribe(scope)
       FinancialAccounts.subscribe_financial_accounts(scope)
+      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "invoice_review:completed")
     end
 
     {:ok,
@@ -224,6 +233,13 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
 
   def handle_info({:balance_recorded, _snapshot}, socket), do: {:noreply, socket}
 
+  # A posted invoice can back a line of a listed statement.
+  def handle_info(%{user_id: user_id}, socket)
+      when user_id == socket.assigns.current_scope.user.id,
+      do: {:noreply, assign_statements(socket)}
+
+  def handle_info(%{user_id: _other_user}, socket), do: {:noreply, socket}
+
   def handle_info(:refresh_processing, socket) do
     {:noreply, ProcessingRefresh.on_tick(socket, &assign_statements/1)}
   end
@@ -271,15 +287,24 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
   defp maybe_cancel_pending_uploads(socket), do: socket
 
   defp assign_statements(socket) do
-    entries = Statements.list_statements(socket.assigns.current_scope)
+    scope = socket.assigns.current_scope
+    entries = Statements.list_statements(scope)
 
     groups =
       entries
       |> Enum.chunk_by(& &1.statement.financial_account_id)
       |> Enum.map(fn [first | _] = group -> {first.statement.financial_account, group} end)
 
+    ready_ids = for %{statement: statement, status: :ready} <- entries, do: statement.id
+
+    coverage =
+      scope
+      |> Statements.reconcile(ready_ids)
+      |> Map.new(fn {id, reconciliation} -> {id, reconciliation.summary} end)
+
     socket
     |> assign(:groups, groups)
+    |> assign(:coverage, coverage)
     |> ProcessingRefresh.schedule(Enum.any?(entries, &(&1.status == :processing)))
   end
 

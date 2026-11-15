@@ -6,6 +6,7 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
   import Phoenix.LiveViewTest
   import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
   import ZaimuTomo.FinancialAccountsFixtures
+  import ZaimuTomo.ReviewFixtures, only: [journal_entry_fixture: 2]
   import ZaimuTomo.StatementsFixtures
 
   alias ZaimuTomo.FinancialAccounts
@@ -433,6 +434,116 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
       for id <- [foreign.id, -1, "not-an-id"] do
         assert_raise Ecto.NoResultsError, fn -> live(conn, ~p"/statements/#{id}") end
       end
+    end
+  end
+
+  describe "backing" do
+    defp posted_entry(scope, issuer, cents, date) do
+      journal_entry_fixture(scope, %{
+        issuer: issuer,
+        amount_to_pay_cents: cents,
+        currency: "CHF",
+        invoice_date: date
+      })
+    end
+
+    defp read_october(scope, account, lines) do
+      statement =
+        scope |> statement_fixture(account) |> put_extraction(%{currency: "CHF"}, lines)
+
+      settle_jobs()
+      statement
+    end
+
+    test "shows the entry backing each line, the coverage, and filters by tab",
+         %{conn: conn, scope: scope, account: account} do
+      statement =
+        read_october(scope, account, [
+          {~D[2026-10-03], "ACME CORP ZURICH", -4_200},
+          {~D[2026-10-05], "CARD 1234 SHOP", -1_500},
+          {~D[2026-10-06], "Parking", -700},
+          {~D[2026-10-10], "Payment, thank you", 10_000}
+        ])
+
+      acme = posted_entry(scope, "ACME Corp", 4_200, "2026-10-01")
+      bakery = posted_entry(scope, "Bakery Muller", 1_500, "2026-09-20")
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}")
+
+      assert has_element?(
+               view,
+               ~s(#statement-line-1 .backing.named a[href="/journal_entries/#{acme.id}"]),
+               "ACME Corp · 01.10.2026"
+             )
+
+      assert has_element?(
+               view,
+               ~s(#statement-line-2 .backing.check a[href="/journal_entries/#{bakery.id}"]),
+               "Same amount, check"
+             )
+
+      assert has_element?(view, "#statement-line-3 .backing", "Not backed")
+      assert has_element?(view, "#statement-line-4 .backing", "Money in")
+      assert has_element?(view, "#statement-coverage", "2 of 3 payments backed")
+      assert has_element?(view, "#statement-tab-unbacked .count", "1")
+
+      view |> element("#statement-tab-unbacked") |> render_click()
+      assert_patch(view, ~p"/statements/#{statement}?filter=unbacked")
+      assert has_element?(view, "#statement-line-3")
+      refute has_element?(view, "#statement-line-1")
+      refute has_element?(view, "#statement-line-4")
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}?filter=credits")
+      assert has_element?(view, "#statement-tab-credits.active")
+      assert has_element?(view, "#statement-line-4")
+      refute has_element?(view, "#statement-line-1")
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}?filter=backed")
+      assert has_element?(view, "#statement-line-1")
+      assert has_element?(view, "#statement-line-2")
+      refute has_element?(view, "#statement-line-3")
+    end
+
+    test "backs a line as soon as its invoice is booked elsewhere",
+         %{conn: conn, scope: scope, account: account} do
+      statement = read_october(scope, account, [{~D[2026-10-03], "SBB CFF FFS", -4_200}])
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}?filter=unbacked")
+      assert has_element?(view, "#statement-line-1 .backing", "Not backed")
+      assert has_element?(view, "#statement-coverage", "0 of 1 payments backed")
+
+      entry = posted_entry(scope, "SBB", 4_200, "2026-10-01")
+
+      assert has_element?(view, "#statement-tab-empty", "Every payment")
+      assert has_element?(view, "#statement-coverage", "1 of 1 payments backed")
+
+      view |> element("#statement-tab-backed") |> render_click()
+
+      assert has_element?(
+               view,
+               ~s(#statement-line-1 .backing a[href="/journal_entries/#{entry.id}"])
+             )
+    end
+
+    test "the list shows how many payments of each read statement are backed",
+         %{conn: conn, scope: scope, account: account} do
+      read =
+        read_october(scope, account, [
+          {~D[2026-10-03], "ACME CORP", -4_200},
+          {~D[2026-10-06], "Parking", -700},
+          {~D[2026-10-10], "Payment, thank you", 10_000}
+        ])
+
+      processing = statement_fixture(scope, account)
+      posted_entry(scope, "ACME Corp", 4_200, "2026-10-01")
+
+      {:ok, view, _html} = live(conn, ~p"/statements")
+
+      assert has_element?(view, "#statement-#{read.id}-coverage", "backed 1/2")
+      refute has_element?(view, "#statement-#{processing.id}-coverage")
+
+      posted_entry(scope, "Parking", 700, "2026-10-05")
+      assert has_element?(view, "#statement-#{read.id}-coverage", "backed 2/2")
     end
   end
 

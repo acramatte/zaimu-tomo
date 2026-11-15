@@ -5,7 +5,8 @@ defmodule ZaimuTomo.Statements do
 
   Nothing outside this context writes `statements` or `statement_lines`. The
   extraction facts have one writer, the job. A statement's status is derived,
-  never stored, by `status/2`.
+  never stored, by `status/2`. Which journal entry backs a line is derived
+  too, on every read, by `reconcile/2`.
   """
 
   import Ecto.Query, warn: false
@@ -13,11 +14,12 @@ defmodule ZaimuTomo.Statements do
   require Logger
 
   alias Ecto.Multi
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounts.Scope
   alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.FinancialAccounts.FinancialAccount
   alias ZaimuTomo.Repo
-  alias ZaimuTomo.Statements.{ExtractJob, Statement}
+  alias ZaimuTomo.Statements.{ExtractJob, Matcher, Reconciliation, Statement, StatementLine}
   alias ZaimuTomo.Storage
 
   @extract_job_worker inspect(ExtractJob)
@@ -146,22 +148,51 @@ defmodule ZaimuTomo.Statements do
   end
 
   @doc """
-  Gets one of the scope's statements with its account and lines. Raises
-  `Ecto.NoResultsError` for a missing or foreign id.
+  Checks the scope's statements with these ids against the journal and
+  returns `%{id => Reconciliation.t()}`. An id that is missing or another
+  user's is left out.
+
+  The only read of matches, computed on every call and never stored. Only
+  posted journal entries of the scope's user back lines. The lines of every
+  statement of the user that share an amount group with the requested lines
+  are matched together, so one entry never backs two lines on two statements.
   """
-  @spec get_statement!(Scope.t(), term()) :: Statement.t()
-  def get_statement!(%Scope{} = scope, id),
-    do: get_statement(scope, id) || raise(Ecto.NoResultsError, queryable: Statement)
+  @spec reconcile(Scope.t(), [integer()]) :: %{integer() => Reconciliation.t()}
+  def reconcile(%Scope{} = scope, ids) do
+    statements =
+      from(s in Statement,
+        where: s.user_id == ^scope.user.id and s.id in ^ids,
+        preload: [:financial_account, :lines]
+      )
+      |> Repo.all()
+
+    live_ids = statements |> Enum.map(& &1.id) |> live_statement_ids() |> MapSet.new()
+    matches = matches(scope, Enum.flat_map(statements, & &1.lines))
+
+    Map.new(statements, fn statement ->
+      status = status(statement, MapSet.member?(live_ids, statement.id))
+      {statement.id, Reconciliation.new(statement, status, balance(statement), matches)}
+    end)
+  end
 
   @doc """
-  Gets one of the scope's statements with its account and lines, or `nil` for
-  a missing or foreign id, such as a statement deleted while a page shows it.
+  Reconciles one of the scope's statements, as `reconcile/2` does. Raises
+  `Ecto.NoResultsError` for a missing or foreign id.
   """
-  @spec get_statement(Scope.t(), term()) :: Statement.t() | nil
-  def get_statement(%Scope{} = scope, id) do
-    with {:ok, id} when is_integer(id) <- Ecto.Type.cast(:id, id),
-         %Statement{} = statement <- Repo.get_by(Statement, id: id, user_id: scope.user.id) do
-      Repo.preload(statement, [:financial_account, :lines])
+  @spec get_reconciliation!(Scope.t(), term()) :: Reconciliation.t()
+  def get_reconciliation!(%Scope{} = scope, id),
+    do: get_reconciliation(scope, id) || raise(Ecto.NoResultsError, queryable: Statement)
+
+  @doc """
+  Reconciles one of the scope's statements, as `reconcile/2` does, or returns
+  `nil` for a missing or foreign id, such as a statement deleted while a page
+  shows it.
+  """
+  @spec get_reconciliation(Scope.t(), term()) :: Reconciliation.t() | nil
+  def get_reconciliation(%Scope{} = scope, id) do
+    with {:ok, id} <- Ecto.Type.cast(:id, id),
+         %{^id => reconciliation} <- reconcile(scope, [id]) do
+      reconciliation
     else
       _missing -> nil
     end
@@ -170,6 +201,76 @@ defmodule ZaimuTomo.Statements do
   @doc "All derived statement statuses returned by `status/2`."
   @spec statuses() :: [status()]
   def statuses, do: [:processing, :ready, :failed, :stalled]
+
+  # `Matcher.match/2` answers each amount group on its own, so matching the
+  # groups of `lines` whole gives every line the answer a run over all of the
+  # user's lines would give.
+  defp matches(scope, lines) do
+    {group_lines, keys} = amount_groups(scope, amount_keys(lines))
+
+    # An entry without an invoice date has no window to match in.
+    entries =
+      scope
+      |> Accounting.list_posted_entries_for_amount_keys(MapSet.to_list(keys))
+      |> Enum.reject(&is_nil(&1.date))
+
+    entries_by_id = Map.new(entries, &{&1.id, &1})
+
+    group_lines
+    |> Enum.map(&line_in/1)
+    |> Matcher.match(Enum.map(entries, &entry_in/1))
+    |> Map.new(fn {line_id, {entry_id, confidence}} ->
+      {line_id, {Map.fetch!(entries_by_id, entry_id), confidence}}
+    end)
+  end
+
+  defp line_in(line) do
+    %{
+      id: line.id,
+      date: line.booking_date,
+      keys: Matcher.line_keys(line),
+      description: line.description
+    }
+  end
+
+  defp entry_in(entry),
+    do: %{id: entry.id, date: entry.date, key: Matcher.entry_key(entry), issuer: entry.issuer}
+
+  # A foreign-amount line has two keys and joins two amount groups, so load
+  # the user's lines under the keys until no new key turns up.
+  defp amount_groups(scope, keys) do
+    lines = debit_lines_with_keys(scope, keys)
+    grown = MapSet.union(keys, amount_keys(lines))
+
+    if MapSet.equal?(grown, keys), do: {lines, keys}, else: amount_groups(scope, grown)
+  end
+
+  defp amount_keys(lines), do: lines |> Enum.flat_map(&Matcher.line_keys/1) |> MapSet.new()
+
+  defp debit_lines_with_keys(scope, keys) do
+    {cents, currencies} =
+      keys |> Enum.map(fn {cents, currency} -> {-cents, currency} end) |> Enum.unzip()
+
+    from(l in StatementLine,
+      where: l.user_id == ^scope.user.id and l.amount_cents < 0,
+      where:
+        fragment(
+          "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
+          l.amount_cents,
+          l.currency,
+          ^cents,
+          ^currencies
+        ) or
+          fragment(
+            "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
+            l.original_amount_cents,
+            l.original_currency,
+            ^cents,
+            ^currencies
+          )
+    )
+    |> Repo.all()
+  end
 
   @doc """
   The status of a statement, as `status/2` reads it with its live job.

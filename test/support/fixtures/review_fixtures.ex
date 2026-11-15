@@ -1,6 +1,8 @@
 defmodule ZaimuTomo.ReviewFixtures do
   @moduledoc false
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
+  alias ZaimuTomo.DocumentsFixtures
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
 
@@ -95,5 +97,34 @@ defmodule ZaimuTomo.ReviewFixtures do
     {:ok, _} = Review.create_initial_decision(extracted_content)
     {:ok, decision} = Review.amend_invoice(extracted_content.id, user.id, @valid_extracted_data)
     decision
+  end
+
+  @doc """
+  Approves an invoice with `attrs` over the default extracted data and a
+  unique invoice number, and returns its journal entry: posted with a
+  booking, or still uncategorized with `post: false`.
+  """
+  def journal_entry_fixture(scope, attrs \\ %{}, opts \\ []) do
+    document =
+      DocumentsFixtures.document_fixture(scope, %{
+        object_key: "documents/#{System.unique_integer([:positive])}.pdf"
+      })
+
+    data =
+      @valid_extracted_data
+      |> Map.put(:invoice_number, "INV-#{System.unique_integer([:positive])}")
+      |> Map.merge(Map.new(attrs))
+
+    content = extracted_content_fixture(document, scope.user, %{extracted_data: data})
+    {:ok, _} = Review.create_initial_decision(content)
+
+    booking =
+      if Keyword.get(opts, :post, true),
+        do: [booking: %{category: "Office", need_or_want: "need"}],
+        else: []
+
+    {:ok, decision} = Review.approve_invoice(content.id, scope.user.id, nil, booking)
+    {:ok, entry} = Accounting.get_journal_entry_for_decision(decision.id)
+    entry
   end
 end
