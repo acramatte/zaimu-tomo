@@ -503,12 +503,17 @@ enqueue time, and they never carry document text or provider payloads.
 
 OCR always uses Mistral. The extractor and verifier each take an explicit
 `backend` (`nousresearch | mistral | flm | ollama`) and `model`. There is no
-fallback. Prompts (`extract-invoice`, `verify-extraction`) come from Langfuse
+fallback. Prompts (`extract-invoice`, `verify-extraction`, `extract-statement-page`) come from Langfuse
 (label `production`) when Langfuse is enabled, and from built-in local templates
 otherwise. The local templates are copies of the production versions
 (`extract-invoice` v2, `verify-extraction` v2): when a new version goes to
 `production`, copy it into `ZaimuTomo.Langfuse` too, or Langfuse-off
 environments run older rules. See [local-ai.md](local-ai.md) and [configuration.md](configuration.md).
+`extract-statement-page` runs on the extractor role, once per statement page,
+with a ReqLLM schema whose `lines` is a list of objects. The model returns each
+line's amount as a positive number with a `debit`/`credit` direction, and
+`Statements.ParsedStatement.parse_page/1` types the answer or refuses it with
+`{:validation_failed, fields}`.
 
 ### Observability
 

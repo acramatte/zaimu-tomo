@@ -4,6 +4,8 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
 
   alias ZaimuTomo.Currency
 
+  @type t :: %__MODULE__{}
+
   schema "financial_accounts" do
     field :name, :string
     field :account_type, Ecto.Enum, values: [:current, :savings, :cash, :investment, :credit_card]
