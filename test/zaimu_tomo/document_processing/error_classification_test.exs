@@ -252,6 +252,14 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
       end
     end
 
+    test "an extractor answer that is missing or does not validate" do
+      assert ErrorClassification.describe("validation_failed") ==
+               "the extraction service returned an answer that could not be understood"
+
+      assert ErrorClassification.describe("missing_structured_output") ==
+               "the extraction service returned no answer"
+    end
+
     test "a job timeout and unknown codes" do
       assert ErrorClassification.describe("job_timeout") == "the run took too long"
       assert ErrorClassification.describe("job_interrupted") == "the run was interrupted"

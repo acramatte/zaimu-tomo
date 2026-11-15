@@ -20,6 +20,22 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       {@account.bank_name || "Bank not specified"}
       {if @account.account_number, do: " · #{@account.account_number}", else: ""}
     </p>
+    <div style="display:flex;gap:8px;margin:10px 0 18px">
+      <.link
+        id="account-statements-link"
+        class="btn sm"
+        navigate={~p"/statements" <> "#statements-account-#{@account.id}"}
+      >
+        Statements
+      </.link>
+      <.link
+        id="account-upload-statement-link"
+        class="btn sm primary"
+        navigate={~p"/statements/new?#{[account: @account.id]}"}
+      >
+        Upload statement
+      </.link>
+    </div>
 
     <div class="card account-history-card" id="account-balance-history">
       <div class="card-head">
