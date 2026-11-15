@@ -57,6 +57,11 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     |> String.reverse()
   end
 
+  @doc "Reads an account type as words: `:credit_card` is \"Credit card\"."
+  def account_type_label(type) when is_atom(type) do
+    type |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+  end
+
   # ── Status pill ────────────────────────────────────────────────────────────
 
   attr :status, :string, required: true

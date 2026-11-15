@@ -6,7 +6,7 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
 
   schema "financial_accounts" do
     field :name, :string
-    field :account_type, Ecto.Enum, values: [:cash, :savings, :investment]
+    field :account_type, Ecto.Enum, values: [:savings, :cash, :investment, :credit_card]
     field :currency, :string
     field :bank_name, :string
     field :account_number, :string

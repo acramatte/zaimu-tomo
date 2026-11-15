@@ -69,7 +69,11 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
               field={@form[:balance]}
               type="number"
               step="0.01"
-              label="Balance"
+              label={
+                if @account.account_type == :credit_card,
+                  do: "Balance (negative while you owe)",
+                  else: "Balance"
+              }
               placeholder="0.00"
               required
             />
@@ -167,6 +171,4 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       _ -> {:error, :invalid_amount}
     end
   end
-
-  defp account_type_label(type), do: type |> Atom.to_string() |> String.capitalize()
 end

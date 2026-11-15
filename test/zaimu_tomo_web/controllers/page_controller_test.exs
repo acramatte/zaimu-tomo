@@ -246,6 +246,29 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "Brokerage"
   end
 
+  test "GET / shows credit cards only when the user has one, with the debt negative", %{
+    conn: conn,
+    scope: scope
+  } do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    refute LazyHTML.to_html(document) =~ "Credit cards"
+
+    account =
+      financial_account_fixture(scope, %{
+        name: "Visa",
+        account_type: :credit_card,
+        currency: "CHF",
+        amount_cents: -45_000
+      })
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#dashboard-credit-cards-#{account.id}")
+    assert html =~ "Credit cards"
+    assert html =~ "CHF −450.00"
+  end
+
   test "GET / renders net worth grouped by source currency", %{conn: conn, scope: scope} do
     financial_account_fixture(scope, %{name: "Savings", amount_cents: 12_345})
     financial_account_fixture(scope, %{name: "Wallet", account_type: :cash, amount_cents: 10_000})

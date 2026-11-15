@@ -31,6 +31,66 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
     assert render(view) =~ "Raiffeisen"
   end
 
+  test "explains card debt only while a credit card is chosen", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/accounts")
+    refute has_element?(view, "#card-debt-hint")
+
+    view
+    |> form("#financial-account-form", %{"account" => %{"account_type" => "credit_card"}})
+    |> render_change()
+
+    assert view |> element("#card-debt-hint") |> render() =~ "Card debt is a negative balance."
+
+    view
+    |> form("#financial-account-form", %{"account" => %{"account_type" => "savings"}})
+    |> render_change()
+
+    refute has_element?(view, "#card-debt-hint")
+  end
+
+  test "offers every account type and creates a credit card with its debt", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, view, _html} = live(conn, ~p"/accounts")
+
+    options =
+      view
+      |> element("#financial-account-form select[name='account[account_type]']")
+      |> render()
+
+    for {label, value} <- [
+          {"Savings", "savings"},
+          {"Cash", "cash"},
+          {"Investment", "investment"},
+          {"Credit card", "credit_card"}
+        ] do
+      assert options =~ ~s(value="#{value}">#{label}</option>)
+    end
+
+    view
+    |> form("#financial-account-form", %{
+      "account" => %{
+        "name" => "Visa",
+        "account_type" => "credit_card",
+        "currency" => "CHF",
+        "balance" => "-450.00",
+        "recorded_on" => "2026-07-28"
+      }
+    })
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "Credit card"
+    assert html =~ "CHF −450.00"
+
+    [account] = ZaimuTomo.FinancialAccounts.list_financial_accounts(scope)
+
+    {:ok, _show, show_html} = live(conn, ~p"/accounts/#{account}")
+    assert show_html =~ "Credit card account · CHF"
+    assert show_html =~ "Balance (negative while you owe)"
+  end
+
   test "plots a twelve-month balance trend grouped by currency and toggles accounts", %{
     conn: conn,
     scope: scope

@@ -96,6 +96,23 @@
             </div>
             <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
           </div>
+          <div :if={@credit_card_accounts != []} class="hero-stat">
+            <div class="label">Credit cards</div>
+            <div
+              :for={%{account: account, balance_snapshot: snapshot} <- @credit_card_accounts}
+              id={"dashboard-credit-cards-#{account.id}"}
+            >
+              <div class="v">
+                {if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}
+              </div>
+              <div class="delta muted">
+                {account.name}{if snapshot,
+                  do: " · #{snapshot.recorded_on}",
+                  else: " · no balance"}
+              </div>
+            </div>
+            <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
+          </div>
           <div class="hero-stat">
             <div class="label">Projected EoM</div>
             <div class="v">{fmt(@summary.projection_eom)}</div>

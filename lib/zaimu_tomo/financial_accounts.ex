@@ -47,22 +47,19 @@ defmodule ZaimuTomo.FinancialAccounts do
     |> Enum.sort_by(& &1.currency)
   end
 
-  def list_savings_accounts_with_latest_balance(%Scope{} = scope) do
-    scope
-    |> list_financial_accounts_with_latest_balance()
-    |> Enum.filter(&(&1.account.account_type == :savings))
-  end
+  @doc """
+  Returns the scope's accounts with their latest balance, grouped by account
+  type. Every type is a key, with an empty list when the user has none.
+  """
+  def list_accounts_with_latest_balance_by_type(%Scope{} = scope) do
+    empty = Map.new(Ecto.Enum.values(FinancialAccount, :account_type), &{&1, []})
 
-  def list_cash_accounts_with_latest_balance(%Scope{} = scope) do
-    scope
-    |> list_financial_accounts_with_latest_balance()
-    |> Enum.filter(&(&1.account.account_type == :cash))
-  end
+    grouped =
+      scope
+      |> list_financial_accounts_with_latest_balance()
+      |> Enum.group_by(& &1.account.account_type)
 
-  def list_investment_accounts_with_latest_balance(%Scope{} = scope) do
-    scope
-    |> list_financial_accounts_with_latest_balance()
-    |> Enum.filter(&(&1.account.account_type == :investment))
+    Map.merge(empty, grouped)
   end
 
   def get_financial_account!(%Scope{} = scope, id) do
