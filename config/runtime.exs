@@ -75,10 +75,13 @@ if config_env() != :test do
   # The documents queue is bounded so OCR + LLM runs don't fan out. Local dev
   # with a single-NPU FLM backend should set OBAN_DOCUMENTS_CONCURRENCY=1.
   # The typesafe queue bounds concurrent TypeSafe shadow verification runs.
+  # The statements queue runs one statement (one LLM call per page) at a time
+  # by default.
   config :zaimu_tomo, Oban,
     queues: [
       documents: parse_integer_env.("OBAN_DOCUMENTS_CONCURRENCY", 2, 1),
-      typesafe: parse_integer_env.("TYPESAFE_MAX_CONCURRENCY", 2, 1)
+      typesafe: parse_integer_env.("TYPESAFE_MAX_CONCURRENCY", 2, 1),
+      statements: parse_integer_env.("OBAN_STATEMENTS_CONCURRENCY", 1, 1)
     ]
 end
 

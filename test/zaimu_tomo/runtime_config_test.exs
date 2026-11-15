@@ -12,6 +12,7 @@ defmodule ZaimuTomo.RuntimeConfigTest do
     TYPESAFE_MAX_RETRIES
     TYPESAFE_MAX_CONCURRENCY
     OBAN_DOCUMENTS_CONCURRENCY
+    OBAN_STATEMENTS_CONCURRENCY
     LANGFUSE_PUBLIC_KEY
     LANGFUSE_SECRET_KEY
   )
@@ -68,6 +69,19 @@ defmodule ZaimuTomo.RuntimeConfigTest do
     oban_queues = read_oban_queues()
     assert oban_queues[:typesafe] == 3
     assert oban_queues[:documents] == 2
+  end
+
+  test "sizes the statements queue from OBAN_STATEMENTS_CONCURRENCY, one by default" do
+    assert read_oban_queues()[:statements] == 1
+
+    System.put_env("OBAN_STATEMENTS_CONCURRENCY", "3")
+    assert read_oban_queues()[:statements] == 3
+
+    System.put_env("OBAN_STATEMENTS_CONCURRENCY", "0")
+
+    assert_raise ArgumentError,
+                 "OBAN_STATEMENTS_CONCURRENCY must be an integer greater than or equal to 1",
+                 &read_oban_queues/0
   end
 
   test "rejects malformed review thresholds" do
