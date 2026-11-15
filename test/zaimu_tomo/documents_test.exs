@@ -55,19 +55,6 @@ defmodule ZaimuTomo.DocumentsTest do
       assert [_] = all_enqueued(worker: OCRJob)
     end
 
-    test "object_key_for/1 preserves the uploaded file extension" do
-      object_key = Documents.object_key_for("receipt.pdf")
-      assert String.starts_with?(object_key, "documents/")
-      assert String.ends_with?(object_key, ".pdf")
-
-      uuid =
-        object_key
-        |> String.trim_leading("documents/")
-        |> String.trim_trailing(".pdf")
-
-      assert Ecto.UUID.cast(uuid) != :error
-    end
-
     test "create_document/2 with invalid data returns error changeset" do
       scope = user_scope_fixture()
       assert {:error, %Ecto.Changeset{}} = Documents.create_document(scope, @invalid_attrs)
@@ -152,24 +139,6 @@ defmodule ZaimuTomo.DocumentsTest do
       assert Fingerprint.sha256(<<0xFF, 0x00>>) =~ ~r/\A[0-9a-f]{64}\z/
     end
 
-    test "store_upload/2 stores the bytes and returns the digest of the same bytes" do
-      path = temp_upload("abc")
-
-      assert {:ok, %{object_key: object_key, filename: "bill.pdf", content_sha256: @abc_sha256}} =
-               Documents.store_upload(path, "bill.pdf")
-
-      assert "documents/" <> _ = object_key
-      assert String.ends_with?(object_key, ".pdf")
-      assert {:ok, "abc"} = Storage.read_object(object_key)
-    end
-
-    test "store_upload/2 stores nothing when the upload cannot be read" do
-      missing = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}")
-
-      assert {:error, :enoent} = Documents.store_upload(missing, "bill.pdf")
-      assert [] = :ets.tab2list(Memory)
-    end
-
     test "create_document/2 persists the digest" do
       scope = user_scope_fixture()
 
@@ -224,13 +193,6 @@ defmodule ZaimuTomo.DocumentsTest do
                Documents.update_document(scope, document, %{object_key: "documents/other.pdf"})
 
       assert Repo.reload!(updated).content_sha256 == nil
-    end
-
-    defp temp_upload(bytes) do
-      path = Path.join(System.tmp_dir!(), "upload-#{System.unique_integer([:positive])}")
-      File.write!(path, bytes)
-      on_exit(fn -> File.rm(path) end)
-      path
     end
   end
 end

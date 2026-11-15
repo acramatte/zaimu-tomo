@@ -3,7 +3,40 @@ defmodule ZaimuTomo.Storage do
   Provider-neutral document object storage facade.
   """
 
+  alias ZaimuTomo.Documents.Fingerprint
+
   @type key :: String.t()
+
+  @doc """
+  Reads an uploaded file, stores its bytes under `<prefix>/<uuid>.<ext>`, and
+  fingerprints them.
+
+  The SHA-256 is computed over the exact binary passed to `put_object/2`, so
+  the returned key and digest always describe the same bytes. The caller owns
+  deleting the object if persisting its row fails.
+
+  ## Examples
+
+      iex> store_upload("/tmp/plug-123", "invoice.pdf", "documents")
+      {:ok, %{object_key: "documents/….pdf", filename: "invoice.pdf", content_sha256: "…"}}
+
+  """
+  @spec store_upload(Path.t(), String.t(), String.t()) ::
+          {:ok, %{object_key: key(), filename: String.t(), content_sha256: String.t()}}
+          | {:error, term()}
+  def store_upload(path, filename, prefix)
+      when is_binary(path) and is_binary(filename) and is_binary(prefix) do
+    object_key = "#{prefix}/#{Ecto.UUID.generate()}#{Path.extname(filename)}"
+
+    with {:ok, body} <- File.read(path),
+         content_sha256 = Fingerprint.sha256(body),
+         {:ok, ^object_key} <- put_object(object_key, body) do
+      {:ok, %{object_key: object_key, filename: filename, content_sha256: content_sha256}}
+    else
+      {:ok, _other_key} -> {:error, :unexpected_object_key}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @spec put_object(key(), iodata()) :: {:ok, key()} | {:error, term()}
   def put_object(key, body), do: adapter().put_object(key, body, config())

@@ -141,14 +141,14 @@ flowchart TB
 | Building block | Path | Responsibility |
 |---|---|---|
 | `Accounts` | `lib/zaimu_tomo/accounts*` | Users, sessions and tokens (phx.gen.auth), `Scope`, and per-user settings (display name, base currency). |
-| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Stores uploads and fingerprints their exact bytes (`store_upload/2`, `Fingerprint`), creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
+| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Owns the exact-byte `Fingerprint`, creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
 | `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, live runs (`Run`), retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
 | `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want; `list_categories/1` suggests the user's own earlier categories), tax deduction claims (set at posting, revised afterwards with `revise_tax_deduction_claim/3`), spending aggregates, and the journal ledger reads: unbooked entries for the booking queue, and posted entries per invoice month and year (`posted_journal_months/3`, `list_posted_journal_entries/4`), each narrowed by an optional case-insensitive text search over issuer, invoice number, category, description, and notes (the journal page's `?q=`). |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state and live run for the feeds. |
-| `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. |
+| `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. `store_upload/3` stores an uploaded file under a key prefix (`documents`) and fingerprints the same bytes. |
 | `LLMClient` | `lib/zaimu_tomo/llm_client.ex` | Per-role (extractor and verifier) backend and model resolution through ReqLLM, and response parsing and validation. |
 | `Langfuse` | `lib/zaimu_tomo/langfuse.ex` | Prompt fetch (with built-in local fallbacks), OpenTelemetry spans, and feedback scores. |
 | `Release` | `lib/zaimu_tomo/release.ex`, `rel/overlays/bin/*` | Release-time commands: migrate, rollback, S3 migration and verification, stuck-document recovery, and the document fingerprint backfill. |
@@ -183,7 +183,7 @@ sequenceDiagram
     participant L as Extractor / Verifier LLM
 
     U->>LV: upload file
-    LV->>S3: Documents.store_upload: SHA-256 of the bytes,<br/>PUT the same bytes to documents/<uuid>.<ext>
+    LV->>S3: Storage.store_upload: SHA-256 of the bytes,<br/>PUT the same bytes to documents/<uuid>.<ext>
     LV->>DB: txn: insert document (with content_sha256) + oban job
     Note over LV,S3: on insert failure the object is deleted
     J->>DB: fetch document
