@@ -9,7 +9,7 @@
 set -Eeuo pipefail
 trap 'status=$?; echo "--- setup failed at line $LINENO after ${SECONDS}s (exit $status)" >&2; exit "$status"' ERR
 
-# Keep in sync with .github/workflows/ci.yml and Dockerfile.
+# Keep in sync with every .github/workflows/*.yml job and Dockerfile.
 OTP_VERSION="28.5.0.7"
 OTP_SHA256="38f507761691e3bc4bf4f23eda7f03390341864e71c37555de501695d8bae308"
 ELIXIR_VERSION="1.20.0"

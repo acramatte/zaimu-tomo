@@ -56,7 +56,7 @@ runs it as `nobody`. Release scripts from `rel/overlays/bin/` are included:
 | `bin/backfill_document_fingerprints` | Fill missing document and journal-entry SHA-256 fingerprints (idempotent, online). Optional arguments: journal entry IDs a human confirmed as file reuses. |
 | `bin/migrate_to_s3` | One-off legacy copy from the old upload volume. |
 
-Keep the Elixir/OTP versions in sync across `Dockerfile`, `.github/workflows/ci.yml`, and `.agents/setup`.
+Keep the Elixir/OTP versions in sync across `Dockerfile`, every job in `.github/workflows/*.yml`, and `.agents/setup`.
 
 ## Configuration and secrets
 
@@ -113,8 +113,10 @@ does **not** deploy. Deploys are manual with Kamal from the operator's machine.
 Dependabot opens grouped dependency bumps.
 
 A separate scheduled workflow (`.github/workflows/nightly-dialyzer.yml`) runs
-`mix dialyzer` nightly, with its PLTs cached under `priv/plts` (keyed on
-`mix.lock`, rebuilt only when dependencies change). Advisory, not a required
+`mix dialyzer` nightly, with its PLTs cached under `priv/plts` (keyed on the
+installed OTP/Elixir versions and `mix.lock`, rebuilt only when one of them
+changes). The `deps`/`_build` caches use the same version prefix, so a cache
+built by another toolchain is never restored. Advisory, not a required
 check: Dialyzer's whole-program success typing is a complementary, slower
 check that doesn't gate pushes. Known tool/stdlib false positives are
 suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
