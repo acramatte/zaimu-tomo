@@ -85,6 +85,34 @@ Keep the Elixir/OTP versions in sync across `Dockerfile`, every job in `.github/
 4. In the RustFS console (reached through an SSH tunnel, never published), create the bucket named by `S3_BUCKET` **with versioning and Object Lock enabled**. Object Lock cannot be added after creation.
 5. Check the app over the VPN, and run `kamal verify_storage`.
 
+## Releases
+
+Versions and release notes come from the conventional commits on `main`, through
+[release-please](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`, configured in
+`release-please-config.json`, current version in `.release-please-manifest.json`).
+
+```mermaid
+flowchart LR
+  push["push to main"] --> rp["release-please"]
+  rp -->|"user-facing commits since last tag"| pr["release PR<br/>bumps mix.exs, manifest, CHANGELOG.md"]
+  pr -->|"merge"| tag["tag vX.Y.Z +<br/>GitHub Release"]
+  tag --> deploy["kamal deploy"]
+```
+
+1. Every push to `main` updates one open release PR, titled `chore(main): release X.Y.Z`. It bumps `version` in `mix.exs` and the manifest and prepends the new section to `CHANGELOG.md`.
+2. Merge it when you want to ship. The next run tags `vX.Y.Z` on the merge commit and publishes a GitHub Release with the same notes.
+3. Deploy that commit (below). The sidebar shows `Application.spec(:zaimu_tomo, :vsn)`, so the running version is visible in the app.
+
+Version rules while below 1.0 (`bump-minor-pre-major`): `feat` and breaking changes (`!` or a `BREAKING CHANGE:` footer) bump the minor version; `fix`, `perf`, `refactor`, and `revert` bump the patch. `docs`, `test`, `ci`, `build`, `chore`, and `style` are hidden from the changelog and never open a release PR on their own. This is the only prose copy of `changelog-sections` in `release-please-config.json`; change both together. Non-conventional subjects, such as `Merge pull request …`, are ignored. To force a version, add a `Release-As: X.Y.Z` footer to a commit.
+
+Requirements and caveats:
+
+- The repository setting "Allow GitHub Actions to create and approve pull requests" (Settings → Actions → General) must stay on; the workflow uses the default `GITHUB_TOKEN`.
+- PRs opened with `GITHUB_TOKEN` don't trigger other workflows, so CI does not run on the release PR. Its diff only touches version strings and `CHANGELOG.md`. If you need checks on it, close and reopen it yourself.
+- `v0.1.0` is a baseline tag on the last commit before release-please. `bootstrap-sha` in the config marks the same commit, so earlier history never appears in the changelog.
+- Never edit the version, the manifest, or `CHANGELOG.md` by hand; change the commits (or use `Release-As:`) instead.
+
 ## Routine deploy
 
 ```sh
@@ -110,6 +138,8 @@ shouldn't block unrelated work). A separate scheduled workflow
 (`.github/workflows/nightly-audit.yml`) re-runs `mix hex.audit` nightly, since
 that's the only way to catch a CVE disclosed on a day with no pushes at all. CI
 does **not** deploy. Deploys are manual with Kamal from the operator's machine.
+`.github/workflows/release-please.yml` runs on pushes to `main` and only manages
+the release PR, tags, and GitHub Releases (see [Releases](#releases)).
 Dependabot opens grouped dependency bumps.
 
 A separate scheduled workflow (`.github/workflows/nightly-dialyzer.yml`) runs
@@ -123,7 +153,7 @@ in `mix.exs`, see D31 in architecture.md). Other known tool/stdlib false positiv
 suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
 benign — re-verify them after any Ecto, Elixir, or OTP upgrade.
 
-All jobs in all three workflows pin `runs-on: ubuntu-26.04` rather than
+All jobs in all four workflows pin `runs-on: ubuntu-26.04` rather than
 `ubuntu-latest`, so a GitHub image migration can't silently change the toolchain
 under a green build. Bump the label deliberately, in one commit, when a newer
 image is worth adopting.

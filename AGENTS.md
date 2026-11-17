@@ -31,6 +31,8 @@ Tests: mix test <file_a> <file_b>
 
 `Tests:` examples: code change → `Tests: mix test test/..._test.exs`; docs-only → `Tests: docs-only change; verified with git diff --check`.
 
+**The commit type is the release note.** release-please builds the version and `CHANGELOG.md` from commit subjects on `main`; which types bump what, and which stay out of the changelog, is listed in "Releases" in `docs/deployment.md`. With squash merges, the PR title becomes the commit, so it must follow the same format. Never edit `mix.exs`'s `version`, `.release-please-manifest.json`, or `CHANGELOG.md` by hand.
+
 **Branches** are simple and feature-focused (`feat/<slug>` / `fix/<slug>`), with no base suffix unless complex merge work genuinely requires one. Always create a dedicated branch/worktree before touching files, and fork worktrees from an explicit ref (`git worktree add -b feat/<name> <dir> origin/main`), never bare `HEAD`. Use a separate worktree whenever concurrent sessions are possible.
 
 **Pull requests** carry the same WHY + design-decisions rationale and end with an explicit `Tests:` line. For genuinely dependent changes use stacked PRs (see below). **Never merge main into a feature branch — rebase instead** (`git rebase origin/main`, verify linearity, then `git push --force-with-lease`).
