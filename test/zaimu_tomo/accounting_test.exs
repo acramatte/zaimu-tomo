@@ -702,19 +702,74 @@ defmodule ZaimuTomo.AccountingTest do
       june = Accounting.list_posted_journal_entries(user.id, ~D[2026-06-01], ~D[2026-07-01])
       assert Enum.map(june, & &1.id) == [june_eur.id, june_chf2.id, june_chf.id]
 
-      assert Accounting.posted_journal_months(user.id, 2026, "candidate") == []
+      assert Accounting.posted_journal_months(user.id, 2026, tax_status: "candidate") == []
 
       assert Accounting.list_posted_journal_entries(
                user.id,
                ~D[2026-06-01],
                ~D[2026-07-01],
-               "undecided"
+               tax_status: "undecided"
              )
              |> length() == 3
 
       assert Accounting.list_posted_journal_entries(user.id, ~D[2025-12-01], ~D[2026-08-01])
              |> Enum.map(& &1.id) ==
                [july.id, june_eur.id, june_chf2.id, june_chf.id, last_year.id]
+    end
+
+    test "search matches issuer, invoice number, category, description, and notes" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      other_scope = user_scope_fixture()
+
+      swisscom =
+        create_entry(scope, user, ~D[2026-06-01], 100, "CHF", "Telecom")
+        |> Ecto.Changeset.change(issuer: "Swisscom AG", invoice_number: "SC-2026-07")
+        |> Repo.update!()
+
+      noted =
+        create_entry(scope, user, ~D[2026-07-01], 250, "EUR", "Software")
+        |> Ecto.Changeset.change(notes: "Paid 50% by the employer", description: "IDE licence")
+        |> Repo.update!()
+
+      unbooked =
+        create_entry(scope, user, ~D[2026-06-15], 999, "CHF", nil)
+        |> Ecto.Changeset.change(issuer: "swisscom (Schweiz)")
+        |> Repo.update!()
+
+      other = create_entry(other_scope, other_scope.user, ~D[2026-06-10], 5, "CHF", "Telecom")
+      other |> Ecto.Changeset.change(issuer: "Swisscom AG") |> Repo.update!()
+
+      search = fn term ->
+        user.id
+        |> Accounting.list_posted_journal_entries(~D[2026-01-01], ~D[2027-01-01], search: term)
+        |> Enum.map(& &1.id)
+      end
+
+      assert search.("  SWISSCOM ") == [swisscom.id]
+      assert search.("sc-2026") == [swisscom.id]
+      assert search.("telecom") == [swisscom.id]
+      assert search.("ide lic") == [noted.id]
+      assert search.("employer") == [noted.id]
+      # LIKE wildcards are literal: "%" alone must not match every entry.
+      assert search.("50%") == [noted.id]
+      assert search.("%") == [noted.id]
+      assert search.("_") == []
+      assert search.("") |> Enum.sort() == Enum.sort([swisscom.id, noted.id])
+
+      assert Accounting.posted_journal_months(user.id, 2026, search: "swisscom") == [
+               %{month: ~D[2026-06-01], count: 1, totals: [{"CHF", 100}]}
+             ]
+
+      assert Accounting.posted_journal_months(user.id, 2026,
+               search: "swisscom",
+               tax_status: "candidate"
+             ) == []
+
+      assert Enum.map(Accounting.list_unbooked_journal_entries(user.id, "Swisscom"), & &1.id) ==
+               [unbooked.id]
+
+      assert Accounting.list_unbooked_journal_entries(user.id, "employer") == []
     end
   end
 

@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
   The journal as a condensed ledger: entries still waiting to be booked sit in
   a queue above it, and posted entries are grouped by invoice month for one
   year, loaded a few months at a time. Clicking a row expands its details.
+  The search box narrows both to entries matching the text (`?q=`).
   """
   use ZaimuTomoWeb, :live_view
 
@@ -22,7 +23,6 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
      socket
      |> assign(:page_title, "Journal entries")
      |> assign(:current_path, "/journal_entries")
-     |> assign(:unbooked, Accounting.list_unbooked_journal_entries(user_id))
      |> assign(:years, Accounting.posted_journal_entry_years(user_id))
      |> assign(:open_id, nil)
      |> assign(:open_document_id, nil)}
@@ -34,17 +34,22 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
     years = socket.assigns.years
     year = Enum.find(years, List.first(years), &(Integer.to_string(&1) == params["year"]))
     filter = if params["filter"] in Map.keys(@filters), do: params["filter"], else: "all"
+    query = String.trim(params["q"] || "")
+    search = [search: query]
 
-    all_months = if year, do: Accounting.posted_journal_months(user_id, year), else: []
+    all_months = if year, do: Accounting.posted_journal_months(user_id, year, search), else: []
 
     candidate_months =
-      if year, do: Accounting.posted_journal_months(user_id, year, "candidate"), else: []
+      if year,
+        do: Accounting.posted_journal_months(user_id, year, [tax_status: "candidate"] ++ search),
+        else: []
 
-    unbooked_count = length(socket.assigns.unbooked)
+    unbooked = Accounting.list_unbooked_journal_entries(user_id, query)
+    unbooked_count = length(unbooked)
 
     {:noreply,
      socket
-     |> assign(year: year, filter: filter, groups: [])
+     |> assign(year: year, filter: filter, query: query, unbooked: unbooked, groups: [])
      |> assign(:months, if(filter == "tax_candidates", do: candidate_months, else: all_months))
      |> assign(:filter_counts, %{
        "all" => unbooked_count + Enum.sum_by(all_months, & &1.count),
@@ -56,7 +61,13 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
 
   @impl true
   def handle_event("select_year", %{"year" => year}, socket) do
-    {:noreply, push_patch(socket, to: ledger_path(socket.assigns.filter, year))}
+    {:noreply,
+     push_patch(socket, to: ledger_path(socket.assigns.filter, year, socket.assigns.query))}
+  end
+
+  def handle_event("search", %{"q" => query}, socket) do
+    %{filter: filter, year: year} = socket.assigns
+    {:noreply, push_patch(socket, to: ledger_path(filter, year, query), replace: true)}
   end
 
   def handle_event("load_more", _params, socket), do: {:noreply, load_months(socket)}
@@ -99,7 +110,8 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
             socket.assigns.current_scope.user.id,
             oldest,
             Date.shift(newest, month: 1),
-            if(socket.assigns.filter == "tax_candidates", do: "candidate")
+            search: socket.assigns.query,
+            tax_status: if(socket.assigns.filter == "tax_candidates", do: "candidate")
           )
           |> Enum.group_by(&Date.beginning_of_month(&1.date))
 
@@ -121,19 +133,40 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
     <h1 class="view-title">Journal entries</h1>
     <p class="view-sub">Posted and pending expense records</p>
 
-    <nav class="invoice-tabs" id="ledger-filters" aria-label="Filter journal entries">
-      <.link
-        :for={key <- ~w(all not_booked tax_candidates)}
-        patch={ledger_path(key, @year)}
-        class={["invoice-tab", @filter == key && "active"]}
-        aria-current={if @filter == key, do: "page"}
+    <div class="ledger-filter-bar">
+      <nav class="invoice-tabs" id="ledger-filters" aria-label="Filter journal entries">
+        <.link
+          :for={key <- ~w(all not_booked tax_candidates)}
+          patch={ledger_path(key, @year, @query)}
+          class={["invoice-tab", @filter == key && "active"]}
+          aria-current={if @filter == key, do: "page"}
+        >
+          {filter_label(key)} <span class="count">{@filter_counts[key]}</span>
+        </.link>
+      </nav>
+      <form
+        id="ledger-search"
+        class="ledger-search"
+        role="search"
+        phx-change="search"
+        phx-submit="search"
       >
-        {filter_label(key)} <span class="count">{@filter_counts[key]}</span>
-      </.link>
-    </nav>
+        <.icon name="hero-magnifying-glass" class="ledger-search-icon" />
+        <label class="sr-only" for="ledger-search-input">Search journal entries</label>
+        <input
+          id="ledger-search-input"
+          type="search"
+          name="q"
+          value={@query}
+          placeholder="Search issuer, invoice no., category, notes…"
+          autocomplete="off"
+          phx-debounce="300"
+        />
+      </form>
+    </div>
 
     <p :if={@filter == "not_booked" && @unbooked == []} class="card ledger-empty muted">
-      Nothing left to book.
+      {if @query != "", do: "No unbooked entries match “#{@query}”.", else: "Nothing left to book."}
     </p>
 
     <section
@@ -197,9 +230,11 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
       </div>
 
       <p :if={@groups == []} class="ledger-empty muted">
-        {if @filter == "tax_candidates",
-          do: "No potentially deductible entries in #{@year}.",
-          else: "No posted entries yet. Approved invoices appear here once they are booked."}
+        {cond do
+          @query != "" && @year -> "No posted entries in #{@year} match “#{@query}”."
+          @filter == "tax_candidates" -> "No potentially deductible entries in #{@year}."
+          true -> "No posted entries yet. Approved invoices appear here once they are booked."
+        end}
       </p>
 
       <div :if={@groups != []} class="ledger-foot">
@@ -346,8 +381,13 @@ defmodule ZaimuTomoWeb.JournalEntryLive.Index do
 
   defp filter_label(key), do: Map.fetch!(@filters, key)
 
-  defp ledger_path("all", year), do: ~p"/journal_entries?#{[year: year]}"
-  defp ledger_path(filter, year), do: ~p"/journal_entries?#{[filter: filter, year: year]}"
+  defp ledger_path(filter, year, query) do
+    params =
+      [filter: filter != "all" && filter, year: year, q: String.trim(query || "")]
+      |> Enum.reject(fn {_key, value} -> value in [nil, false, ""] end)
+
+    ~p"/journal_entries?#{params}"
+  end
 
   defp month_range([month]), do: Calendar.strftime(month.month, "%b %Y")
 

@@ -503,14 +503,16 @@ defmodule ZaimuTomo.Accounting do
 
   @doc """
   Entries approved before booking moved to the invoice page (D17) that still
-  need a category and need/want choice, most recently changed first.
+  need a category and need/want choice, most recently changed first. `search`
+  keeps only matching entries, as in `list_posted_journal_entries/4`.
   """
-  @spec list_unbooked_journal_entries(integer()) :: [JournalEntry.t()]
-  def list_unbooked_journal_entries(user_id) do
+  @spec list_unbooked_journal_entries(integer(), String.t() | nil) :: [JournalEntry.t()]
+  def list_unbooked_journal_entries(user_id, search \\ nil) do
     from(je in JournalEntry,
       where: je.user_id == ^user_id and je.status == "uncategorized",
       order_by: [desc: je.updated_at, desc: je.id]
     )
+    |> search_entries(search)
     |> Repo.all()
   end
 
@@ -529,13 +531,13 @@ defmodule ZaimuTomo.Accounting do
   @doc """
   One summary per invoice month of `year` that has posted entries, newest
   month first: `%{month: first_day, count: n, totals: [{currency, cents}]}`,
-  with currency totals in alphabetical order. `tax_status` keeps only entries
-  whose tax claim has that status.
+  with currency totals in alphabetical order. Takes the same `filters` as
+  `list_posted_journal_entries/4`.
   """
-  @spec posted_journal_months(integer(), integer(), String.t() | nil) :: [map()]
-  def posted_journal_months(user_id, year, tax_status \\ nil) do
+  @spec posted_journal_months(integer(), integer(), keyword()) :: [map()]
+  def posted_journal_months(user_id, year, filters \\ []) do
     user_id
-    |> posted_entries_query(Date.new!(year, 1, 1), Date.new!(year + 1, 1, 1), tax_status)
+    |> posted_entries_query(Date.new!(year, 1, 1), Date.new!(year + 1, 1, 1), filters)
     |> group_by([je], [fragment("date_trunc('month', ?)::date", je.date), je.currency])
     |> select([je], %{
       month: fragment("date_trunc('month', ?)::date", je.date),
@@ -559,38 +561,56 @@ defmodule ZaimuTomo.Accounting do
 
   @doc """
   Posted entries with an invoice date in `[from_date, to_date)`, newest invoice
-  date first. `tax_status` keeps only entries whose tax claim has that status.
+  date first. Filters:
+
+    * `:tax_status` keeps only entries whose tax claim has that status.
+    * `:search` keeps only entries whose issuer, invoice number, category,
+      description, or notes contain it, ignoring case. A blank search keeps all.
   """
-  @spec list_posted_journal_entries(integer(), Date.t(), Date.t(), String.t() | nil) ::
+  @spec list_posted_journal_entries(integer(), Date.t(), Date.t(), keyword()) ::
           [JournalEntry.t()]
-  def list_posted_journal_entries(
-        user_id,
-        %Date{} = from_date,
-        %Date{} = to_date,
-        tax_status \\ nil
-      ) do
+  def list_posted_journal_entries(user_id, %Date{} = from_date, %Date{} = to_date, filters \\ []) do
     user_id
-    |> posted_entries_query(from_date, to_date, tax_status)
+    |> posted_entries_query(from_date, to_date, filters)
     |> order_by([je], desc: je.date, desc: je.id)
     |> preload(:tax_deduction_claim)
     |> Repo.all()
   end
 
-  defp posted_entries_query(user_id, from_date, to_date, tax_status) do
+  defp posted_entries_query(user_id, from_date, to_date, filters) do
     query =
       from(je in JournalEntry,
         where:
           je.user_id == ^user_id and je.status == "posted" and je.date >= ^from_date and
             je.date < ^to_date
       )
+      |> search_entries(filters[:search])
 
-    if tax_status do
+    if tax_status = filters[:tax_status] do
       from(je in query,
         join: c in assoc(je, :tax_deduction_claim),
         where: c.status == ^tax_status
       )
     else
       query
+    end
+  end
+
+  defp search_entries(query, search) do
+    case String.trim(search || "") do
+      "" ->
+        query
+
+      term ->
+        # Escape LIKE wildcards so "50%" or "a_b" match literally.
+        pattern = "%" <> String.replace(term, ["\\", "%", "_"], &("\\" <> &1)) <> "%"
+
+        from(je in query,
+          where:
+            ilike(je.issuer, ^pattern) or ilike(je.invoice_number, ^pattern) or
+              ilike(je.category, ^pattern) or ilike(je.description, ^pattern) or
+              ilike(je.notes, ^pattern)
+        )
     end
   end
 
