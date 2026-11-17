@@ -7,7 +7,7 @@ name: Release Please
 # release-please-config.json; see docs/deployment.md "Releases".
 on:
   push:
-    branches: [main]
+    branches: [release-please-sandbox]
 
 # One run at a time, so two quick pushes can't race on the release PR.
 concurrency:
@@ -29,3 +29,4 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: release-please-sandbox
