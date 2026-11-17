@@ -492,6 +492,47 @@ defmodule ZaimuTomoWeb.JournalEntryLiveTest do
       refute has_element?(live, "#entry-#{not_deductible.id}")
       assert has_element?(live, "#month-2026-06-01", "EUR 42.00")
     end
+
+    test "searches the queue and the ledger and keeps the search across tabs", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      unbooked = create_entry(scope, user)
+      match = posted_entry(scope, user, ~D[2026-06-09], 4200, "EUR", "Telecom")
+      match |> Ecto.Changeset.change(issuer: "Swisscom AG") |> Repo.update!()
+      other_match = posted_entry(scope, user, ~D[2026-05-02], 1000, "CHF", "Swisscom TV", "want")
+      miss = posted_entry(scope, user, ~D[2026-06-20], 1050, "CHF", "Groceries")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries")
+
+      live |> form("#ledger-search", %{"q" => "swisscom"}) |> render_change()
+
+      assert_patch(live, ~p"/journal_entries?q=swisscom&year=2026")
+      refute has_element?(live, "#booking-queue")
+      refute has_element?(live, "#entry-#{unbooked.id}")
+      refute has_element?(live, "#entry-#{miss.id}")
+      assert has_element?(live, "#month-2026-06-01 #entry-#{match.id}")
+      assert has_element?(live, "#month-2026-06-01", "EUR 42.00")
+      refute has_element?(live, "#month-2026-06-01", "CHF 10.50")
+      assert has_element?(live, "#month-2026-05-01 #entry-#{other_match.id}")
+      assert has_element?(live, "#ledger-filters a", "All 2")
+      assert has_element?(live, "#ledger-filters a", "Not booked 0")
+      assert has_element?(live, "#ledger-filters a", "Tax candidates 2")
+
+      live |> element("#ledger-filters a", "Not booked") |> render_click()
+      assert_patch(live, ~p"/journal_entries?filter=not_booked&q=swisscom&year=2026")
+      assert has_element?(live, "p.ledger-empty", "No unbooked entries match “swisscom”.")
+      assert has_element?(live, "#ledger-search-input[value=swisscom]")
+
+      {:ok, live, _html} = live(conn, ~p"/journal_entries?q=nothing-like-this")
+      assert has_element?(live, "#ledger", "No posted entries in 2026 match “nothing-like-this”.")
+
+      live |> form("#ledger-search", %{"q" => " "}) |> render_change()
+      assert_patch(live, ~p"/journal_entries?year=2026")
+      assert has_element?(live, "#booking-queue #entry-#{unbooked.id}")
+      assert has_element?(live, "#entry-#{miss.id}")
+    end
   end
 
   defp posted_entry(

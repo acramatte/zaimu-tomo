@@ -1904,6 +1904,25 @@ body:has(.settings-page) .app-version { position: absolute; }
   border-bottom: 1px solid var(--hairline);
 }
 .ledger-toolbar form { margin: 0; }
+.ledger-filter-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; }
+.ledger-filter-bar .invoice-tabs { margin-bottom: 0; }
+.ledger-search { position: relative; margin: 0; flex: 0 1 300px; min-width: 200px; }
+.ledger-search .ledger-search-icon {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  width: 14px; height: 14px; color: var(--faint); pointer-events: none;
+  transition: color 120ms;
+}
+.ledger-search:focus-within .ledger-search-icon { color: var(--accent); }
+.ledger-search input[type="search"] {
+  width: 100%; height: 28px; padding: 0 10px 0 28px;
+  border: 1px solid var(--hairline-strong); border-radius: 6px;
+  background: var(--panel); color: var(--ink);
+  font: inherit; font-size: 12.5px;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.ledger-search input[type="search"]::placeholder { color: var(--faint); }
+.ledger-search input[type="search"]:hover:not(:focus) { border-color: var(--muted); }
+.ledger-search input[type="search"]:focus { border-color: var(--accent); }
 .ledger-toolbar select.ledger-select { height: 28px; padding: 0 28px 0 10px; font-size: 12.5px; width: auto; }
 .ledger-cols, .ledger-row {
   display: grid;
@@ -1975,6 +1994,7 @@ body:has(.settings-page) .app-version { position: absolute; }
 .ledger-empty { padding: 24px 14px; font-size: 13px; margin: 0; }
 
 @media (max-width: 640px) {
+  .ledger-search { flex-basis: 100%; }
   .ledger-cols { display: none; }
   .ledger-row {
     grid-template-columns: minmax(0, 1fr) auto 14px;
