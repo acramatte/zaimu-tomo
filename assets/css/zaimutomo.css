@@ -1638,6 +1638,9 @@ body:has(.doc-modal) { overflow: hidden; }
   padding: 0;
   overflow: hidden;
   display: grid;
+  /* minmax(0, 1fr): an auto column grows to the toolbar's unwrapped filename
+     width, pushing the actions and the PDF past the card's clipped edge. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
 }
 .review-doc-toolbar {
