@@ -4,19 +4,6 @@
 # Elixir, or OTP upgrade: these rely on specific success-typing limitations
 # that a newer version could narrow or fix outright.
 [
-  # Ecto.Multi wraps a MapSet, itself an opaque type. Dialyzer can't verify a
-  # built %Ecto.Multi{} still satisfies that opaqueness once passed back into
-  # Multi.insert/3, Multi.update/3, etc. Widely reported Dialyzer/Ecto.Multi
-  # limitation, not a real type error — every one of these is a normal
-  # Multi.new() |> Multi.insert(...) |> ... pipeline.
-  {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in insert."},
-  {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in update."},
-  {"lib/zaimu_tomo/accounting.ex", "Type mismatch in call without opaque term in run."},
-  {"lib/zaimu_tomo/documents.ex", "Type mismatch in call without opaque term in insert."},
-  {"lib/zaimu_tomo/financial_accounts.ex",
-   "Type mismatch in call without opaque term in insert."},
-  {"lib/zaimu_tomo/review.ex", "Type mismatch in call without opaque term in run."},
-
   # storage/s3.ex: File.stream!/2's documented success typing for its modes
   # argument doesn't include :write/:binary, so Dialyzer infers the call in
   # get_object/3 can never succeed, then treats get_result/2 (which only that
