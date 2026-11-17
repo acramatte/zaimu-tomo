@@ -118,7 +118,8 @@ installed OTP/Elixir versions and `mix.lock`, rebuilt only when one of them
 changes). The `deps`/`_build` caches use the same version prefix, so a cache
 built by another toolchain is never restored. Advisory, not a required
 check: Dialyzer's whole-program success typing is a complementary, slower
-check that doesn't gate pushes. Known tool/stdlib false positives are
+check that doesn't gate pushes. Opaque-type checks are off (`flags: [:no_opaque]`
+in `mix.exs`, see D31 in architecture.md). Other known tool/stdlib false positives are
 suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
 benign — re-verify them after any Ecto, Elixir, or OTP upgrade.
 

@@ -27,6 +27,12 @@ defmodule ZaimuTomo.MixProject do
       # so every mix task under lib/mix/tasks/ reports spurious
       # callback_info_missing/unknown_function findings.
       plt_add_apps: [:mix],
+      # OTP 28 flags every Ecto.Multi call (call_without_opaque): Ecto.Multi's
+      # MapSet ends in Erlang's opaque :sets type, and Elixir and Ecto
+      # consider that unfixable (elixir-lang/elixir#15673,
+      # elixir-ecto/ecto#4807). Elixir no longer uses opaque types, so this
+      # check mostly produced that false positive. See D31.
+      flags: [:no_opaque],
       ignore_warnings: ".dialyzer_ignore.exs"
     ]
   end
