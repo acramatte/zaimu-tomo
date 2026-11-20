@@ -63,6 +63,7 @@ env:
     AI_EXTRACTOR_RECEIVE_TIMEOUT: "120000"
     AI_VERIFIER_BACKEND: "nousresearch"
     AI_VERIFIER_MODEL: "qwen/qwen3.6-35b-a3b"
+    AI_VERIFIER_RECEIVE_TIMEOUT: "120000"
     MISTRAL_URL: "https://api.mistral.ai/v1"
     S3_ENDPOINT: "http://zaimu-tomo-rustfs:9000"
     S3_REGION: "eu-central-1"
