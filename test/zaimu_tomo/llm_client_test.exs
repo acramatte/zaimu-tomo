@@ -553,6 +553,26 @@ defmodule ZaimuTomo.LLMClientTest do
     end
   end
 
+  describe "extractor_max_tokens/0" do
+    test "reads the per-role max_tokens when configured" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :nousresearch, model: "ibm-granite/granite-4.2-8b", max_tokens: 6000],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.extractor_max_tokens() == 6000
+    end
+
+    test "falls back to a reasoning-friendly default when max_tokens is unset" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.extractor_max_tokens() == 8192
+    end
+  end
+
   describe "verifier_max_tokens/0" do
     test "reads the per-role max_tokens when configured" do
       Application.put_env(:zaimu_tomo, :ai_workflow,

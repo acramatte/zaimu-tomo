@@ -10,6 +10,7 @@ defmodule ZaimuTomo.LLMClient do
 
   @backends [:ollama, :flm, :mistral, :nousresearch]
 
+  @default_extractor_max_tokens 8192
   @default_verifier_max_tokens 4096
 
   @type role :: :extractor | :verifier
@@ -45,7 +46,7 @@ defmodule ZaimuTomo.LLMClient do
   def extract_invoice(markdown, currency_hint) do
     config = backend_config!(:extractor)
     model = req_llm_model!(config)
-    opts = req_llm_opts(config)
+    opts = Keyword.merge(req_llm_opts(config), max_tokens: extractor_max_tokens())
     Logger.info("[LLM] Extracting invoice with #{backend_summary(:extractor, config)}")
 
     schema = [
@@ -394,11 +395,17 @@ defmodule ZaimuTomo.LLMClient do
     do: {:llm_request_failed, %{status: nil, reason: "unknown request error"}}
 
   @doc false
+  @spec extractor_max_tokens() :: pos_integer()
+  def extractor_max_tokens, do: role_max_tokens(:extractor, @default_extractor_max_tokens)
+
+  @doc false
   @spec verifier_max_tokens() :: pos_integer()
-  def verifier_max_tokens do
-    case role_config!(:verifier) |> Keyword.get(:max_tokens) do
+  def verifier_max_tokens, do: role_max_tokens(:verifier, @default_verifier_max_tokens)
+
+  defp role_max_tokens(role, default) do
+    case role_config!(role) |> Keyword.get(:max_tokens) do
       max_tokens when is_integer(max_tokens) and max_tokens > 0 -> max_tokens
-      _ -> @default_verifier_max_tokens
+      _ -> default
     end
   end
 

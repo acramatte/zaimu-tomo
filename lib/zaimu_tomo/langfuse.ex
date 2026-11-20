@@ -371,21 +371,38 @@ defmodule ZaimuTomo.Langfuse do
     :otel_span.set_attributes(span, generation_output_attributes(response))
   end
 
-  defp record_generation_result(span, _result) do
-    :otel_span.set_attributes(span, %{
-      "langfuse.observation.output" => encode_json(%{"status" => "failed"})
-    })
-
+  defp record_generation_result(span, result) do
+    :otel_span.set_attributes(span, failed_generation_attributes(result))
     :otel_span.set_status(span, :error, "LLM request failed")
   end
 
-  defp generation_output_attributes(response) do
+  @doc false
+  @spec failed_generation_attributes(term()) :: map()
+  def failed_generation_attributes(result) do
+    %{"langfuse.observation.output" => encode_json(failed_generation_output(result))}
+  end
+
+  defp failed_generation_output({:error, reason}),
+    do: %{"status" => "failed", "error" => inspect(reason)}
+
+  defp failed_generation_output(_result), do: %{"status" => "failed"}
+
+  # Recorded in full so an empty result can be told apart from a truncated or
+  # reasoning-only one: `finish_reason: "length"` with a long `thinking` and no
+  # `object` means the output budget ran out before the answer.
+  @doc false
+  @spec generation_output_attributes(ReqLLM.Response.t()) :: map()
+  def generation_output_attributes(response) do
     %{
       "langfuse.observation.output" =>
         encode_json(%{
           "object" => ReqLLM.Response.object(response),
-          "text" => ReqLLM.Response.text(response)
+          "text" => ReqLLM.Response.text(response),
+          "thinking" => blank_to_nil(ReqLLM.Response.thinking(response)),
+          "tool_calls" => blank_to_nil(ReqLLM.Response.tool_calls(response)),
+          "finish_reason" => finish_reason(response)
         }),
+      "langfuse.observation.metadata.finish_reason" => finish_reason(response),
       "gen_ai.usage.input_tokens" => usage_value(response, :input),
       "gen_ai.usage.output_tokens" => usage_value(response, :output),
       "gen_ai.usage.cost" => usage_value(response, :total_cost)
@@ -512,6 +529,12 @@ defmodule ZaimuTomo.Langfuse do
       {:error, _reason} -> Jason.encode!(%{"unavailable" => true})
     end
   end
+
+  defp finish_reason(%{finish_reason: nil}), do: nil
+  defp finish_reason(%{finish_reason: reason}), do: to_string(reason)
+
+  defp blank_to_nil(value) when value in ["", []], do: nil
+  defp blank_to_nil(value), do: value
 
   defp compact_attributes(attributes) do
     Map.reject(attributes, fn {_key, value} -> is_nil(value) end)
