@@ -108,6 +108,10 @@ default_extractor_max_tokens = 8192
 # receive window. ReqLLM's 30s default cuts off long generations.
 default_extractor_receive_timeout = 120_000
 
+# Verification responses are not streamed either, and the reasoning verifier
+# can run past the 30s default before emitting its JSON.
+default_verifier_receive_timeout = 120_000
+
 config :zaimu_tomo, :ai_workflow,
   extractor: [
     backend: System.get_env("AI_EXTRACTOR_BACKEND", Atom.to_string(default_extractor[:backend])),
@@ -127,6 +131,12 @@ config :zaimu_tomo, :ai_workflow,
     model: System.get_env("AI_VERIFIER_MODEL", default_verifier[:model]),
     max_tokens:
       System.get_env("AI_VERIFIER_MAX_TOKENS", Integer.to_string(default_verifier_max_tokens))
+      |> String.to_integer(),
+    receive_timeout:
+      System.get_env(
+        "AI_VERIFIER_RECEIVE_TIMEOUT",
+        Integer.to_string(default_verifier_receive_timeout)
+      )
       |> String.to_integer()
   ]
 

@@ -47,10 +47,11 @@ Tests always use `ZaimuTomo.Storage.Memory`, so these variables are not read in 
 | `AI_EXTRACTOR_BACKEND` | `flm` / `nousresearch` | `flm`, `ollama`, `mistral`, or `nousresearch`. |
 | `AI_EXTRACTOR_MODEL` | `gemma4-it:e4b` / `ibm-granite/granite-4.2-8b` | |
 | `AI_EXTRACTOR_MAX_TOKENS` | `8192` | Output cap for the extractor. Reasoning models spend tokens before the JSON; at the old implicit 4096 cap they ended with no structured object. |
-| `AI_EXTRACTOR_RECEIVE_TIMEOUT` | `120000` | Milliseconds the extractor waits for a response (not streamed). Extractor requests are not retried inside ReqLLM; Oban retries the job. |
+| `AI_EXTRACTOR_RECEIVE_TIMEOUT` | `120000` | Milliseconds the extractor waits for a response (not streamed). Extractor requests are not retried inside ReqLLM; Oban retries the job. The whole generation, up to `AI_EXTRACTOR_MAX_TOKENS`, must finish in this window: raise it with the cap, or for a slower backend. |
 | `AI_VERIFIER_BACKEND` | `flm` / `nousresearch` | |
 | `AI_VERIFIER_MODEL` | `phi4-mini-it:4b` / `qwen/qwen3.6-35b-a3b` | |
 | `AI_VERIFIER_MAX_TOKENS` | `4096` | Reasoning verifiers need room before the JSON. |
+| `AI_VERIFIER_RECEIVE_TIMEOUT` | `120000` | Milliseconds the verifier waits for a response (not streamed). A failed verification does not fail the job, so ReqLLM retries the request once; a stalled verifier costs two windows. Keep both receive timeouts, with OCR, inside the 10-minute job timeout. |
 | `NOUSRESEARCH_API_KEY` | — | **Secret.** |
 | `NOUSRESEARCH_URL` | `https://inference-api.nousresearch.com/v1` | |
 | `FLM_URL` / `FLM_API_KEY` | `http://localhost:52625/v1` / `ollama` | Any local OpenAI-compatible server. |

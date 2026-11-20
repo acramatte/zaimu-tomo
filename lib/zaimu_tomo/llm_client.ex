@@ -13,6 +13,7 @@ defmodule ZaimuTomo.LLMClient do
   @default_extractor_max_tokens 8192
   @default_extractor_receive_timeout 120_000
   @default_verifier_max_tokens 4096
+  @default_verifier_receive_timeout 120_000
 
   @type role :: :extractor | :verifier
   @type backend :: :ollama | :flm | :mistral | :nousresearch
@@ -142,7 +143,7 @@ defmodule ZaimuTomo.LLMClient do
     with {:ok, json_payload} <- normalize_json_data(json_data) do
       config = backend_config!(:verifier)
       model = req_llm_model!(config)
-      opts = Keyword.merge(req_llm_opts(config), max_tokens: verifier_max_tokens())
+      opts = Keyword.merge(req_llm_opts(config), verifier_request_opts())
       Logger.info("[LLM] Verifying extraction with #{backend_summary(:verifier, config)}")
 
       schema = [
@@ -402,12 +403,8 @@ defmodule ZaimuTomo.LLMClient do
 
   @doc false
   @spec extractor_receive_timeout() :: pos_integer()
-  def extractor_receive_timeout do
-    case role_config!(:extractor) |> Keyword.get(:receive_timeout) do
-      timeout when is_integer(timeout) and timeout > 0 -> timeout
-      _ -> @default_extractor_receive_timeout
-    end
-  end
+  def extractor_receive_timeout,
+    do: role_receive_timeout(:extractor, @default_extractor_receive_timeout)
 
   # Responses are not streamed, so nothing arrives until generation finishes and
   # ReqLLM's 30s default cuts off long generations. Oban already retries a failed
@@ -426,9 +423,35 @@ defmodule ZaimuTomo.LLMClient do
   @spec verifier_max_tokens() :: pos_integer()
   def verifier_max_tokens, do: role_max_tokens(:verifier, @default_verifier_max_tokens)
 
+  @doc false
+  @spec verifier_receive_timeout() :: pos_integer()
+  def verifier_receive_timeout,
+    do: role_receive_timeout(:verifier, @default_verifier_receive_timeout)
+
+  # The verifier is unstreamed too, so it needs the same receive window. A failed
+  # verification request becomes a `verification_failed` result, not a job
+  # failure, so Oban never retries it and ReqLLM's retry is its only one. One
+  # retry, not ReqLLM's default three, keeps a stalled verifier (two receive
+  # windows) plus the extractor well inside OCRJob's 10-minute timeout.
+  @spec verifier_request_opts() :: keyword()
+  defp verifier_request_opts do
+    [
+      max_tokens: verifier_max_tokens(),
+      receive_timeout: verifier_receive_timeout(),
+      max_retries: 1
+    ]
+  end
+
   defp role_max_tokens(role, default) do
     case role_config!(role) |> Keyword.get(:max_tokens) do
       max_tokens when is_integer(max_tokens) and max_tokens > 0 -> max_tokens
+      _ -> default
+    end
+  end
+
+  defp role_receive_timeout(role, default) do
+    case role_config!(role) |> Keyword.get(:receive_timeout) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
       _ -> default
     end
   end

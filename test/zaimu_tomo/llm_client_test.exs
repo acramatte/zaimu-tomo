@@ -637,6 +637,64 @@ defmodule ZaimuTomo.LLMClientTest do
     end
   end
 
+  describe "verify_extraction/2 against a stalled endpoint" do
+    test "retries once inside ReqLLM, then reports a failed verification" do
+      original_config = Application.fetch_env!(:zaimu_tomo, :ollama)
+      original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
+
+      on_exit(fn ->
+        Application.put_env(:zaimu_tomo, :ollama, original_config)
+        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+      end)
+
+      server =
+        start_supervised!({Bandit, plug: {StalledStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
+
+      Application.put_env(:zaimu_tomo, :ollama,
+        provider: :ollama,
+        base_url: "http://127.0.0.1:#{port}/v1"
+      )
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor"],
+        verifier: [backend: :ollama, model: "verifier", receive_timeout: 100]
+      )
+
+      assert {:ok, %{"status" => "verification_failed", "error" => error}} =
+               LLMClient.verify_extraction("Invoice total: CHF 12.00", %{
+                 "amount_to_pay_cents" => 1200
+               })
+
+      assert error =~ "timeout"
+      assert_received :stalled_request
+      assert_received :stalled_request
+      refute_receive :stalled_request, 300
+    end
+  end
+
+  describe "verifier_receive_timeout/0" do
+    test "reads the per-role receive_timeout when configured" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b", receive_timeout: 90_000]
+      )
+
+      assert LLMClient.verifier_receive_timeout() == 90_000
+    end
+
+    test "falls back to a window long enough for unstreamed generations" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b"],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.verifier_receive_timeout() == 120_000
+    end
+  end
+
   describe "verifier_max_tokens/0" do
     test "reads the per-role max_tokens when configured" do
       Application.put_env(:zaimu_tomo, :ai_workflow,
