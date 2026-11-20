@@ -46,6 +46,7 @@ Tests always use `ZaimuTomo.Storage.Memory`, so these variables are not read in 
 | `MISTRAL_URL` | `https://api.mistral.ai/v1` | |
 | `AI_EXTRACTOR_BACKEND` | `flm` / `nousresearch` | `flm`, `ollama`, `mistral`, or `nousresearch`. |
 | `AI_EXTRACTOR_MODEL` | `gemma4-it:e4b` / `ibm-granite/granite-4.2-8b` | |
+| `AI_EXTRACTOR_MAX_TOKENS` | `8192` | Output cap for the extractor. Reasoning models spend tokens before the JSON; at the old implicit 4096 cap they ended with no structured object. |
 | `AI_VERIFIER_BACKEND` | `flm` / `nousresearch` | |
 | `AI_VERIFIER_MODEL` | `phi4-mini-it:4b` / `qwen/qwen3.6-35b-a3b` | |
 | `AI_VERIFIER_MAX_TOKENS` | `4096` | Reasoning verifiers need room before the JSON. |

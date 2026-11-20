@@ -99,10 +99,18 @@ default_verifier =
 # override via env.
 default_verifier_max_tokens = 4096
 
+# The extractor can be a reasoning model too (granite-4.2-8b). Without an
+# explicit cap ReqLLM falls back to 4096, and a long chain-of-thought then ends
+# with finish_reason: :length and no structured object.
+default_extractor_max_tokens = 8192
+
 config :zaimu_tomo, :ai_workflow,
   extractor: [
     backend: System.get_env("AI_EXTRACTOR_BACKEND", Atom.to_string(default_extractor[:backend])),
-    model: System.get_env("AI_EXTRACTOR_MODEL", default_extractor[:model])
+    model: System.get_env("AI_EXTRACTOR_MODEL", default_extractor[:model]),
+    max_tokens:
+      System.get_env("AI_EXTRACTOR_MAX_TOKENS", Integer.to_string(default_extractor_max_tokens))
+      |> String.to_integer()
   ],
   verifier: [
     backend: System.get_env("AI_VERIFIER_BACKEND", Atom.to_string(default_verifier[:backend])),

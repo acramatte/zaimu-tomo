@@ -237,4 +237,55 @@ defmodule ZaimuTomo.LangfuseTest do
                Langfuse.create_user_score("trace-789", 0, "wrong amount")
     end
   end
+
+  describe "generation_output_attributes/1" do
+    test "records finish reason and reasoning so an empty result can be diagnosed" do
+      response = %ReqLLM.Response{
+        id: "resp-1",
+        model: "granite",
+        context: nil,
+        message: %ReqLLM.Message{
+          role: :assistant,
+          content: [%ReqLLM.Message.ContentPart{type: :thinking, text: "weighing totals"}]
+        },
+        object: nil,
+        finish_reason: :length,
+        usage: %{input_tokens: 10, output_tokens: 4096}
+      }
+
+      attributes = Langfuse.generation_output_attributes(response)
+      output = Jason.decode!(attributes["langfuse.observation.output"])
+
+      assert output["finish_reason"] == "length"
+      assert output["thinking"] == "weighing totals"
+      assert output["object"] == nil
+      assert attributes["langfuse.observation.metadata.finish_reason"] == "length"
+      assert attributes["gen_ai.usage.output_tokens"] == 4096
+    end
+  end
+
+  describe "failed_generation_attributes/1" do
+    test "records the error reason so a failed generation can be diagnosed" do
+      error = %ReqLLM.Error.API.Request{reason: "timeout", status: nil}
+
+      output =
+        {:error, error}
+        |> Langfuse.failed_generation_attributes()
+        |> Map.fetch!("langfuse.observation.output")
+        |> Jason.decode!()
+
+      assert output["status"] == "failed"
+      assert output["error"] =~ "timeout"
+    end
+
+    test "records a bare failure for a result that is not an error tuple" do
+      output =
+        :unexpected
+        |> Langfuse.failed_generation_attributes()
+        |> Map.fetch!("langfuse.observation.output")
+        |> Jason.decode!()
+
+      assert output == %{"status" => "failed"}
+    end
+  end
 end
