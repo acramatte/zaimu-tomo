@@ -189,6 +189,10 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
       assert ErrorClassification.summarize(
                {:llm_request_failed, %{status: nil, reason: "SECRET-INVOICE-TEXT"}}
              ) == "llm_request_failed:transport"
+
+      assert ErrorClassification.summarize(
+               {:llm_request_failed, %{status: nil, reason: "timeout"}}
+             ) == "llm_request_failed:transport_timeout"
     end
 
     test "storage atoms, posix pairs and unknown shapes" do
@@ -229,6 +233,8 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
          "the extraction service returned an error"},
         {{:llm_request_failed, %{status: nil, reason: "closed"}},
          "couldn't reach the extraction service"},
+        {{:llm_request_failed, %{status: nil, reason: "timeout"}},
+         "the extraction service timed out"},
         {{:prompt_fetch_failed, 502}, "the prompt service returned an error"},
         {{:prompt_fetch_failed, %Req.TransportError{reason: :closed}},
          "couldn't reach the prompt service"},

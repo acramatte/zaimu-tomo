@@ -172,6 +172,9 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def summarize({:llm_request_failed, %{status: status}}) when is_integer(status),
     do: "llm_request_failed:http_#{status}"
 
+  def summarize({:llm_request_failed, %{status: nil, reason: "timeout"}}),
+    do: "llm_request_failed:transport_timeout"
+
   def summarize({:llm_request_failed, %{status: nil}}), do: "llm_request_failed:transport"
 
   def summarize({:prompt_fetch_failed, status}) when is_integer(status),
