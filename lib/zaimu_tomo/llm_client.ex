@@ -11,6 +11,7 @@ defmodule ZaimuTomo.LLMClient do
   @backends [:ollama, :flm, :mistral, :nousresearch]
 
   @default_extractor_max_tokens 8192
+  @default_extractor_receive_timeout 120_000
   @default_verifier_max_tokens 4096
 
   @type role :: :extractor | :verifier
@@ -18,7 +19,8 @@ defmodule ZaimuTomo.LLMClient do
   @type role_config :: [
           backend: backend() | String.t(),
           model: String.t(),
-          max_tokens: pos_integer() | nil
+          max_tokens: pos_integer() | nil,
+          receive_timeout: pos_integer() | nil
         ]
   @type workflow_config :: [extractor: role_config(), verifier: role_config()]
   @type backend_config :: [
@@ -46,7 +48,7 @@ defmodule ZaimuTomo.LLMClient do
   def extract_invoice(markdown, currency_hint) do
     config = backend_config!(:extractor)
     model = req_llm_model!(config)
-    opts = Keyword.merge(req_llm_opts(config), max_tokens: extractor_max_tokens())
+    opts = Keyword.merge(req_llm_opts(config), extractor_request_opts())
     Logger.info("[LLM] Extracting invoice with #{backend_summary(:extractor, config)}")
 
     schema = [
@@ -397,6 +399,28 @@ defmodule ZaimuTomo.LLMClient do
   @doc false
   @spec extractor_max_tokens() :: pos_integer()
   def extractor_max_tokens, do: role_max_tokens(:extractor, @default_extractor_max_tokens)
+
+  @doc false
+  @spec extractor_receive_timeout() :: pos_integer()
+  def extractor_receive_timeout do
+    case role_config!(:extractor) |> Keyword.get(:receive_timeout) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _ -> @default_extractor_receive_timeout
+    end
+  end
+
+  # Responses are not streamed, so nothing arrives until generation finishes and
+  # ReqLLM's 30s default cuts off long generations. Oban already retries a failed
+  # extraction with backoff, so ReqLLM's instant transport retries (4 requests
+  # per attempt) only multiply the wait when the endpoint is stalled.
+  @spec extractor_request_opts() :: keyword()
+  defp extractor_request_opts do
+    [
+      max_tokens: extractor_max_tokens(),
+      receive_timeout: extractor_receive_timeout(),
+      max_retries: 0
+    ]
+  end
 
   @doc false
   @spec verifier_max_tokens() :: pos_integer()
