@@ -7,6 +7,16 @@ defmodule ZaimuTomo.LLMClientTest do
   alias ReqLLM.ToolCall
   alias ZaimuTomo.LLMClient
 
+  defmodule StalledStub do
+    def init(test_pid), do: test_pid
+
+    def call(conn, test_pid) do
+      send(test_pid, :stalled_request)
+      Process.sleep(1_000)
+      Plug.Conn.send_resp(conn, 200, "{}")
+    end
+  end
+
   defmodule OllamaStub do
     def init(test_pid), do: test_pid
 
@@ -570,6 +580,60 @@ defmodule ZaimuTomo.LLMClientTest do
       )
 
       assert LLMClient.extractor_max_tokens() == 8192
+    end
+  end
+
+  describe "extract_invoice/2 against a stalled endpoint" do
+    test "times out after one request instead of retrying inside ReqLLM" do
+      original_config = Application.fetch_env!(:zaimu_tomo, :ollama)
+      original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
+
+      on_exit(fn ->
+        Application.put_env(:zaimu_tomo, :ollama, original_config)
+        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+      end)
+
+      server =
+        start_supervised!({Bandit, plug: {StalledStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
+
+      Application.put_env(:zaimu_tomo, :ollama,
+        provider: :ollama,
+        base_url: "http://127.0.0.1:#{port}/v1"
+      )
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor", receive_timeout: 100],
+        verifier: [backend: :ollama, model: "verifier"]
+      )
+
+      assert {:error, {:llm_request_failed, %{status: nil, reason: "timeout"}}} =
+               LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
+
+      assert_received :stalled_request
+      refute_receive :stalled_request, 300
+    end
+  end
+
+  describe "extractor_receive_timeout/0" do
+    test "reads the per-role receive_timeout when configured" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b", receive_timeout: 90_000],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.extractor_receive_timeout() == 90_000
+    end
+
+    test "falls back to a window long enough for unstreamed generations" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :flm, model: "gemma4-it:e4b", receive_timeout: 0],
+        verifier: [backend: :flm, model: "phi4-mini-it:4b"]
+      )
+
+      assert LLMClient.extractor_receive_timeout() == 120_000
     end
   end
 
