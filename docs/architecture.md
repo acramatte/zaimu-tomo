@@ -224,7 +224,8 @@ on the document list, the dashboard feed and the `/activity` page (both through
 `posted`, or `rejected`. The OCR worker broadcasts before Oban marks
 the job complete, so a reload on that broadcast can still see the job running.
 The invoice page and the `/activity` page therefore re-read the state every few
-seconds while something is processing.
+seconds while something is processing; `/activity` and the statement pages
+schedule that re-read with one helper, `ZaimuTomoWeb.ProcessingRefresh.schedule/2`.
 
 Whether a posting may go through is decided in one place, inside the posting
 transaction: `Review.posting_decision/2` maps the duplicate verdict for the data

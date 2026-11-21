@@ -32,6 +32,14 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
 
   defp settle_jobs, do: Repo.delete_all(Oban.Job)
 
+  defp await(view, selector, text, attempts \\ 40) do
+    cond do
+      has_element?(view, selector, text) -> :ok
+      attempts == 0 -> flunk("expected #{selector} with #{text}, got: #{render(view)}")
+      true -> Process.sleep(25) && await(view, selector, text, attempts - 1)
+    end
+  end
+
   describe "index" do
     test "lists statements by account with their status and period",
          %{conn: conn, scope: scope, account: account} do
@@ -255,6 +263,19 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
 
       assert render(view) =~ "Coffee"
       assert has_element?(view, "#statement-status .pill", "Read")
+    end
+
+    test "re-reads while processing until the read settles, without a broadcast",
+         %{conn: conn, scope: scope, account: account} do
+      statement = statement_fixture(scope, account)
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}")
+      assert has_element?(view, "#statement-status .pill", "Processing")
+
+      put_extraction(statement, %{currency: "CHF"}, [{~D[2026-10-03], "Coffee", -500}])
+      settle_jobs()
+
+      await(view, "#statement-status .pill", "Read")
+      assert has_element?(view, "#statement-line-1", "Coffee")
     end
 
     test "deletes the statement and returns to the list",

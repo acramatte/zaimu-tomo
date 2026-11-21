@@ -3,6 +3,7 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
 
   alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Statements
+  alias ZaimuTomoWeb.ProcessingRefresh
 
   @impl true
   def render(assigns) do
@@ -227,22 +228,8 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
 
     socket
     |> assign(:groups, groups)
-    |> schedule_refresh(Enum.any?(entries, &(&1.status == :processing)))
+    |> ProcessingRefresh.schedule(Enum.any?(entries, &(&1.status == :processing)))
   end
-
-  # The job broadcasts before Oban marks it complete, so the reload a broadcast
-  # triggers can still see the job running. While anything is processing,
-  # re-read until it settles.
-  defp schedule_refresh(%{assigns: %{refresh_timer: nil}} = socket, true) do
-    if connected?(socket) do
-      interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
-      assign(socket, :refresh_timer, Process.send_after(self(), :refresh_processing, interval))
-    else
-      socket
-    end
-  end
-
-  defp schedule_refresh(socket, _processing?), do: socket
 
   defp account_form(accounts, requested_id) do
     selected =
