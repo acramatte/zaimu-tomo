@@ -48,6 +48,15 @@ defmodule ZaimuTomo.LLMClientTest do
               issuer: "Elektrizitätswerk der Stadt Zürich"
             })
 
+          "extractor-no-reason" ->
+            Jason.encode!(%{
+              amount_to_pay_cents: 13_940,
+              invoice_date: "2026-07-18",
+              currency: "CHF",
+              reason_for_payment: nil,
+              issuer: "Coop Genossenschaft"
+            })
+
           _verifier ->
             Jason.encode!(%{status: "verified", reason: "All fields match."})
         end
@@ -496,30 +505,7 @@ defmodule ZaimuTomo.LLMClientTest do
     end
 
     test "extracts an invoice an OpenAI-compatible model returned as text instead of a tool call" do
-      original_config = Application.fetch_env!(:zaimu_tomo, :nousresearch)
-      original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
-
-      on_exit(fn ->
-        Application.put_env(:zaimu_tomo, :nousresearch, original_config)
-        Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
-      end)
-
-      server =
-        start_supervised!({Bandit, plug: {OllamaStub, self()}, ip: {127, 0, 0, 1}, port: 0})
-
-      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
-      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
-
-      Application.put_env(:zaimu_tomo, :nousresearch,
-        provider: :openai,
-        base_url: "http://127.0.0.1:#{port}/v1",
-        api_key: "test-key"
-      )
-
-      Application.put_env(:zaimu_tomo, :ai_workflow,
-        extractor: [backend: :nousresearch, model: "extractor-text-only"],
-        verifier: [backend: :nousresearch, model: "verifier"]
-      )
+      use_openai_stub_extractor("extractor-text-only")
 
       assert {:ok, extracted} = LLMClient.extract_invoice("EWZ invoice", "CHF")
 
@@ -530,6 +516,43 @@ defmodule ZaimuTomo.LLMClientTest do
       assert_receive {:ollama_request, "/v1/chat/completions", _headers, body}
       assert body["tool_choice"]["function"]["name"] == "structured_output"
     end
+
+    test "extracts an invoice whose items give no reason for payment" do
+      use_openai_stub_extractor("extractor-no-reason")
+
+      assert {:ok, extracted} = LLMClient.extract_invoice("Coop invoice", "CHF")
+
+      assert extracted.amount_to_pay_cents == 13_940
+      assert extracted.reason_for_payment == nil
+      assert extracted.issuer == "Coop Genossenschaft"
+    end
+  end
+
+  defp use_openai_stub_extractor(model) do
+    original_config = Application.fetch_env!(:zaimu_tomo, :nousresearch)
+    original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
+
+    on_exit(fn ->
+      Application.put_env(:zaimu_tomo, :nousresearch, original_config)
+      Application.put_env(:zaimu_tomo, :langfuse, original_langfuse)
+    end)
+
+    server =
+      start_supervised!({Bandit, plug: {OllamaStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+    Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
+
+    Application.put_env(:zaimu_tomo, :nousresearch,
+      provider: :openai,
+      base_url: "http://127.0.0.1:#{port}/v1",
+      api_key: "test-key"
+    )
+
+    Application.put_env(:zaimu_tomo, :ai_workflow,
+      extractor: [backend: :nousresearch, model: model],
+      verifier: [backend: :nousresearch, model: "verifier"]
+    )
   end
 
   describe "model_for/1" do

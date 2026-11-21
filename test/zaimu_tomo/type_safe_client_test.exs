@@ -88,6 +88,25 @@ defmodule ZaimuTomo.TypeSafeClientTest do
              TypeSafeClient.verify_extraction("OCR markdown", extracted, "CHF")
   end
 
+  test "omits the reason judgment when the extractor found no reason for payment" do
+    Req.Test.expect(@req_stub, fn conn ->
+      request = conn |> Req.Test.raw_body() |> Jason.decode!()
+      refute Map.has_key?(request["questions"], "reason_for_payment_wrong")
+      assert Map.has_key?(request["questions"], "invoice_number_wrong")
+
+      response =
+        answers_response()
+        |> update_in(["answers"], &Map.delete(&1, "reason_for_payment_wrong"))
+
+      json_response(conn, response)
+    end)
+
+    extracted = %{extracted_data() | reason_for_payment: nil}
+
+    assert {:ok, %{"status" => "verified"}} =
+             TypeSafeClient.verify_extraction("OCR markdown", extracted, "CHF")
+  end
+
   test "rejects review thresholds outside the probability range" do
     config = Application.fetch_env!(:zaimu_tomo, :typesafe)
     Application.put_env(:zaimu_tomo, :typesafe, Keyword.put(config, :review_threshold, 1.1))
