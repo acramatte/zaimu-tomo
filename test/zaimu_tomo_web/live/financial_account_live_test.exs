@@ -12,6 +12,9 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
     {:ok, view, html} = live(conn, ~p"/accounts")
     assert html =~ "No financial accounts yet"
 
+    assert view |> element("#accounts-empty") |> render() =~
+             "Add current, savings, cash, investment, or credit card accounts."
+
     view
     |> form("#financial-account-form", %{
       "account" => %{
@@ -60,6 +63,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
       |> render()
 
     for {label, value} <- [
+          {"Current account", "current"},
           {"Savings", "savings"},
           {"Cash", "cash"},
           {"Investment", "investment"},
@@ -87,8 +91,22 @@ defmodule ZaimuTomoWeb.FinancialAccountLiveTest do
     [account] = ZaimuTomo.FinancialAccounts.list_financial_accounts(scope)
 
     {:ok, _show, show_html} = live(conn, ~p"/accounts/#{account}")
-    assert show_html =~ "Credit card account · CHF"
+    assert show_html =~ "Credit card · CHF"
     assert show_html =~ "Balance (negative while you owe)"
+  end
+
+  test "a current account's page names its type once", %{conn: conn, scope: scope} do
+    account =
+      financial_account_fixture(scope, %{
+        name: "PostFinance Private",
+        account_type: :current,
+        currency: "CHF"
+      })
+
+    {:ok, _show, html} = live(conn, ~p"/accounts/#{account}")
+
+    assert html =~ "Current account · CHF"
+    refute html =~ "account account"
   end
 
   test "plots a twelve-month balance trend grouped by currency and toggles accounts", %{

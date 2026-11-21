@@ -299,6 +299,7 @@ defmodule ZaimuTomoWeb.PageController do
       current_path: "/",
       page_title: "Dashboard",
       summary: @summary,
+      current_accounts: accounts_by_type.current,
       cash_accounts: accounts_by_type.cash,
       investment_accounts: accounts_by_type.investment,
       savings_accounts: accounts_by_type.savings,

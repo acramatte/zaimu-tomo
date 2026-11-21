@@ -34,7 +34,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
         <div :if={@accounts == []} class="empty-state" id="accounts-empty">
           <div class="h">No financial accounts yet</div>
           <div class="muted">
-            Add savings, cash, investment, or credit card accounts. Their balances appear on the dashboard.
+            Add current, savings, cash, investment, or credit card accounts. Their balances appear on the dashboard.
           </div>
         </div>
 

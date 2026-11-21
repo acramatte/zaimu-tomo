@@ -246,6 +246,35 @@ defmodule ZaimuTomoWeb.PageControllerTest do
     assert html =~ "Brokerage"
   end
 
+  test "GET / shows current accounts first, only when the user has one", %{
+    conn: conn,
+    scope: scope
+  } do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    refute LazyHTML.to_html(document) =~ "Current accounts"
+
+    account =
+      financial_account_fixture(scope, %{
+        name: "PostFinance Private",
+        account_type: :current,
+        currency: "CHF",
+        amount_cents: 512_340
+      })
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    html = LazyHTML.to_html(document)
+
+    assert has_element?(document, "#dashboard-current-#{account.id}")
+
+    assert has_element?(
+             document,
+             ".hero-row > .hero-stat:first-child #dashboard-current-#{account.id}"
+           )
+
+    assert html =~ "CHF 5,123.40"
+    assert html =~ "PostFinance Private"
+  end
+
   test "GET / shows credit cards only when the user has one, with the debt negative", %{
     conn: conn,
     scope: scope

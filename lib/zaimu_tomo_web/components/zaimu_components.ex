@@ -57,7 +57,12 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     |> String.reverse()
   end
 
-  @doc "Reads an account type as words: `:credit_card` is \"Credit card\"."
+  @doc """
+  Reads an account type as words: `:credit_card` is "Credit card". `:current`
+  alone reads as a time, so it is "Current account".
+  """
+  def account_type_label(:current), do: "Current account"
+
   def account_type_label(type) when is_atom(type) do
     type |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
   end

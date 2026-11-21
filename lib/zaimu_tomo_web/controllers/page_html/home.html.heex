@@ -37,6 +37,23 @@
             else: "s"}</span>
         </div>
         <div class="hero-row">
+          <div :if={@current_accounts != []} class="hero-stat">
+            <div class="label">Current accounts</div>
+            <div
+              :for={%{account: account, balance_snapshot: snapshot} <- @current_accounts}
+              id={"dashboard-current-#{account.id}"}
+            >
+              <div class="v">
+                {if snapshot, do: fmt_cents(snapshot.amount_cents, account.currency), else: "—"}
+              </div>
+              <div class="delta muted">
+                {account.name}{if snapshot,
+                  do: " · #{snapshot.recorded_on}",
+                  else: " · no balance"}
+              </div>
+            </div>
+            <.link navigate={~p"/accounts"} class="delta up">Manage accounts</.link>
+          </div>
           <div class="hero-stat">
             <div class="label">Cash</div>
             <div :if={@cash_accounts == []} class="v">—</div>

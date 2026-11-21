@@ -14,7 +14,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
     </div>
     <h1 class="view-title">{@account.name}</h1>
     <p class="view-sub">
-      {account_type_label(@account.account_type)} account · {@account.currency} · manual balance tracking
+      {account_type_label(@account.account_type)} · {@account.currency} · manual balance tracking
     </p>
     <p :if={@account.bank_name || @account.account_number} class="view-sub">
       {@account.bank_name || "Bank not specified"}
