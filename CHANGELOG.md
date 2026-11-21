@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/acramatte/zaimu-tomo/compare/v0.2.1...v0.3.0) (2026-11-21)
+
+
+### Features
+
+* **accounts:** add current and credit card account types and share the upload store ([#137](https://github.com/acramatte/zaimu-tomo/issues/137)) ([95f5497](https://github.com/acramatte/zaimu-tomo/commit/95f549767aef37e3c136d2599f00044d8aa4b556))
+
+
+### Bug Fixes
+
+* accept an invoice whose items give no reason for payment ([9888437](https://github.com/acramatte/zaimu-tomo/commit/9888437b85e4973b4216b674c8c6b795ca237ce5))
+* copy the v2 invoice prompts into the local templates ([5d534e3](https://github.com/acramatte/zaimu-tomo/commit/5d534e343b393aa12d830db70658386a7692e1ac))
+
 ## [0.2.1](https://github.com/acramatte/zaimu-tomo/compare/v0.2.0...v0.2.1) (2026-11-20)
 
 
