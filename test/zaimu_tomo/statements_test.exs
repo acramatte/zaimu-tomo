@@ -223,6 +223,23 @@ defmodule ZaimuTomo.StatementsTest do
     end
   end
 
+  test "describe_failure/1 words a read that does not fit its account, and defers the rest" do
+    assert Statements.describe_failure("account_mismatch") ==
+             "it names another account than this one"
+
+    assert Statements.describe_failure("line_outside_period") ==
+             "a line is dated months away from the statement's period"
+
+    assert Statements.describe_failure("duplicate_period") ==
+             "this account already has a statement for this period"
+
+    assert Statements.describe_failure("llm_request_failed:http_429") ==
+             "the extraction service was rate-limited"
+
+    assert Statements.describe_failure("validation_failed") ==
+             "the extraction service returned an answer that could not be understood"
+  end
+
   describe "delete_statement/2" do
     test "deletes the row, its lines, then the file, and broadcasts",
          %{scope: scope, account: account} do
