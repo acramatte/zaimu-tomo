@@ -4,6 +4,7 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
   alias ZaimuTomo.Activity
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents
+  alias ZaimuTomoWeb.ProcessingRefresh
 
   # Stalled documents need a retry, so they sit under Failed.
   @tabs [
@@ -66,22 +67,8 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
     |> assign(:activity_items, items)
     |> assign(:counts, counts)
     |> assign_visible()
-    |> schedule_refresh(counts["processing"] > 0)
+    |> ProcessingRefresh.schedule(counts["processing"] > 0)
   end
-
-  # The worker broadcasts before Oban acknowledges the job, so the reload a
-  # broadcast triggers can still see the job running. While anything is
-  # processing, re-read the durable state until it settles.
-  defp schedule_refresh(%{assigns: %{refresh_timer: nil}} = socket, true) do
-    if connected?(socket) do
-      interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
-      assign(socket, :refresh_timer, Process.send_after(self(), :refresh_processing, interval))
-    else
-      socket
-    end
-  end
-
-  defp schedule_refresh(socket, _processing?), do: socket
 
   defp assign_visible(socket) do
     {_key, _label, statuses} = List.keyfind!(@tabs, socket.assigns.tab, 0)
