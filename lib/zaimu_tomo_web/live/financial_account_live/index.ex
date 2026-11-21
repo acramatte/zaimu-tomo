@@ -5,9 +5,12 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
 
   alias ZaimuTomo.Currency
   alias ZaimuTomo.FinancialAccounts
+  alias ZaimuTomo.FinancialAccounts.FinancialAccount
   alias ZaimuTomoWeb.FinancialAccountHistory
 
-  @account_types [{"Savings", "savings"}, {"Cash", "cash"}, {"Investment", "investment"}]
+  @account_types (for type <- Ecto.Enum.values(FinancialAccount, :account_type) do
+                    {ZaimuTomoWeb.ZaimuComponents.account_type_label(type), Atom.to_string(type)}
+                  end)
 
   @impl true
   def render(assigns) do
@@ -31,7 +34,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
         <div :if={@accounts == []} class="empty-state" id="accounts-empty">
           <div class="h">No financial accounts yet</div>
           <div class="muted">
-            Add savings, cash, or investment accounts. Savings balances appear on the dashboard.
+            Add current, savings, cash, investment, or credit card accounts. Their balances appear on the dashboard.
           </div>
         </div>
 
@@ -98,6 +101,14 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
               placeholder="0.00"
               required
             />
+            <p
+              :if={@form[:account_type].value == "credit_card"}
+              id="card-debt-hint"
+              class="muted"
+              style="margin:-4px 0 0;font-size:12px"
+            >
+              Card debt is a negative balance.
+            </p>
             <.input field={@form[:recorded_on]} type="date" label="Balance date" required />
           </div>
           <div style="margin-top:16px">
@@ -360,6 +371,4 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Index do
       _ -> {:error, :invalid_amount}
     end
   end
-
-  defp account_type_label(type), do: type |> Atom.to_string() |> String.capitalize()
 end

@@ -3,7 +3,7 @@ defmodule ZaimuTomo.Documents.Document do
   import Ecto.Changeset
 
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
-  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Fingerprint
 
   schema "documents" do
     field :filename, :string

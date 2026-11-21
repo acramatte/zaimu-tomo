@@ -14,7 +14,7 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
     </div>
     <h1 class="view-title">{@account.name}</h1>
     <p class="view-sub">
-      {account_type_label(@account.account_type)} account · {@account.currency} · manual balance tracking
+      {account_type_label(@account.account_type)} · {@account.currency} · manual balance tracking
     </p>
     <p :if={@account.bank_name || @account.account_number} class="view-sub">
       {@account.bank_name || "Bank not specified"}
@@ -69,7 +69,11 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
               field={@form[:balance]}
               type="number"
               step="0.01"
-              label="Balance"
+              label={
+                if @account.account_type == :credit_card,
+                  do: "Balance (negative while you owe)",
+                  else: "Balance"
+              }
               placeholder="0.00"
               required
             />
@@ -167,6 +171,4 @@ defmodule ZaimuTomoWeb.FinancialAccountLive.Show do
       _ -> {:error, :invalid_amount}
     end
   end
-
-  defp account_type_label(type), do: type |> Atom.to_string() |> String.capitalize()
 end

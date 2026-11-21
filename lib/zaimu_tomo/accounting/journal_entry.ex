@@ -5,7 +5,7 @@ defmodule ZaimuTomo.Accounting.JournalEntry do
   alias ZaimuTomo.Accounting.TaxDeductionClaim
   alias ZaimuTomo.Accounts.User
   alias ZaimuTomo.Currency
-  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Fingerprint
   alias ZaimuTomo.Review.ReviewDecision
 
   @need_or_want_values ["need", "want"]

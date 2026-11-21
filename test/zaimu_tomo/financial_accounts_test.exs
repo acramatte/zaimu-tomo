@@ -60,42 +60,42 @@ defmodule ZaimuTomo.FinancialAccountsTest do
     assert snapshot.recorded_on == ~D[2026-07-29]
   end
 
-  test "lists only savings accounts for the dashboard" do
+  test "groups the accounts by type with every type present for the dashboard" do
     scope = user_scope_fixture()
     financial_account_fixture(scope, %{name: "Savings", account_type: :savings})
-
-    financial_account_fixture(scope, %{
-      name: "Brokerage",
-      account_type: :investment,
-      currency: "USD"
-    })
-
-    assert [%{account: %{name: "Savings", account_type: :savings}}] =
-             FinancialAccounts.list_savings_accounts_with_latest_balance(scope)
-  end
-
-  test "lists only cash accounts for the dashboard" do
-    scope = user_scope_fixture()
     financial_account_fixture(scope, %{name: "Wallet", account_type: :cash, currency: "CHF"})
-    financial_account_fixture(scope, %{name: "Savings", account_type: :savings})
-
-    assert [%{account: %{name: "Wallet", account_type: :cash}}] =
-             FinancialAccounts.list_cash_accounts_with_latest_balance(scope)
-  end
-
-  test "lists only investment accounts for the dashboard" do
-    scope = user_scope_fixture()
+    financial_account_fixture(user_scope_fixture(), %{name: "Foreign", account_type: :cash})
 
     financial_account_fixture(scope, %{
-      name: "Brokerage",
-      account_type: :investment,
-      currency: "USD"
+      name: "Visa",
+      account_type: :credit_card,
+      currency: "CHF",
+      amount_cents: -45_000
     })
 
-    financial_account_fixture(scope, %{name: "Wallet", account_type: :cash})
+    assert %{
+             savings: [%{account: %{name: "Savings"}}],
+             cash: [%{account: %{name: "Wallet"}}],
+             investment: [],
+             credit_card: [
+               %{account: %{name: "Visa"}, balance_snapshot: %{amount_cents: -45_000}}
+             ]
+           } = FinancialAccounts.list_accounts_with_latest_balance_by_type(scope)
+  end
 
-    assert [%{account: %{name: "Brokerage", account_type: :investment}}] =
-             FinancialAccounts.list_investment_accounts_with_latest_balance(scope)
+  test "counts card debt as a negative balance in net worth" do
+    scope = user_scope_fixture()
+    financial_account_fixture(scope, %{name: "Main", currency: "CHF", amount_cents: 100_000})
+
+    financial_account_fixture(scope, %{
+      name: "Visa",
+      account_type: :credit_card,
+      currency: "CHF",
+      amount_cents: -45_000
+    })
+
+    assert [%{currency: "CHF", total_cents: 55_000, account_count: 2}] =
+             FinancialAccounts.list_net_worth_by_currency(scope)
   end
 
   test "groups the latest account balances by their source currency for net worth" do

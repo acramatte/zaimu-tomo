@@ -129,7 +129,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Form do
   def handle_event("save", %{}, socket) do
     entries =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        case Documents.store_upload(path, entry.client_name) do
+        case Storage.store_upload(path, entry.client_name, "documents") do
           {:ok, stored} -> {:ok, stored}
           {:error, reason} -> {:ok, %{storage_error: reason}}
         end

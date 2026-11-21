@@ -279,14 +279,7 @@ defmodule ZaimuTomoWeb.PageController do
     spending = Accounting.monthly_spending(scope, today)
     previous_spending = Accounting.monthly_spending(scope, previous_month)
 
-    cash_accounts =
-      FinancialAccounts.list_cash_accounts_with_latest_balance(scope)
-
-    investment_accounts =
-      FinancialAccounts.list_investment_accounts_with_latest_balance(scope)
-
-    savings_accounts =
-      FinancialAccounts.list_savings_accounts_with_latest_balance(scope)
+    accounts_by_type = FinancialAccounts.list_accounts_with_latest_balance_by_type(scope)
 
     net_worth_by_currency =
       FinancialAccounts.list_net_worth_by_currency(scope)
@@ -306,9 +299,11 @@ defmodule ZaimuTomoWeb.PageController do
       current_path: "/",
       page_title: "Dashboard",
       summary: @summary,
-      cash_accounts: cash_accounts,
-      investment_accounts: investment_accounts,
-      savings_accounts: savings_accounts,
+      current_accounts: accounts_by_type.current,
+      cash_accounts: accounts_by_type.cash,
+      investment_accounts: accounts_by_type.investment,
+      savings_accounts: accounts_by_type.savings,
+      credit_card_accounts: accounts_by_type.credit_card,
       net_worth_by_currency: net_worth_by_currency,
       categories: @categories,
       spending: spending,
