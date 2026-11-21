@@ -2,6 +2,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
   use ZaimuTomoWeb, :live_view
 
   alias ZaimuTomo.Statements
+  alias ZaimuTomoWeb.ProcessingRefresh
 
   @impl true
   def render(assigns) do
@@ -220,22 +221,8 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     |> assign(:balance, balance)
     |> assign(:retryable?, Statements.retryable?(status, balance))
     |> assign(:totals, %{in: Enum.sum(credits), out: Enum.sum(debits)})
-    |> schedule_refresh(status == :processing)
+    |> ProcessingRefresh.schedule(status == :processing)
   end
-
-  # The job broadcasts before Oban marks it complete, so the reload a broadcast
-  # triggers can still see the job running. While it is, re-read until it
-  # settles.
-  defp schedule_refresh(%{assigns: %{refresh_timer: nil}} = socket, true) do
-    if connected?(socket) do
-      interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
-      assign(socket, :refresh_timer, Process.send_after(self(), :refresh_processing, interval))
-    else
-      socket
-    end
-  end
-
-  defp schedule_refresh(socket, _processing?), do: socket
 
   defp title(%{period_end: nil, filename: filename}), do: filename
   defp title(%{period_end: date}), do: "#{Calendar.strftime(date, "%B %Y")} statement"
