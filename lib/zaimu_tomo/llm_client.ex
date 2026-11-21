@@ -57,7 +57,7 @@ defmodule ZaimuTomo.LLMClient do
       invoice_date: [type: :string, required: true],
       invoice_number: [type: :string, required: false],
       currency: [type: :string, required: true],
-      reason_for_payment: [type: :string, required: true],
+      reason_for_payment: [type: :string, required: false],
       issuer: [type: :string, required: true]
     ]
 

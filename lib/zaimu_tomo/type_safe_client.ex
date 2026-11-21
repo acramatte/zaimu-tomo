@@ -120,10 +120,19 @@ defmodule ZaimuTomo.TypeSafeClient do
     }
   end
 
-  defp questions(%{"invoice_number" => value}) when value in [nil, ""],
-    do: Map.delete(@questions, "invoice_number_wrong")
+  # An optional field the extractor left empty has nothing to judge, and
+  # "lacks support in the document" would flag the absence itself.
+  @optional_field_questions %{
+    "invoice_number" => "invoice_number_wrong",
+    "reason_for_payment" => "reason_for_payment_wrong"
+  }
 
-  defp questions(_extracted), do: @questions
+  defp questions(extracted) do
+    for {field, question} <- @optional_field_questions,
+        Map.get(extracted, field) in [nil, ""],
+        reduce: @questions,
+        do: (questions -> Map.delete(questions, question))
+  end
 
   defp request(state, questions, api_key, config) do
     options = [

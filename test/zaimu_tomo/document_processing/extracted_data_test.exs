@@ -28,6 +28,12 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedDataTest do
     assert Ecto.Changeset.get_change(changeset, :currency) == "CHF"
   end
 
+  test "accepts an invoice without a reason for payment" do
+    changeset = ExtractedData.changeset(valid_attrs(%{reason_for_payment: nil}))
+
+    assert changeset.valid?
+  end
+
   property "changeset/1 is valid exactly when every required field is present and currency is a well-formed code" do
     check all(
             currency <- currency_like_generator(),
@@ -46,7 +52,7 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedDataTest do
       changeset = ExtractedData.changeset(attrs)
 
       currency_ok? = Currency.normalize(currency) =~ ~r/\A[A-Z]{3}\z/
-      all_required_present? = has_amount? and has_date? and has_reason? and has_issuer?
+      all_required_present? = has_amount? and has_date? and has_issuer?
 
       assert changeset.valid? == (currency_ok? and all_required_present?)
     end

@@ -16,8 +16,10 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedData do
 
   @type t :: %__MODULE__{}
 
-  @required_fields [:amount_to_pay_cents, :invoice_date, :currency, :reason_for_payment, :issuer]
-  @optional_fields [:invoice_number]
+  @required_fields [:amount_to_pay_cents, :invoice_date, :currency, :issuer]
+  # The prompt asks for null rather than an invented reason when no item
+  # describes the purchase.
+  @optional_fields [:invoice_number, :reason_for_payment]
 
   def changeset(attrs) when is_map(attrs) do
     %__MODULE__{}
