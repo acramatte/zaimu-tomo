@@ -12,7 +12,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
   alias ZaimuTomo.DocumentProcessing.OCRJob
   alias ZaimuTomo.Documents
   alias ZaimuTomo.Documents.Document
-  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Fingerprint
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory

@@ -29,7 +29,7 @@ defmodule ZaimuTomo.Documents.FingerprintBackfill do
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.Documents.Document
-  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Fingerprint
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review.ReviewDecision
   alias ZaimuTomo.Storage

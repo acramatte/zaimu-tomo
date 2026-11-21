@@ -3,7 +3,7 @@ defmodule ZaimuTomo.Storage do
   Provider-neutral document object storage facade.
   """
 
-  alias ZaimuTomo.Documents.Fingerprint
+  alias ZaimuTomo.Fingerprint
 
   @type key :: String.t()
 

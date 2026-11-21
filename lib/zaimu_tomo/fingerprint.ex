@@ -1,6 +1,6 @@
-defmodule ZaimuTomo.Documents.Fingerprint do
+defmodule ZaimuTomo.Fingerprint do
   @moduledoc """
-  Exact-byte SHA-256 fingerprint of an uploaded document.
+  Exact-byte SHA-256 fingerprint of an uploaded file.
 
   The digest identifies byte-identical files only. It is never derived from
   OCR or LLM output, and it must not be logged, rendered, or sent to an AI
@@ -12,7 +12,7 @@ defmodule ZaimuTomo.Documents.Fingerprint do
   @doc """
   Returns the SHA-256 of `bytes` as 64 lowercase hexadecimal characters.
 
-      iex> ZaimuTomo.Documents.Fingerprint.sha256("")
+      iex> ZaimuTomo.Fingerprint.sha256("")
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   """
   @spec sha256(iodata()) :: String.t()

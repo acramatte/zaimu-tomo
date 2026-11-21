@@ -141,7 +141,7 @@ flowchart TB
 | Building block | Path | Responsibility |
 |---|---|---|
 | `Accounts` | `lib/zaimu_tomo/accounts*` | Users, sessions and tokens (phx.gen.auth), `Scope`, and per-user settings (display name, base currency). |
-| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Owns the exact-byte `Fingerprint`, creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
+| `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
 | `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, live runs (`Run`), retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
@@ -149,6 +149,7 @@ flowchart TB
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency, and accounts grouped by type for the dashboard (`list_accounts_with_latest_balance_by_type/1`). The `account_type` enum (current, savings, cash, investment, credit card) is the one list of types: the account form reads its options from it. A current account is the everyday bank account that pays bills and receives salary. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state and live run for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. `store_upload/3` stores an uploaded file under a key prefix (`documents`) and fingerprints the same bytes. |
+| `Fingerprint` | `lib/zaimu_tomo/fingerprint.ex` | Pure. The exact-byte SHA-256 of an uploaded file (`sha256/1`) and the format every stored digest must match (`format/0`). Outside every context so that `Storage`, `Documents`, and `Accounting` can share it without depending on each other. |
 | `LLMClient` | `lib/zaimu_tomo/llm_client.ex` | Per-role (extractor and verifier) backend and model resolution through ReqLLM, and response parsing and validation. |
 | `Langfuse` | `lib/zaimu_tomo/langfuse.ex` | Prompt fetch (with built-in local fallbacks), OpenTelemetry spans, and feedback scores. |
 | `Release` | `lib/zaimu_tomo/release.ex`, `rel/overlays/bin/*` | Release-time commands: migrate, rollback, S3 migration and verification, stuck-document recovery, and the document fingerprint backfill. |
