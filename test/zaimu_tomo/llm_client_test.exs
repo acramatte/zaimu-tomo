@@ -555,6 +555,155 @@ defmodule ZaimuTomo.LLMClientTest do
     )
   end
 
+  describe "extract_statement_page/2" do
+    setup do
+      for key <- [:ollama, :langfuse] do
+        original = Application.fetch_env!(:zaimu_tomo, key)
+        on_exit(fn -> Application.put_env(:zaimu_tomo, key, original) end)
+      end
+
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: false)
+
+      Application.put_env(:zaimu_tomo, :ollama,
+        provider: :ollama,
+        base_url: "http://llm.test/v1",
+        req_options: [plug: {Req.Test, __MODULE__}, retry: false]
+      )
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor"],
+        verifier: [backend: :ollama, model: "verifier"]
+      )
+
+      :ok
+    end
+
+    @context %{
+      page: 2,
+      pages: 3,
+      account_type: "credit card",
+      currency: "CHF",
+      period: {~D[2026-10-01], ~D[2026-10-31]}
+    }
+
+    defp stub_completion(content) do
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:llm_request, Jason.decode!(body)})
+
+        Req.Test.json(conn, %{
+          id: "test",
+          model: "extractor",
+          choices: [
+            %{index: 0, message: %{role: "assistant", content: content}, finish_reason: "stop"}
+          ],
+          usage: %{prompt_tokens: 1, completion_tokens: 1, total_tokens: 2}
+        })
+      end)
+    end
+
+    test "asks for one page with the local prompt and a list-of-lines schema, and types the answer" do
+      stub_completion(
+        Jason.encode!(%{
+          "closing_balance_cents" => -6_700,
+          "lines" => [
+            %{
+              "booking_date" => "2026-10-20",
+              "description" => "Hotel Roma",
+              "amount_cents" => 2_500,
+              "direction" => "debit"
+            }
+          ]
+        })
+      )
+
+      assert {:ok,
+              %{
+                closing_balance_cents: -6_700,
+                period_start: nil,
+                lines: [%{booking_date: ~D[2026-10-20], amount_cents: 2_500, direction: :debit}]
+              }} = LLMClient.extract_statement_page("| 20.10 | Hotel Roma | 25.00 |", @context)
+
+      assert_receive {:llm_request, body}
+      [%{"content" => prompt}] = body["messages"]
+      assert prompt =~ "This is page 2 of 3. The account is a credit card account in CHF."
+      assert prompt =~ "Statement period printed on an earlier page: 2026-10-01 to 2026-10-31."
+      assert prompt =~ "| 20.10 | Hotel Roma | 25.00 |"
+
+      line_schema = body["response_format"]["json_schema"]["schema"]["properties"]["lines"]
+      assert line_schema["type"] == "array"
+      assert line_schema["items"]["properties"]["direction"]["enum"] == ["debit", "credit"]
+      assert "amount_cents" in line_schema["items"]["required"]
+    end
+
+    test "tells the first page that no period is known yet" do
+      stub_completion(Jason.encode!(%{"lines" => []}))
+      LLMClient.extract_statement_page("page", %{@context | page: 1, period: nil})
+
+      assert_receive {:llm_request, %{"messages" => [%{"content" => prompt}]}}
+      assert prompt =~ "Statement period printed on an earlier page: none yet."
+    end
+
+    test "refuses an answer that does not parse as a page" do
+      stub_completion(Jason.encode!(%{"lines" => [%{"booking_date" => "20.10.2026"}]}))
+
+      assert {:error, {:validation_failed, %{"lines.0.booking_date" => "is invalid"}}} =
+               LLMClient.extract_statement_page("page", @context)
+    end
+
+    test "returns a refused request as a request failure with its status" do
+      Req.Test.stub(__MODULE__, &Plug.Conn.send_resp(&1, 400, "bad request"))
+
+      capture_log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:llm_request_failed, %{status: 400}}} =
+                   LLMClient.extract_statement_page("page", @context)
+        end)
+
+      assert capture_log =~ "Statement page request failed"
+    end
+
+    test "sends the extractor's configured max tokens" do
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor", max_tokens: 6000],
+        verifier: [backend: :ollama, model: "verifier"]
+      )
+
+      stub_completion(Jason.encode!(%{"lines" => []}))
+      LLMClient.extract_statement_page("page", @context)
+
+      assert_receive {:llm_request, body}
+      assert body["max_tokens"] == 6000
+    end
+
+    test "times out after one request instead of retrying inside ReqLLM" do
+      server =
+        start_supervised!({Bandit, plug: {StalledStub, self()}, ip: {127, 0, 0, 1}, port: 0})
+
+      {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+
+      Application.put_env(:zaimu_tomo, :ollama,
+        provider: :ollama,
+        base_url: "http://127.0.0.1:#{port}/v1"
+      )
+
+      Application.put_env(:zaimu_tomo, :ai_workflow,
+        extractor: [backend: :ollama, model: "extractor", receive_timeout: 100],
+        verifier: [backend: :ollama, model: "verifier"]
+      )
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:llm_request_failed, %{status: nil, reason: "timeout"}}} =
+                 LLMClient.extract_statement_page("page", @context)
+      end)
+
+      assert_received :stalled_request
+      refute_receive :stalled_request, 300
+    end
+  end
+
   describe "model_for/1" do
     test "uses independently configured models for roles sharing a backend" do
       Application.put_env(:zaimu_tomo, :ai_workflow,

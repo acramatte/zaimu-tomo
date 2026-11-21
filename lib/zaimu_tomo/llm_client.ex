@@ -7,6 +7,7 @@ defmodule ZaimuTomo.LLMClient do
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.VerificationResult
   alias ZaimuTomo.Langfuse
+  alias ZaimuTomo.Statements.ParsedStatement
 
   @backends [:ollama, :flm, :mistral, :nousresearch]
 
@@ -14,6 +15,29 @@ defmodule ZaimuTomo.LLMClient do
   @default_extractor_receive_timeout 120_000
   @default_verifier_max_tokens 4096
   @default_verifier_receive_timeout 120_000
+
+  @nullable_string {:or, [:string, nil]}
+  @nullable_integer {:or, [:integer, nil]}
+
+  @statement_line_schema [
+    booking_date: [type: :string, required: true, doc: "YYYY-MM-DD"],
+    value_date: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    description: [type: :string, required: true],
+    amount_cents: [type: :pos_integer, required: true],
+    direction: [type: {:in, ["debit", "credit"]}, required: true],
+    original_amount_cents: [type: @nullable_integer],
+    original_currency: [type: @nullable_string]
+  ]
+
+  @statement_page_schema [
+    account_ref: [type: @nullable_string],
+    period_start: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    period_end: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    currency: [type: @nullable_string],
+    opening_balance_cents: [type: @nullable_integer],
+    closing_balance_cents: [type: @nullable_integer],
+    lines: [type: {:list, {:map, @statement_line_schema}}, required: true]
+  ]
 
   @type role :: :extractor | :verifier
   @type backend :: :ollama | :flm | :mistral | :nousresearch
@@ -33,7 +57,8 @@ defmodule ZaimuTomo.LLMClient do
           provider: atom(),
           base_url: String.t(),
           model: String.t(),
-          api_key: String.t() | nil
+          api_key: String.t() | nil,
+          req_options: keyword()
         ]
   @type extraction_payload :: ExtractedData.t() | map()
   @type validation_errors :: map()
@@ -132,6 +157,82 @@ defmodule ZaimuTomo.LLMClient do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  @doc """
+  Reads one page of a bank or card statement with the extractor backend.
+
+  `context` tells the prompt where the page sits and which account it belongs
+  to: `%{page: 2, pages: 3, account_type: "credit card", currency: "CHF",
+  period: {~D[2026-10-01], ~D[2026-10-31]}}`, with the account type already in
+  words. `period` is the one an earlier page printed, or `nil`; it gives a date
+  printed without a year its year.
+  The answer is parsed by `ParsedStatement.parse_page/1`; one call returns at
+  most one page of lines, so the output budget is bounded by the densest page.
+  """
+  @spec extract_statement_page(String.t(), map()) ::
+          {:ok, ParsedStatement.page()} | {:error, term()}
+  def extract_statement_page(markdown, %{
+        page: page,
+        pages: pages,
+        account_type: account_type,
+        currency: currency,
+        period: period
+      }) do
+    config = backend_config!(:extractor)
+    model = req_llm_model!(config)
+    opts = Keyword.merge(req_llm_opts(config), extractor_request_opts())
+
+    with {:ok, prompt} <-
+           Langfuse.fetch_prompt("extract-statement-page", %{
+             page: page,
+             pages: pages,
+             account_type: account_type,
+             currency: currency,
+             period: prompt_period(period),
+             ocr_markdown: markdown
+           }),
+         {:ok, response} <- generate_statement_page(model, prompt, opts, config),
+         {:ok, object} <- statement_page_object(response, config) do
+      ParsedStatement.parse_page(object)
+    end
+  end
+
+  defp prompt_period(nil), do: "none yet"
+
+  defp prompt_period({first, last}),
+    do: "#{Date.to_iso8601(first)} to #{Date.to_iso8601(last)}"
+
+  defp generate_statement_page(model, prompt, opts, config) do
+    case Langfuse.trace_llm_generation("extract-statement-page", model.id, prompt, fn ->
+           ReqLLM.generate_object(model, prompt.content, @statement_page_schema, opts)
+         end) do
+      {:ok, response} ->
+        {:ok, response}
+
+      {:error, reason} ->
+        failure = request_failure(reason)
+
+        Logger.error(
+          "[LLM] Statement page request failed with #{backend_summary(:extractor, config)}: #{inspect(failure)}"
+        )
+
+        {:error, failure}
+    end
+  end
+
+  defp statement_page_object(response, config) do
+    case structured_object(response) do
+      {:ok, object} ->
+        {:ok, object}
+
+      {:error, :no_structured_output} ->
+        Logger.error(
+          "[LLM] Statement page response missing structured object with #{backend_summary(:extractor, config)}"
+        )
+
+        {:error, :missing_structured_output}
+    end
   end
 
   @doc """
@@ -532,7 +633,8 @@ defmodule ZaimuTomo.LLMClient do
   defp req_llm_opts(config) do
     base_opts = [
       temperature: 0.0,
-      telemetry: [payloads: :none]
+      telemetry: [payloads: :none],
+      req_http_options: Keyword.get(config, :req_options, [])
     ]
 
     case Keyword.fetch!(config, :api_key) do

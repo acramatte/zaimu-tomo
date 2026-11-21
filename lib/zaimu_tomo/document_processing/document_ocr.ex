@@ -41,14 +41,19 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCR do
   end
 
   def extract_markdown(%{"pages" => pages} = body) when is_list(pages) do
-    markdown =
-      Enum.map_join(pages, "\n\n", fn page -> Map.get(page, "markdown", "") end)
-
-    {:ok, markdown, body}
+    {:ok, body |> page_markdowns() |> Enum.join("\n\n"), body}
   end
 
   def extract_markdown(_unexpected_body) do
     {:error, :unexpected_api_structure}
+  end
+
+  @doc """
+  Returns the markdown of each page of an OCR response body, in page order.
+  """
+  @spec page_markdowns(map()) :: [String.t()]
+  def page_markdowns(%{"pages" => pages}) when is_list(pages) do
+    Enum.map(pages, fn page -> Map.get(page, "markdown", "") end)
   end
 
   @spec upload(String.t()) :: {:ok, map()} | {:error, term()}

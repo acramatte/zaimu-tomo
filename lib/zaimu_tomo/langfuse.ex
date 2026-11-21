@@ -270,6 +270,32 @@ defmodule ZaimuTomo.Langfuse do
       """}}
   end
 
+  defp fetch_local_prompt("extract-statement-page") do
+    {:ok,
+     {"local:extract-statement-page", "extract-statement-page", 0,
+      """
+      Read one page of a bank or credit card account statement from its OCR text.
+      This is page {{page}} of {{pages}}. The account is a {{account_type}} account in {{currency}}.
+
+      Rules:
+      - Return only structured output matching the schema.
+      - Never ask a question and never request clarification.
+      - Fill account_ref, period_start, period_end, currency, opening_balance_cents and closing_balance_cents only when this page prints them. Otherwise return null.
+      - account_ref is the IBAN or the masked card number as printed.
+      - Write every date in ISO 8601 YYYY-MM-DD format.
+      - Statement period printed on an earlier page: {{period}}. A date printed without a year takes the year that puts it in or just before that period. When this page prints the period, use it instead.
+      - Write balances in cents from the account holder's side: money the holder owes (card debt, an overdraft) is negative.
+      - opening_balance_cents is the balance at the start of the period and closing_balance_cents the balance at its end. A carried-forward subtotal is neither.
+      - lines lists every transaction printed on this page, in printed order. Skip balance, subtotal and carried-forward rows.
+      - amount_cents is always positive. direction is debit for money leaving the account (purchases, payments, fees, withdrawals) and credit for money arriving (salary, refunds, card repayments).
+      - original_amount_cents and original_currency are the foreign amount and currency of a card purchase, only when printed. Otherwise return null.
+      - description is the merchant or counterparty text as printed.
+
+      OCR Text:
+      {{ocr_markdown}}
+      """}}
+  end
+
   defp fetch_local_prompt(name), do: {:error, {:local_prompt_not_found, name}}
 
   defp fetch_prompt_from_api(name, label) do

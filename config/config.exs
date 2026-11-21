@@ -49,12 +49,14 @@ config :zaimu_tomo, :typesafe,
 # queue is deliberately small: OCR + LLM runs are expensive and, in local dev
 # with a single-NPU FLM backend, must be serialized (see OBAN_DOCUMENTS_
 # CONCURRENCY in config/runtime.exs). The typesafe queue bounds concurrent
-# TypeSafe shadow verification runs (see TYPESAFE_MAX_CONCURRENCY).
+# TypeSafe shadow verification runs (see TYPESAFE_MAX_CONCURRENCY). The
+# statements queue reads uploaded statements one at a time by default (see
+# OBAN_STATEMENTS_CONCURRENCY): a statement is one LLM call per page.
 # testing: :manual in config/test.exs.
 config :zaimu_tomo, Oban,
   engine: Oban.Engines.Basic,
   repo: ZaimuTomo.Repo,
-  queues: [documents: 2, typesafe: 2],
+  queues: [documents: 2, typesafe: 2, statements: 1],
   plugins: [
     # Keep finished jobs a week for debugging/audit of retries.
     {Oban.Pruner, max_age: 7 * 24 * 60 * 60},
