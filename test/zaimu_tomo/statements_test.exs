@@ -5,11 +5,12 @@ defmodule ZaimuTomo.StatementsTest do
 
   import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
   import ZaimuTomo.FinancialAccountsFixtures
+  import ZaimuTomo.ReviewFixtures, only: [journal_entry_fixture: 3]
   import ZaimuTomo.StatementsFixtures
 
   alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Statements
-  alias ZaimuTomo.Statements.{ExtractJob, Statement, StatementLine}
+  alias ZaimuTomo.Statements.{ExtractJob, Reconciliation, Statement, StatementLine}
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory
 
@@ -111,21 +112,6 @@ defmodule ZaimuTomo.StatementsTest do
              ] = Statements.list_statements(scope)
 
       assert {first_id, second_id} == {processing.id, ready.id}
-    end
-
-    test "get_statement!/2 loads lines in order and treats a foreign id as missing",
-         %{scope: scope, account: account} do
-      statement =
-        scope
-        |> statement_fixture(account)
-        |> put_extraction(%{}, [{~D[2026-10-02], "b", -200}, {~D[2026-10-01], "a", 500}])
-
-      assert %{lines: [%{description: "b"}, %{description: "a"}], financial_account: %{}} =
-               Statements.get_statement!(scope, statement.id)
-
-      assert_raise Ecto.NoResultsError, fn ->
-        Statements.get_statement!(user_scope_fixture(), statement.id)
-      end
     end
 
     test "status/2 is the one status rule" do
@@ -278,6 +264,182 @@ defmodule ZaimuTomo.StatementsTest do
 
       assert {:ok, _} = Statements.delete_statement(scope, statement)
       assert {:ok, _} = FinancialAccounts.delete_financial_account(scope, account)
+    end
+  end
+
+  describe "reconcile/2" do
+    defp read_statement(scope, account, period_start, lines) do
+      scope
+      |> statement_fixture(account)
+      |> put_extraction(
+        %{
+          period_start: period_start,
+          period_end: Date.end_of_month(period_start),
+          currency: account.currency
+        },
+        lines
+      )
+    end
+
+    defp backings(%Reconciliation{rows: rows}) do
+      Enum.map(rows, fn
+        %{line: line, backing: {:matched, entry, confidence}} ->
+          {line.description, entry.id, confidence}
+
+        %{line: line, backing: :unbacked} ->
+          {line.description, :unbacked}
+      end)
+    end
+
+    defp entry(scope, issuer, cents, currency, date, opts \\ []) do
+      journal_entry_fixture(
+        scope,
+        %{issuer: issuer, amount_to_pay_cents: cents, currency: currency, invoice_date: date},
+        opts
+      )
+    end
+
+    test "backs each debit with a posted entry of its amount in the window, credits never",
+         %{scope: scope, account: account} do
+      statement =
+        read_statement(scope, account, ~D[2026-10-01], [
+          {~D[2026-10-03], "ACME CORP ZURICH", -4_200},
+          {~D[2026-10-05], "CARD 1234 SHOP", -1_500},
+          {~D[2026-10-06], "Unbooked uncategorized", -2_000},
+          {~D[2026-10-07], "Too late an invoice", -3_000},
+          {~D[2026-10-10], "Refund", 1_500}
+        ])
+
+      named = entry(scope, "ACME Corp", 4_200, "EUR", "2026-10-01")
+      amount_only = entry(scope, "Bakery Muller", 1_500, "EUR", "2026-09-20")
+      entry(scope, "Uncategorized", 2_000, "EUR", "2026-10-01", post: false)
+      entry(scope, "Old", 3_000, "EUR", "2026-07-01")
+      drop_jobs()
+
+      id = statement.id
+      assert %{^id => reconciliation} = Statements.reconcile(scope, [id])
+
+      assert backings(reconciliation) == [
+               {"ACME CORP ZURICH", named.id, :named},
+               {"CARD 1234 SHOP", amount_only.id, :amount_only},
+               {"Unbooked uncategorized", :unbacked},
+               {"Too late an invoice", :unbacked},
+               {"Refund", :unbacked}
+             ]
+
+      assert reconciliation.summary == %{debits: 4, debits_backed: 2, credits: 1}
+      assert reconciliation.status == :ready
+      assert reconciliation.balance == :balanced
+
+      assert Enum.map(Reconciliation.rows(reconciliation, :backed), & &1.line.description) ==
+               ["ACME CORP ZURICH", "CARD 1234 SHOP"]
+
+      assert Enum.map(Reconciliation.rows(reconciliation, :unbacked), & &1.line.description) ==
+               ["Unbooked uncategorized", "Too late an invoice"]
+
+      assert Enum.map(Reconciliation.rows(reconciliation, :credits), & &1.line.description) ==
+               ["Refund"]
+
+      assert length(Reconciliation.rows(reconciliation, :all)) == 5
+    end
+
+    test "an entry posted after the upload backs its line on the next read",
+         %{scope: scope, account: account} do
+      statement = read_statement(scope, account, ~D[2026-10-01], [{~D[2026-10-03], "Shop", -900}])
+
+      assert backings(Statements.reconcile(scope, [statement.id])[statement.id]) ==
+               [{"Shop", :unbacked}]
+
+      posted = entry(scope, "Shop", 900, "EUR", "2026-10-02")
+
+      assert backings(Statements.reconcile(scope, [statement.id])[statement.id]) ==
+               [{"Shop", posted.id, :named}]
+    end
+
+    test "one entry backs one line across two statements, whichever is read",
+         %{scope: scope, account: account} do
+      october = read_statement(scope, account, ~D[2026-10-01], [{~D[2026-10-03], "Gym", -4_200}])
+      november = read_statement(scope, account, ~D[2026-11-01], [{~D[2026-11-02], "Gym", -4_200}])
+      gym = entry(scope, "Gym", 4_200, "EUR", "2026-10-01")
+
+      both = Statements.reconcile(scope, [october.id, november.id])
+
+      for reconciliations <- [
+            both,
+            Statements.reconcile(scope, [october.id]),
+            Statements.reconcile(scope, [november.id])
+          ],
+          {id, reconciliation} <- reconciliations do
+        assert backings(reconciliation) == backings(both[id])
+      end
+
+      assert backings(both[october.id]) == [{"Gym", gym.id, :named}]
+      assert backings(both[november.id]) == [{"Gym", :unbacked}]
+    end
+
+    test "a foreign-amount line bridges two amount groups",
+         %{scope: scope, account: account} do
+      # The September card line has a EUR key and a USD key. Read alone, the
+      # October line reaches only the EUR key, yet must not take the EUR entry
+      # from the September line, because that line takes the named USD entry.
+      september =
+        read_statement(scope, account, ~D[2026-09-01], [
+          {~D[2026-09-28], "ACME SAN FRANCISCO", -4_200, {-5_000, "USD"}}
+        ])
+
+      october = read_statement(scope, account, ~D[2026-10-01], [{~D[2026-10-05], "Cafe", -4_200}])
+
+      eur = entry(scope, "Other", 4_200, "EUR", "2026-09-27")
+      usd = entry(scope, "ACME Corp", 5_000, "USD", "2026-09-27")
+
+      assert backings(Statements.reconcile(scope, [october.id])[october.id]) == [
+               {"Cafe", eur.id, :amount_only}
+             ]
+
+      assert backings(Statements.reconcile(scope, [september.id])[september.id]) ==
+               [{"ACME SAN FRANCISCO", usd.id, :named}]
+    end
+
+    test "another user's entries never back a line", %{scope: scope, account: account} do
+      statement = read_statement(scope, account, ~D[2026-10-01], [{~D[2026-10-03], "Shop", -900}])
+      entry(user_scope_fixture(), "Shop", 900, "EUR", "2026-10-02")
+
+      assert backings(Statements.reconcile(scope, [statement.id])[statement.id]) ==
+               [{"Shop", :unbacked}]
+    end
+
+    test "a missing or foreign statement id is left out", %{scope: scope, account: account} do
+      foreign_scope = user_scope_fixture()
+      foreign = statement_fixture(foreign_scope, financial_account_fixture(foreign_scope))
+
+      statement =
+        read_statement(scope, account, ~D[2026-10-01], [
+          {~D[2026-10-02], "b", -200},
+          {~D[2026-10-01], "a", 500}
+        ])
+
+      assert %{} == Statements.reconcile(scope, [foreign.id, -1])
+
+      assert [%{line: %{description: "b"}}, %{line: %{description: "a"}}] =
+               Statements.reconcile(scope, [statement.id, foreign.id])[statement.id].rows
+    end
+
+    test "get_reconciliation/2 and its bang read one of the scope's statements",
+         %{scope: scope, account: account} do
+      statement = statement_fixture(scope, account)
+      foreign_scope = user_scope_fixture()
+      foreign = statement_fixture(foreign_scope, financial_account_fixture(foreign_scope))
+
+      for id <- [statement.id, to_string(statement.id)] do
+        assert %Reconciliation{statement: read} = Statements.get_reconciliation(scope, id)
+        assert read.id == statement.id
+        assert Statements.get_reconciliation!(scope, id).statement.id == statement.id
+      end
+
+      for id <- [foreign.id, -1, "not-an-id"] do
+        assert Statements.get_reconciliation(scope, id) == nil
+        assert_raise Ecto.NoResultsError, fn -> Statements.get_reconciliation!(scope, id) end
+      end
     end
   end
 end
