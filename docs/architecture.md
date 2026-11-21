@@ -505,7 +505,10 @@ OCR always uses Mistral. The extractor and verifier each take an explicit
 `backend` (`nousresearch | mistral | flm | ollama`) and `model`. There is no
 fallback. Prompts (`extract-invoice`, `verify-extraction`) come from Langfuse
 (label `production`) when Langfuse is enabled, and from built-in local templates
-otherwise. See [local-ai.md](local-ai.md) and [configuration.md](configuration.md).
+otherwise. The local templates are copies of the production versions
+(`extract-invoice` v2, `verify-extraction` v2): when a new version goes to
+`production`, copy it into `ZaimuTomo.Langfuse` too, or Langfuse-off
+environments run older rules. See [local-ai.md](local-ai.md) and [configuration.md](configuration.md).
 
 ### Observability
 

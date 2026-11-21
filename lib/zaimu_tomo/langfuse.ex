@@ -228,17 +228,15 @@ defmodule ZaimuTomo.Langfuse do
     {:ok,
      {"local:extract-invoice", "extract-invoice", 0,
       """
-      Extract invoice fields from the OCR text.
+      Extract invoice fields from the OCR text. Answer directly; do not explain.
 
       Rules:
-      - Return only structured output matching the schema.
-      - Never ask a question and never request clarification.
-      - If multiple currencies appear, choose {{currency_hint}} when present.
-      - If {{currency_hint}} is not present, choose the final amount charged or payable.
-      - Put the chosen ISO 4217 currency code in currency.
-      - Put the chosen amount in amount_to_pay_cents.
-      - Put invoice_date in ISO 8601 YYYY-MM-DD format.
-      - Use reason_for_payment for a short payment description.
+      - Return only structured output matching the schema. Never ask questions.
+      - amount_to_pay_cents: the invoice grand total including VAT, in cents (e.g. the "Total de tous les services et livraisons" line). Ignore subtotals, VAT lines, payment lines ("Paiement effectué") and the "Montant dû" balance, even if the balance is 0.00.
+      - If the total line has no amount, use the sum of the line items' incl.-VAT amounts.
+      - currency: ISO 4217 code. If several currencies appear, choose {{currency_hint}} when present, otherwise the currency of the grand total.
+      - invoice_date: ISO 8601 YYYY-MM-DD.
+      - reason_for_payment: a short phrase copied or condensed from the item descriptions. Use null if there is none. Never invent one.
 
       OCR Text:
       {{ocr_markdown}}
@@ -261,6 +259,8 @@ defmodule ZaimuTomo.Langfuse do
       - verified: every extracted value is directly supported by the source OCR markdown.
       - needs_review: the extraction is plausible but the source OCR markdown is ambiguous or incomplete.
       - rejected: any extracted value is hallucinated, contradicted, or incorrect.
+
+      Return only schema-conforming tool arguments. All string values must be valid JSON strings. Do not use Markdown formatting or escape underscores; write invoice_date, never invoice\\_date.
 
       Extracted JSON:
       {{extracted_json}}
