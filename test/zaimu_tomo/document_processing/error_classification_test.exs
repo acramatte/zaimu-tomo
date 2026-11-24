@@ -133,6 +133,8 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
 
       assert ErrorClassification.classify({:local_prompt_not_found, "extract-invoice"}) ==
                :permanent
+
+      assert ErrorClassification.classify({:missing_prompt_variables, ["period"]}) == :permanent
     end
 
     test "extractor validation / non-retryable status" do
@@ -212,6 +214,16 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
 
     test "a storage status summarizes to the storage stage and status" do
       assert ErrorClassification.summarize({:unexpected_status, 503}) == "storage:http_503"
+    end
+
+    test "missing prompt variables classify as permanent and summarize without leaking names" do
+      reason = {:missing_prompt_variables, ["period"]}
+
+      assert ErrorClassification.classify(reason) == :permanent
+
+      summary = ErrorClassification.summarize(reason)
+      assert summary == "missing_prompt_variables"
+      refute summary =~ "period"
     end
   end
 
@@ -315,6 +327,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
           ErrorClassification.summarize({stage, {:http_status, status, body}}),
           ErrorClassification.summarize({:llm_request_failed, %{status: status, reason: body}}),
           ErrorClassification.summarize({:prompt_fetch_failed, status}),
+          ErrorClassification.summarize({:missing_prompt_variables, [body]}),
           ErrorClassification.summarize(%{unexpected: body})
         ]
 

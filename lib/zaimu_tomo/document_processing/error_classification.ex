@@ -90,6 +90,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   # Any other prompt failure (config, bad key, malformed prompt) is permanent.
   def classify({:prompt_fetch_failed, _other}), do: :permanent
   def classify({:local_prompt_not_found, _name}), do: :permanent
+  def classify({:missing_prompt_variables, _vars}), do: :permanent
 
   # -- Extractor LLM ----------------------------------------------------
   # No status means a transport error.
@@ -194,6 +195,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def summarize({:persistence_failed, _errors}), do: "persistence_failed"
   def summarize({:validation_failed, _errors}), do: "validation_failed"
   def summarize({:local_prompt_not_found, _name}), do: "local_prompt_not_found"
+  def summarize({:missing_prompt_variables, _vars}), do: "missing_prompt_variables"
 
   def summarize(%Req.TransportError{reason: reason}) when is_atom(reason),
     do: "storage:transport_#{reason}"

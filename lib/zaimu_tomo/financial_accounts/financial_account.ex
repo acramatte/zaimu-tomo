@@ -4,9 +4,14 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
 
   alias ZaimuTomo.Currency
 
+  @account_types [:current, :savings, :cash, :investment, :credit_card]
+
+  @type account_type :: :current | :savings | :cash | :investment | :credit_card
+  @type t :: %__MODULE__{}
+
   schema "financial_accounts" do
     field :name, :string
-    field :account_type, Ecto.Enum, values: [:current, :savings, :cash, :investment, :credit_card]
+    field :account_type, Ecto.Enum, values: @account_types
     field :currency, :string
     field :bank_name, :string
     field :account_number, :string
@@ -16,6 +21,16 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
     has_many :balance_snapshots, ZaimuTomo.FinancialAccounts.BalanceSnapshot
 
     timestamps(type: :utc_datetime)
+  end
+
+  @doc "Returns the valid financial account types."
+  @spec account_types() :: [account_type()]
+  def account_types, do: @account_types
+
+  @doc "Returns the human-readable account type label for prompts."
+  @spec type_label(account_type()) :: String.t()
+  def type_label(type) when type in @account_types do
+    type |> Atom.to_string() |> String.replace("_", " ")
   end
 
   @doc false
