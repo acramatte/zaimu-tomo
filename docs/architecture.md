@@ -173,7 +173,8 @@ flowchart TB
 
 | Module | Role |
 |---|---|
-| `Statements.ExtractJob` | Oban worker (`statements` queue, 5 attempts, 10-minute timeout, one live job per `statement_id`, enforced by a partial unique index). One attempt: download to a temp file → `DocumentOCR.process/1` → `DocumentOCR.page_markdowns/1` → `LLMClient.extract_statement_page/2` once per page, in order → `ParsedStatement.from_pages/2` → persist. Its private `persist/2` is the only writer of the extraction facts. |
+| `Statements.ExtractJob` | Oban worker (`statements` queue, 5 attempts, 10-minute timeout, one live job per `statement_id`, enforced by a partial unique index). One attempt: download to a temp file → `DocumentOCR.process/1` → `DocumentOCR.page_markdowns/1` → `LLMClient.extract_statement_page/2` once per page, in order → `ParsedStatement.from_pages/2` → persist. Its `persist/2` and `record_discarded/2` are the only writers of the extraction facts. |
+| `Statements.AttemptOutcomes` | Telemetry handler on Oban's job exception and plugin stop events for discarded `Statements.ExtractJob` jobs. When Oban discards a final attempt (raise, crash, or job timeout) or `Oban.Lifeline` discards an interrupted final attempt, it delegates to `ExtractJob.record_discarded/2` to record `job_timeout`, `job_interrupted`, or `unclassified` and broadcast `{:statement_updated, id}`. |
 | `Statements.ParsedStatement` | Pure. `parse_page/1` types one page of extractor output or refuses it. `from_pages/2` merges the pages, applies each line's sign once from its `direction`, and checks the currency and account reference against the account. The two references, uppercased and stripped to letters, digits, and mask characters, are compared right-aligned over the shorter one; a mask character (`X`, `*`, `•`, `·`, `●`) on either side matches anything, any other difference is an `account_mismatch`, and fewer than four unmasked characters to compare count as a match. So two full IBANs must be equal, and a masked card number matches an account that holds its last digits. Multi-page `account_ref` values are compared with the same reference matcher (keeping the most informative value) rather than strict equality. A line dated more than two months outside the period is a `line_outside_period`: a date printed without a year and read in the wrong year still balances, and this is what catches it. |
 
 ---
@@ -350,6 +351,11 @@ persists nothing and Oban retries. A permanent error, a transient error on the
 final attempt, or a statement that does not fit its account (`currency_mismatch`,
 `account_mismatch`, `inconsistent_header`, `missing_header`, `no_lines`,
 `line_outside_period`, `duplicate_period`) sets `failure_code` and keeps the earlier read, if any.
+A final attempt Oban discards on a crash, timeout, or `Oban.Lifeline`
+interruption is recorded the same way by `Statements.AttemptOutcomes` through
+`ExtractJob.record_discarded/2` (`unclassified`, `job_timeout`, or
+`job_interrupted`), keeping any earlier read and broadcasting
+`{:statement_updated, id}`.
 Retry only enqueues a job. Deleting a statement deletes its row and lines,
 then its file; a job still queued for it cancels itself.
 
@@ -478,25 +484,31 @@ flowchart LR
 ```
 
 **Statement status** is shown, never stored, like the document status. Every
-screen asks `Statements.status/2`. `ExtractJob`'s `persist/2` is the only writer
-of the facts it reads (`extracted_at`, `failure_code`), under the statement row
-lock that retry and delete take too. Retry only enqueues a job. (D36)
+screen asks `Statements.status/2`. `ExtractJob` (`persist/2` and
+`record_discarded/2`) is the only writer of the facts it reads (`extracted_at`,
+`failure_code`), under the statement row lock that retry and delete take too.
+When a final attempt is discarded by Oban on a crash or timeout, or by
+`Oban.Lifeline` after a node dies, `Statements.AttemptOutcomes` calls
+`ExtractJob.record_discarded/2` to record `failure_code` (`job_timeout`,
+`job_interrupted`, or `unclassified`), keeping any earlier read and broadcasting
+`{:statement_updated, id}` (unless a manual retry already started a live job or
+the statement was deleted). Retry only enqueues a job. (D36)
 
 ```mermaid
 stateDiagram-v2
     [*] --> processing: upload (job in the same txn)
     processing --> ready: read succeeded (extracted_at, failure_code cleared)
-    processing --> failed: permanent error or final attempt (failure_code)
-    processing --> stalled: job discarded by a crash, nothing recorded
+    processing --> failed: permanent error, final attempt, or discarded job (failure_code)
+    processing --> stalled: fallback if no live job and nothing recorded
     failed --> processing: retry_extraction
     stalled --> processing: retry_extraction
     ready --> processing: retry_extraction, only when unbalanced
 ```
 
 A live job is `processing`. Otherwise a failure code is `failed`, even over an
-earlier read whose lines stay shown, a read is `ready`, and nothing recorded is
-`stalled`. Whether a ready read balances (`Statements.balance/1`) is derived on
-read, never stored.
+earlier read whose lines stay shown, a read is `ready`, and `stalled` remains
+the fallback if nothing was recorded and no live job exists. Whether a ready
+read balances (`Statements.balance/1`) is derived on read, never stored.
 
 **Review decision** (`review_decisions.review_status`). A review is decided
 once, on a locked row. Nothing leaves `approved`, `amended`, `rejected`, or

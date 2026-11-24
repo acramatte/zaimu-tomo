@@ -173,6 +173,27 @@ defmodule ZaimuTomo.Langfuse do
 
   defp trace_document_processing(false, _document_id, _user_id, fun), do: fun.()
 
+  @spec trace_statement_extraction(map(), (-> result)) :: result when result: term()
+  def trace_statement_extraction(%{id: statement_id, user_id: user_id}, fun)
+      when is_function(fun, 0) do
+    trace_statement_extraction(enabled?(), statement_id, user_id, fun)
+  end
+
+  defp trace_statement_extraction(true, statement_id, user_id, fun) do
+    :otel_tracer.with_span(
+      tracer(),
+      "process-statement",
+      %{kind: :internal, attributes: statement_attributes(statement_id, user_id)},
+      fn span ->
+        result = fun.()
+        record_statement_result(span, result)
+        result
+      end
+    )
+  end
+
+  defp trace_statement_extraction(false, _statement_id, _user_id, fun), do: fun.()
+
   @spec trace_llm_generation(String.t(), String.t(), String.t(), (-> result)) :: result
         when result: term()
   def trace_llm_generation(name, model, prompt, fun)
@@ -417,6 +438,19 @@ defmodule ZaimuTomo.Langfuse do
     }
   end
 
+  defp statement_attributes(statement_id, user_id) do
+    %{
+      "langfuse.trace.name" => "process-statement",
+      "langfuse.environment" => environment(),
+      "langfuse.user.id" => to_string(user_id),
+      "langfuse.release" => application_version(),
+      "langfuse.trace.tags" => ["statement-extraction", environment()],
+      "langfuse.trace.metadata.statement_id" => to_string(statement_id),
+      "langfuse.trace.metadata.workflow" => "statement-extraction",
+      "langfuse.observation.input" => encode_json(%{"workflow" => "statement-extraction"})
+    }
+  end
+
   defp generation_attributes(model, prompt) do
     %{
       "langfuse.observation.type" => "generation",
@@ -527,6 +561,34 @@ defmodule ZaimuTomo.Langfuse do
     })
 
     :otel_span.set_status(span, :error, "document processing failed")
+  end
+
+  defp record_statement_result(span, :ok) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" => encode_json(%{"status" => "success"})
+    })
+  end
+
+  defp record_statement_result(span, {:cancel, reason}) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" =>
+        encode_json(%{"status" => "cancelled", "reason" => span_error_class(reason)})
+    })
+  end
+
+  defp record_statement_result(span, {:error, reason}) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" =>
+        encode_json(%{"status" => "failed", "error" => span_error_class(reason)})
+    })
+
+    :otel_span.set_status(span, :error, "statement extraction failed")
+  end
+
+  defp record_statement_result(span, _result) do
+    :otel_span.set_attributes(span, %{
+      "langfuse.observation.output" => encode_json(%{"status" => "completed"})
+    })
   end
 
   defp span_attributes(name, attributes) do
