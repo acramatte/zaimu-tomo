@@ -125,7 +125,6 @@ defmodule ZaimuTomoWeb.ActivityLiveTest do
           "issuer" => "ACME Corp"
         },
         %{},
-        %{},
         nil,
         "CHF"
       )

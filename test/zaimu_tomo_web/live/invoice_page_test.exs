@@ -12,6 +12,8 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
 
   alias ZaimuTomo.Accounting
   alias ZaimuTomo.Accounting.JournalEntry
+  alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
+  alias ZaimuTomo.DocumentProcessing.VerificationJob
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Review
   alias ZaimuTomo.Review.EventLog
@@ -562,6 +564,57 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
       assert html =~ "Verifier flagged this extraction"
       assert html =~ "Could not verify"
       assert html =~ "Verifier did not return valid structured output."
+    end
+
+    test "shows the verification in progress, its retry, and the verdict when it lands", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      document = document_fixture(scope)
+      content = extracted_content_fixture(document, user, %{verification_status: "pending"})
+      review = pending_review_fixture(content)
+
+      {:ok, live, _html} = live(conn, invoice_path(review))
+
+      assert has_element?(live, "#invoice-verifying", "Verifying the extraction")
+      refute has_element?(live, "#invoice-verification-retry")
+      # A human may post while the verifier works.
+      assert has_element?(live, "#invoice-form")
+
+      {:ok, _job} =
+        Oban.insert(
+          VerificationJob.new(%{
+            extracted_content_id: content.id,
+            document_id: document.id
+          })
+        )
+
+      # The job's first attempt timed out and Oban scheduled the second.
+      Repo.update_all(Oban.Job,
+        set: [
+          state: "retryable",
+          attempt: 1,
+          scheduled_at: DateTime.add(DateTime.utc_now(), 90, :second),
+          meta: %{"last_error" => "verifier_request_failed:transport_timeout"}
+        ]
+      )
+
+      send(live.pid, :refresh_processing)
+
+      assert render(live) =~
+               "Attempt 2 of 4 · last try: the verification service timed out · next try in 2 min"
+
+      {:ok, _} =
+        ExtractedContentContext.record_verification(content.id, %{
+          "status" => "needs_review",
+          "reason" => "The date is not on the document."
+        })
+
+      html = render(live)
+      refute html =~ "Verifying the extraction"
+      assert html =~ "Verifier flagged this extraction"
+      assert html =~ "The date is not on the document."
     end
 
     test "shows the Jev shadow check without changing the posting controls", %{

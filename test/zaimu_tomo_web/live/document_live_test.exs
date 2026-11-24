@@ -745,7 +745,7 @@ defmodule ZaimuTomoWeb.DocumentLiveTest do
       assert has_element?(view, "span.pill.processing")
 
       # Worker order: persist + broadcast first, Oban acknowledges afterwards.
-      {:ok, _content} = Worker.persist_and_emit_success(doc, @extracted, %{}, %{}, nil, "CHF")
+      {:ok, _content} = Worker.persist_and_emit_success(doc, @extracted, %{}, nil, "CHF")
       _ = render(view)
       assert has_element?(view, "span.pill.processing")
 

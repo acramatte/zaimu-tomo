@@ -154,6 +154,14 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   """
   @spec summarize(term()) :: String.t()
 
+  # The verifier fails with the extractor's shapes; its codes name it, so the
+  # user reads "the verification service" instead of the extraction service.
+  def summarize({:verifier, {:llm_request_failed, _detail} = reason}),
+    do: reason |> summarize() |> String.replace_prefix("llm_", "verifier_")
+
+  def summarize({:verifier, {:invalid_verifier_output, _raw}}), do: "invalid_verifier_output"
+  def summarize({:verifier, reason}), do: summarize(reason)
+
   def summarize({stage, {:http_status, status, _body}})
       when is_atom(stage) and is_integer(status),
       do: "#{stage}:http_#{status}"
@@ -200,6 +208,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
     "ocr_url_failed" => "the OCR service",
     "ocr_request_failed" => "the OCR service",
     "llm_request_failed" => "the extraction service",
+    "verifier_request_failed" => "the verification service",
     "prompt_fetch_failed" => "the prompt service"
   }
 
@@ -214,6 +223,7 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
   def describe("scratch_unavailable:" <> _posix), do: "couldn't prepare the file for reading"
   def describe("job_timeout"), do: "the run took too long"
   def describe("job_interrupted"), do: "the run was interrupted"
+  def describe("invalid_verifier_output"), do: "the verifier's answer was unreadable"
 
   def describe(code) when is_binary(code) do
     with [stage, detail] <- String.split(code, ":", parts: 2),

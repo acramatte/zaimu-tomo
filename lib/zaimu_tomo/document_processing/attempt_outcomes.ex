@@ -1,7 +1,7 @@
 defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   @moduledoc """
-  Records what happened to an OCR attempt once Oban has settled it, and tells
-  the document owner's open pages.
+  Records what happened to an OCR or verification attempt once Oban has
+  settled it, and tells the document owner's open pages.
 
     * A failed attempt with a retry ahead (`[:oban, :job, :exception]` with
       `state: :failure`) stores its failure code in the job's
@@ -27,6 +27,14 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   attempt and a discarded one as a final attempt, both with
   `"job_interrupted"`.
 
+  A `VerificationJob` attempt is handled the same way, against the extraction
+  row instead of the document: a failed attempt with a retry ahead stores
+  `meta["last_error"]`, counts an unreadable verifier answer in
+  `meta["invalid_outputs"]` (the job retries only the first one), and
+  broadcasts `:attempt_failed`; a discarded final attempt records
+  `verification_failed` through `VerificationJob.record_failure/4`, which is a
+  no-op once the row has a result.
+
   Oban emits each event after it has written the job's new state, so a page
   that re-reads on the broadcast sees it. A handler runs in the job's process,
   in the task Oban starts to report a timeout or crash, or in the Lifeline
@@ -40,6 +48,7 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.DocumentProcessing.OCRJob
+  alias ZaimuTomo.DocumentProcessing.VerificationJob
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
@@ -47,6 +56,8 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
   @handler_id "zaimu-tomo-ocr-attempt-outcomes"
   @events [[:oban, :job, :exception], [:oban, :job, :stop], [:oban, :plugin, :stop]]
   @worker inspect(OCRJob)
+  @verification_worker inspect(VerificationJob)
+  @workers [@worker, @verification_worker]
   @interrupted "job_interrupted"
 
   @doc """
@@ -78,7 +89,8 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
     error -> Logger.warning("[OCR] Attempt outcome not handled: #{inspect(error.__struct__)}")
   end
 
-  defp handle([:oban, :job, :exception], %{job: %Oban.Job{worker: @worker} = job} = meta) do
+  defp handle([:oban, :job, :exception], %{job: %Oban.Job{worker: worker} = job} = meta)
+       when worker in @workers do
     code = failure_code(meta.reason)
 
     case meta.state do
@@ -103,11 +115,11 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
          %{plugin: Oban.Lifeline, rescued_jobs: rescued, discarded_jobs: discarded}
        ) do
     rescued
-    |> ocr_jobs()
+    |> our_jobs()
     |> Enum.filter(&(&1.state == "available"))
     |> Enum.each(&retrying(&1, @interrupted))
 
-    Enum.each(ocr_jobs(discarded), &gave_up(&1, @interrupted))
+    Enum.each(our_jobs(discarded), &gave_up(&1, @interrupted))
   end
 
   defp handle(_event, _meta), do: :ok
@@ -119,10 +131,32 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
     {updated, _} =
       Repo.update_all(
         from(j in Oban.Job, where: j.id == ^job.id and j.attempted_at == ^job.attempted_at),
-        set: [meta: Map.put(job.meta, "last_error", code)]
+        set: [meta: job.meta |> Map.put("last_error", code) |> count_invalid_output(code)]
       )
 
     if updated == 1, do: notify(:attempt_failed, id)
+  end
+
+  defp count_invalid_output(meta, "invalid_verifier_output"),
+    do: Map.update(meta, "invalid_outputs", 1, &(&1 + 1))
+
+  defp count_invalid_output(meta, _code), do: meta
+
+  defp gave_up(%Oban.Job{worker: @verification_worker, args: args} = job, code) do
+    invalid_outputs = job.meta |> count_invalid_output(code) |> Map.get("invalid_outputs", 0)
+
+    case VerificationJob.record_failure(
+           args["extracted_content_id"],
+           code,
+           job.attempt,
+           invalid_outputs
+         ) do
+      {:ok, _content} ->
+        Logger.warning("[LLM] Verification gave up (discarded): #{code}")
+
+      {:error, _not_found_or_recorded} ->
+        :ok
+    end
   end
 
   defp gave_up(%Oban.Job{args: %{"document_id" => id} = args}, code) do
@@ -154,11 +188,11 @@ defmodule ZaimuTomo.DocumentProcessing.AttemptOutcomes do
     String.upcase(first) <> rest
   end
 
-  defp ocr_jobs([]), do: []
+  defp our_jobs([]), do: []
 
-  defp ocr_jobs(lifeline_jobs) do
+  defp our_jobs(lifeline_jobs) do
     ids = Enum.map(lifeline_jobs, & &1.id)
-    Repo.all(from j in Oban.Job, where: j.id in ^ids and j.worker == @worker)
+    Repo.all(from j in Oban.Job, where: j.id in ^ids and j.worker in @workers)
   end
 
   defp notify(kind, document_id) do

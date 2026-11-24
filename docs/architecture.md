@@ -124,7 +124,7 @@ flowchart TB
     web["<b>ZaimuTomoWeb</b> · lib/zaimu_tomo_web<br/>Router + UserAuth · LiveViews · Controllers"]
     core["<b>Domain contexts</b> · lib/zaimu_tomo<br/>Accounts · Documents · Review · Accounting<br/>FinancialAccounts · Activity"]
     oban[["<b>Oban</b><br/>queues: documents, typesafe"]]
-    proc["<b>DocumentProcessing</b> + TypeSafeVerification<br/>OCRJob · Worker · Recovery"]
+    proc["<b>DocumentProcessing</b> + TypeSafeVerification<br/>OCRJob · Worker · VerificationJob · Recovery"]
     adapters["<b>Infrastructure adapters</b><br/>Storage (S3 / Memory) · DocumentOCR · LLMClient<br/>TypeSafeClient · Langfuse"]
     repo[("Repo → PostgreSQL")]
 
@@ -142,7 +142,7 @@ flowchart TB
 |---|---|---|
 | `Accounts` | `lib/zaimu_tomo/accounts*` | Users, sessions and tokens (phx.gen.auth), `Scope`, and per-user settings (display name, base currency). |
 | `Documents` | `lib/zaimu_tomo/documents*` | Scoped document CRUD. Creates a document and its OCR job atomically, deletes the object after the row is deleted, and owns the fingerprint `FingerprintBackfill`. |
-| `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction → verification pipeline (`OCRJob`, `Worker`), processing state, live runs (`Run`), retry, stuck-document `Recovery`, and `ErrorClassification`. |
+| `DocumentProcessing` | `lib/zaimu_tomo/document_processing*` | OCR → extraction pipeline (`OCRJob`, `Worker`), verification of each extraction (`VerificationJob`), processing state, live runs (`Run`), retry, stuck-document `Recovery`, and `ErrorClassification`. |
 | `TypeSafeVerification` | `lib/zaimu_tomo/type_safe_verification*` | Optional shadow verification job on the `typesafe` queue. |
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
 | `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want; `list_categories/1` suggests the user's own earlier categories), tax deduction claims (set at posting, revised afterwards with `revise_tax_deduction_claim/3`), spending aggregates, and the journal ledger reads: unbooked entries for the booking queue, and posted entries per invoice month and year (`posted_journal_months/3`, `list_posted_journal_entries/4`), each narrowed by an optional case-insensitive text search over issuer, invoice number, category, description, and notes (the journal page's `?q=`). |
@@ -159,10 +159,11 @@ flowchart TB
 | Module | Role |
 |---|---|
 | `DocumentProcessing.OCRJob` | Oban worker (`documents` queue, 5 attempts, 10-minute timeout, one live job per `document_id`, enforced by a partial unique index). Decides retry, failure recording, or cancellation. |
-| `DocumentProcessing.Worker` | One attempt: download the object to a temp file → `DocumentOCR` → `LLMClient.extract_invoice` → `LLMClient.verify_extraction` → persist. Persists success only. |
+| `DocumentProcessing.Worker` | One attempt: download the object to a temp file → `DocumentOCR` → `LLMClient.extract_invoice` → persist. Persists success only, with its verification `pending` and a `VerificationJob` enqueued in the same transaction. |
+| `DocumentProcessing.VerificationJob` | Oban worker (`documents` queue, 4 attempts, backoff 30 s, 2 min, 10 min, one live job per `extracted_content_id`). Sends one `LLMClient.verify_extraction` request per attempt from the row's OCR markdown, retries a transient failure and the first unreadable answer, and records the result once through `ExtractedContentContext.record_verification/2`. Never reruns OCR or extraction. |
 | `DocumentProcessing.ErrorClassification` | Classifies each error as `:transient` or `:permanent`, produces bounded, body-free summaries, and describes a summary in plain words for the user (`describe/1`). |
-| `DocumentProcessing.Run` | Read model of a document's live OCR job, built by `DocumentProcessing.live_runs/1`: the attempt running or next, the phase (queued, running, waiting to retry), the last failed attempt's failure code (`meta.last_error`), the next try, and the trigger (upload or Retry processing). |
-| `DocumentProcessing.AttemptOutcomes` | Telemetry handler on Oban's job and plugin events that records what happened to an OCR attempt once Oban has settled it. A failed attempt with a retry ahead stores its failure code in the job's `meta.last_error` and broadcasts `attempt_failed`. A final attempt Oban discards (raise, crash, job timeout, or a Lifeline discard) records the failed extraction. A run that could not record its failure broadcasts `failed`. |
+| `DocumentProcessing.Run` | Read model of a document's live OCR job, built by `DocumentProcessing.live_runs/1`, or of its live verification job, built by `live_verification_runs/1`: the attempt running or next, the phase (queued, running, waiting to retry), the last failed attempt's failure code (`meta.last_error`), the next try, and the trigger (upload or Retry processing). |
+| `DocumentProcessing.AttemptOutcomes` | Telemetry handler on Oban's job and plugin events that records what happened to an OCR or verification attempt once Oban has settled it. A failed attempt with a retry ahead stores its failure code in the job's `meta.last_error` and broadcasts `attempt_failed`. A final attempt Oban discards (raise, crash, job timeout, or a Lifeline discard) records the failed extraction. A run that could not record its failure broadcasts `failed`. For a `VerificationJob` it also counts unreadable verifier answers in `meta.invalid_outputs`, and a discarded final attempt records `verification_failed` on the row. |
 | `DocumentProcessing.Recovery` | Finds documents with no extraction and no live job, and re-enqueues them. |
 | `ObanFailureLogger` | Telemetry handler that logs failed attempts without payloads. |
 
@@ -182,6 +183,7 @@ sequenceDiagram
     participant J as OCRJob (Oban)
     participant M as Mistral OCR
     participant L as Extractor / Verifier LLM
+    participant V as VerificationJob (Oban)
 
     U->>LV: upload file
     LV->>S3: Storage.store_upload: SHA-256 of the bytes,<br/>PUT the same bytes to documents/<uuid>.<ext>
@@ -191,9 +193,12 @@ sequenceDiagram
     J->>S3: GET to temp file
     J->>M: OCR → markdown
     J->>L: extract fields (currency hint = user base currency)
-    J->>L: verify grounding
-    J->>DB: txn: lock document, append extracted_content,<br/>create pending review_decision, enqueue TypeSafe (optional)
+    J->>DB: txn: lock document, append extracted_content (verification pending),<br/>create pending review_decision, enqueue VerificationJob + TypeSafe (optional)
     J-->>LV: PubSub user:id:document_processing:success
+    V->>DB: read the row's OCR markdown and fields
+    V->>L: verify grounding (retried with backoff, OCR never reruns)
+    V->>DB: txn: lock extracted_content, record the result once
+    V-->>LV: PubSub user:id:document_processing:verified
     U->>LV: invoice page: check + correct fields, book (category, need/want, tax), post or reject<br/>(+ explicit file-reuse confirmation)
     LV->>DB: txn: lock the pending review_decision, decide it (approved, or amended when a field changed),<br/>create posted journal_entry (source_document_sha256 snapshot) + tax claim + event_log
     Note over LV,DB: the duplicate gate runs inside the txn (Review.posting_decision/2):<br/>same issuer + number or same file + same details are refused.<br/>A soft issuer/date/amount/currency match or a reused file rolls back<br/>until the reviewer confirms that verdict. Unique indexes are the backstop
@@ -273,15 +278,16 @@ the form pre-fills the last reason.
 
 - **Transient error** (timeouts, 408, 429, 5xx, transport errors) on a non-final attempt: the job returns `{:error, summary}` and **persists nothing**. Oban backs off and retries. After Oban has stored the error and the `retryable` state, `AttemptOutcomes` stores the attempt's failure code in the job's `meta.last_error` and then broadcasts `user:<id>:document_processing:attempt_failed`, so a view that re-reads the job sees the failed attempt and why. The code comes from the exception Oban reports, never from its text (`AttemptOutcomes.failure_code/1`). An `{:error, code}` return keeps its `ErrorClassification.summarize/1` code, the job timeout is `job_timeout`, and a raise or crash is `unclassified`. A raise, a crash, or the job timeout on a non-final attempt is recorded and broadcast the same way.
 - **Permanent error**, or a transient error on the final attempt (5): the job appends one `failed` `extracted_content` row and a `failed` review decision, broadcasts `user:<id>:document_processing:failed`, and completes.
-- **Verifier failure is fail-open:** a failed verifier request, a missing structured object, or a malformed one never fails the run. The extraction is persisted with `analysis.verification.status = "verification_failed"` ("Could not verify" on the invoice page), because the verifier is a review signal, not the source of the extracted data. Oban therefore never retries the verifier; ReqLLM retries the request once inside the attempt (`LLMClient.verify_extraction/2`). A job retry would rerun OCR and extraction, so durable verifier retry is tracked in [#144](https://github.com/acramatte/zaimu-tomo/issues/144).
+- **Verifier failure never fails the document:** OCR and extraction end at the success row, whose `verification_status` starts `pending`. `VerificationJob` retries the verifier on its own: a transient failure (`ErrorClassification.classify/1`) before attempt 4 and the first unreadable answer go back to Oban, with failure codes that name the verifier (`verifier_request_failed:…`, `invalid_verifier_output`). A permanent failure, a second unreadable answer, attempt 4, a raise inside the job, a job timeout or Lifeline discard on attempt 4 (through `AttemptOutcomes`), and a refused job insert (`enqueue_failed`) all record `verification_failed` ("Could not verify" on the invoice page). It means a human checks the extraction; nothing automatic may treat it as a pass. The row keeps the attempt count (`attempts`) and the unreadable answers (`invalid_outputs`).
 - **Raise, crash, or job timeout on the final attempt:** no job code runs after it, so Oban discards the job. `AttemptOutcomes` then writes the same failed row and decision through `Worker.persist_and_emit_failure/4`, which broadcasts `failed`. The row's message is the code described for the user ("The run took too long", "An unexpected error"), never the exception's text. The write keeps the supersede check, so a deleted document or a newer row records nothing. It also records nothing when a newer job is already live, because a Retry processing click can land between Oban's discard and this write. The retry would otherwise expect the row this write replaces and cancel itself.
 - **Unrecordable failure:** when the failed row cannot be written, `OCRJob` cancels with `{:failure_not_recorded, summary}`. `AttemptOutcomes` then broadcasts `failed` without an `extraction_id`, as it does when its own failed-row write fails, so open views show the document as `stalled`, ready to retry.
 - **Concurrency safety:** every terminal write locks the document row and checks that the latest extraction is still the one expected when the job was enqueued. Otherwise it cancels with `:already_processed`.
 - **Crash or deploy mid-run:** `Oban.Lifeline` moves `executing` jobs back after 30 minutes. `AttemptOutcomes` records the lost attempt as `job_interrupted`. A rescued job waits for its next attempt with that reason and broadcasts `attempt_failed`. Lifeline commits the rescue before it reports it, so the reason is written only while the job is still `available` and its `attempted_at` is unchanged, and a newer attempt's reason is kept. A job on its final attempt is discarded and recorded as failed ("The run was interrupted").
 - **User retry:** `DocumentProcessing.retry_document/2` re-enqueues documents in the `:failed` or `:stuck` state. The new run supersedes the old row, which stays as history. It reads the latest row and inserts the job while holding the document row lock that terminal writes take, so a discarded run's failure lands either before the read or not at all. Its job carries `meta.trigger = "manual_retry"` (other jobs carry `"upload"`). A successful enqueue broadcasts `user:<id>:document_processing:retried` so open views refresh.
-- **Live run:** `DocumentProcessing.live_runs/1` reads each document's live job as a `Run` in one query, from the job's state, attempt, schedule, and `meta` (`trigger` and `last_error`). `Run.retrying?/1` is true for a run the user started with Retry processing or one past its first attempt. A retrying document is still `processing`. Retry is detail on top of the status, never a status of its own.
+- **Live run:** `DocumentProcessing.live_runs/1` reads each document's live OCR job as a `Run` in one query, from the job's state, attempt, schedule, and `meta` (`trigger` and `last_error`). `Run.retrying?/1` is true for a run the user started with Retry processing or one past its first attempt. A retrying document is still `processing`. Retry is detail on top of the status, never a status of its own.
 - **UI state:** the documents Index and the processing hero derive each row's state from `DocumentProcessing.processing_states/1` (live job + latest extraction, two batched queries), the same semantics as `processing_state/1` on Show. A failed row with a live re-run keeps the failure note ("earlier run failed").
 - **Retry display:** the dashboard feed, the documents Index, and the invoice page read `live_runs/1` too. When `Run.retrying?/1`, `status_pill` reads "Retrying" in the processing style, and `ZaimuComponents.retry_note/2` writes the one line all three surfaces show. An automatic retry reads "Attempt 2 of 5 · last try: the OCR service timed out · next try in under a minute", with the reason from `ErrorClassification.describe/1`. A run started with Retry processing reads "Retrying after a failed run · attempt 1 of 5". The invoice page also lists the earlier failed runs under "Earlier attempts". The feed dates a processing document by the later of its last change and its run's start. Retry processing starts a new run and moves the document to the top. An automatic retry reuses the job and leaves the document in place.
+- **Verification retry display:** the invoice page also reads `live_verification_runs/1`, the same `Run` for the document's live `VerificationJob`. While the row is `pending` it shows "Verifying the extraction", or the `retry_note/2` line once an attempt failed ("Attempt 2 of 4 · last try: the verification service timed out · next try in 2 min"), and re-reads the row every few seconds. It is a separate reader on purpose: `live_runs/1`, `processing_states/1`, and the "Retrying" pill read OCR jobs only, so a verifier retry never turns a document under review back into `processing`. Checking and posting stay available while the verifier works.
 - **Operator recovery:** `bin/recover_stuck_documents` (see [operations.md](operations.md#stuck-documents)). `Recovery` enqueues through `DocumentProcessing.recover_stuck/2`, which rechecks the document under its row lock like Retry processing, so a document that gained a failed row or a live job since the sweep listed it is skipped.
 
 ```mermaid
@@ -311,7 +317,11 @@ the OCR markdown from the stored row; job args never contain financial text. It
 writes per-field error probabilities to
 `extracted_content.analysis.verification.typesafe_shadow` and never changes the
 authoritative verification result. It is fail-open: provider errors are recorded
-on the row and the job completes.
+on the row and the job completes. `put_typesafe_shadow/2` and
+`record_verification/2` both write `analysis` holding the row lock
+(`FOR UPDATE`), so the shadow and the verifier never overwrite each other's
+keys. The shadow does not read the verifier's result, so the two jobs run in
+any order.
 
 ---
 
@@ -367,7 +377,8 @@ erDiagram
 ```
 
 - `documents` stores `filename` (original name), `object_key` (`documents/<uuid>.<ext>`), and `content_sha256` (SHA-256 of the exact uploaded bytes, lowercase hex; null for legacy rows until the backfill reads them). The bytes live only in object storage. Replacing the object replaces the digest.
-- `extracted_content` holds `extracted_data` (an embedded schema), `raw_llm_response`, an `analysis` map (verification and TypeSafe shadow results), `status` (`success` or `failed`), `error_details`, and the Langfuse `trace_id`.
+- `extracted_content` holds `extracted_data` (an embedded schema), `raw_llm_response`, an `analysis` map (verification detail and TypeSafe shadow results), `verification_status` (see the state machine below), `status` (`success` or `failed`), `error_details`, and the Langfuse `trace_id`.
+- `extracted_content.verification_status` is `pending`, `verified`, `needs_review`, `rejected`, or `verification_failed` on a success row and null on a failed one (check constraint `extracted_content_verification_status_check`). The `BEFORE INSERT` trigger `extracted_content_guard_verification_initial_status` lets a row start only as pending or null, and the `BEFORE UPDATE` trigger `extracted_content_guard_verification_transition` allows a change only from pending to an end state. The detail (`reason`, `field_issues`, `error`, `attempts`, `invalid_outputs`, `verifier_model`, `prompt_version`) stays in `analysis.verification`. Rows from before the column took their analysis status; a success row without a known status became `verification_failed`.
 - Money is stored in integer cents with an ISO currency code. Each user has a `base_currency` (default CHF), which is snapshotted into each OCR job as the currency hint.
 - `oban_jobs` lives in the same database. Finished jobs are pruned after 7 days.
 - Deleting a document that has a posted journal entry is blocked by a foreign key.
@@ -379,7 +390,7 @@ erDiagram
 
 ### State machines
 
-Five things have a status with rules about how it may change. Each rule lives in
+Six things have a status with rules about how it may change. Each rule lives in
 one function. To change a rule, change that function. Do not add a second place
 that writes the status.
 
@@ -390,6 +401,7 @@ flowchart LR
     entry["<b>Journal entry</b><br/>JournalEntry.changeset_for_categorize/2"]
     claim["<b>Tax claim</b><br/>Accounting.revise_tax_deduction_claim/3"]
     status(["<b>Document status</b><br/>Review.document_status/2"])
+    verification["<b>Verification</b><br/>ExtractedContentContext.record_verification/2"]
 
     review -->|"approve or amend"| gate
     gate -->|"post"| entry
@@ -471,6 +483,26 @@ stateDiagram-v2
     posted --> posted: only the tax claim changes
 ```
 
+**Verification** (`extracted_content.verification_status`). A success row
+starts `pending`, set by the insert in `Worker.persist_and_emit_success/6`, and
+moves once to an end state through `ExtractedContentContext.record_verification/2`,
+which holds the row locked and writes only while it is `pending` (a second
+writer gets `:already_recorded`). A failed row has none. A check constraint
+limits the values and ties null to failed rows; two triggers refuse any other
+start or move, whoever writes it (`extracted_content_verification_initial_status_check`,
+`extracted_content_verification_transition_check`). Only `verified` may ever
+count as a pass; `verification_failed` means a human checks the extraction.
+(D35)
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: extraction succeeded
+    pending --> verified: verdict
+    pending --> needs_review: verdict
+    pending --> rejected: verdict
+    pending --> verification_failed: verifier gave up
+```
+
 **Tax claim** (`tax_deduction_claims.status`). The diagram is in §6.1. Posting
 sets one of `undecided`, `candidate`, or `not_deductible`. After that only
 `Accounting.revise_tax_deduction_claim/3` changes it, and
@@ -493,6 +525,7 @@ stuck recovery, fingerprint backfill) and say so in their docs.
 | Queue | Worker | Concurrency (env) | Attempts | Notes |
 |---|---|---|---|---|
 | `documents` | `DocumentProcessing.OCRJob` | `OBAN_DOCUMENTS_CONCURRENCY` (2) | 5 | One live job per document: Oban's unique check, backed by the partial unique index `oban_jobs_one_live_ocr_job_per_document`. 10-minute timeout. `meta.trigger` is `upload` or `manual_retry`. `meta.last_error` is the failure code of the last failed attempt, written by `AttemptOutcomes`. |
+| `documents` | `DocumentProcessing.VerificationJob` | shares `OBAN_DOCUMENTS_CONCURRENCY` | 4 | One live job per `extracted_content_id` (Oban's unique check; the pending-only write makes a duplicate harmless). Backoff 30 s, 2 min, 10 min; timeout `AI_VERIFIER_RECEIVE_TIMEOUT` + 30 s. A job waiting to retry holds no slot. `meta.last_error` and `meta.invalid_outputs` are written by `AttemptOutcomes`. |
 | `typesafe` | `TypeSafeVerification.Worker` | `TYPESAFE_MAX_CONCURRENCY` (2) | 3 | Fail-open shadow run. |
 
 Plugins: `Oban.Pruner` (7 days) and `Oban.Lifeline` (30 minutes, which must exceed
@@ -525,7 +558,8 @@ environments run older rules. See [local-ai.md](local-ai.md) and [configuration.
 
 ### Real-time UI
 
-PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried|attempt_failed`,
+PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried|attempt_failed|verified`
+(`attempt_failed` is sent for OCR and verification attempts),
 `invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
 subscribe in `mount/3` when connected.
 
@@ -596,6 +630,7 @@ is in [`specs/`](../specs/README.md).
 | D32 | 2026-11 | Run every workflow job on Elixir 1.20 (OTP 28), and prefix the `deps`/`_build` and Dialyzer PLT cache keys with the exact OTP and Elixir versions that `erlef/setup-beam` installed | D12 moved only the `test` job, so `lint`, `security-audit`, nightly audit, and nightly Dialyzer kept checking on 1.19. All jobs shared one cache key per `mix.lock`, so 1.19 and 1.20 jobs restored each other's builds: Mix recompiles deps built by another version, and dialyxir names PLTs by version, so a restored PLT was ignored and rebuilt. An exact key hit is never saved again, so the rebuild repeated on every run until `mix.lock` changed. Consequences: the first run after this change and after any Elixir or OTP patch release starts cold; the sync rule now covers every workflow file, not just `ci.yml`. |
 | D33 | 2026-11 | Version releases with release-please (`release-type: elixir`): a bot-maintained release PR bumps `mix.exs`, `.release-please-manifest.json`, and `CHANGELOG.md` from the conventional commits on `main`; merging it tags `vX.Y.Z` and publishes a GitHub Release | The app stayed at 0.1.0 with no record of what each deploy shipped. Commits were already conventional, so the version and notes can be derived instead of written. The version lives in `mix.exs`, so the release and the sidebar report it with no build-time plumbing. git-cliff with tag-only versions (as in foglio) was rejected: there are no release artifacts to attach, and a committed `CHANGELOG.md` plus a `mix.exs` version is readable without GitHub. Consequences: the repository must allow Actions to create PRs; the release PR, opened with `GITHUB_TOKEN`, does not run CI; commit types hidden from the changelog never cut a release on their own. Version rules and the type list: [deployment.md](deployment.md#releases). |
 | D34 | 2026-11 | Add `current` and `credit_card` to `financial_accounts.account_type`, with every balance from the account holder's side: card debt is a negative balance | Bank and card statements need an account to belong to: the everyday current account that pays the bills had no type of its own and was filed as cash or savings, and net worth must subtract what a card owes. A string column behind `Ecto.Enum` needs no migration. The account form used a hand-kept list of types that a new enum value would silently miss, so its options and validation now come from `Ecto.Enum.values/2`, and the dashboard groups accounts in one call keyed by every type. Consequences: a positive balance on a card account means credit in the holder's favour; the dashboard shows a Current accounts figure first and a Credit cards figure last, each only when the user has such an account. |
+| D35 | 2026-11 | Verify each extraction in its own `VerificationJob` on the `documents` queue, after the OCR run saves the extraction, and store the result in a guarded column `extracted_content.verification_status` (pending → verified, needs_review, rejected, or verification_failed, once), written only by `ExtractedContentContext.record_verification/2` | One `OCRJob` attempt covered download, OCR, extraction, and verification, and persisted only on success, so a verifier failure could not go back to Oban without rerunning OCR and extraction; the verifier stayed fail-open with one immediate ReqLLM retry, and a briefly stalled verifier left the document "Could not verify" for good (#144). The job retries a transient failure with backoff (30 s, 2 min, 10 min) and the first unreadable answer, and ReqLLM retries nothing. The document is reviewable as soon as extraction lands; the invoice page shows "Verifying" and the OCR retry line for verification retries, from a separate reader (`live_verification_runs/1`) so the document status never goes back to processing. The status is a column with triggers, as for reviews and journal entries, because the next step is posting verified invoices without a human, which makes it decide what reaches the books; `record_verification/2` is the transaction that step will join, and each result records the verifier model and prompt version. Consequences: `verification_failed` means a human checks it, never a pass; the TypeSafe shadow writes `analysis` under the same row lock; a data-only load of verified rows needs `--disable-triggers` ([operations.md](operations.md)); a row whose job an operator cancels stays pending. Supersedes the interim one-retry cap. |
 
 ---
 
@@ -606,6 +641,7 @@ is in [`specs/`](../specs/README.md).
 | The app is redeployed while a document is being processed | Lifeline rescues the job and the document is processed exactly once (no duplicate terminal rows). |
 | The LLM provider returns 429 or 5xx | Retried with backoff up to 5 attempts, then one visible failure the user can retry. |
 | TypeSafe is down or slow | Extraction is unaffected. The shadow result records a failure. |
+| The verifier is down or stalls | The extraction is reviewable as soon as it lands. `VerificationJob` retries after 30 s, 2 min, and 10 min without rerunning OCR or extraction, then records one `verification_failed`; the document never fails. |
 | A user opens another user's document ID | Not found (scoped query). |
 | The VPS is lost | Restore from the off-host object export plus the Postgres dump, then `bin/verify_storage` reports zero missing objects. |
 | Switching the LLM model | Env change and redeploy only. |
@@ -622,7 +658,6 @@ is in [`specs/`](../specs/README.md).
 | No production mailer | `runtime.exs` configures no Swoosh adapter for prod, so email-based auth flows (confirmation, magic links) don't deliver in production. |
 | Shared S3 credential | The app's S3 key is the RustFS root credential. Per-application credentials are not yet introduced. |
 | `force_ssl` off | HTTP behind the VPN is by design. Enable `FORCE_SSL` at build time if the app is ever exposed publicly. |
-| Verifier retried only inside the attempt | A failed verification does not fail the run, and an `OCRJob` retry would rerun OCR and extraction, so the verifier gets one immediate ReqLLM retry and no backoff. A stalled or briefly unavailable verifier leaves the document "Could not verify". The cap of one retry keeps two verifier receive windows plus extraction inside the 10-minute job timeout. A separate verification job is proposed in [#144](https://github.com/acramatte/zaimu-tomo/issues/144). |
 | Fingerprint coverage of legacy postings | Exact-file protection covers historical entries only after `bin/backfill_document_fingerprints` reports complete coverage. Missing objects and unresolved same-user collisions stay null and are not protected (see [operations.md](operations.md#document-fingerprint-backfill)). |
 | Temporary test-only `hackney` override | Testcontainers 2.4.0 requires vulnerable Hackney 1.x. A test-only `~> 4.9` override keeps it on the patched line; the locked Tesla 1.21.2 supports Hackney 4.x. Hackney remains excluded from production, but its required IDNA 7.1 upgrade is shared with production's JSV and Swoosh dependencies, whose constraints allow it. Remove the override once a published Testcontainers release includes [upstream's Hackney 4 support](https://github.com/testcontainers/testcontainers-elixir/commit/f73bac030ffa40beb34793470d8d29d56ad4b03c), preserving a patched lockfile. Validate Docker compatibility with `RUN_INTEGRATION=true mix test test/zaimu_tomo/storage/rustfs_integration_test.exs` when updating this dependency. |
 | Hackney 4 Unix-socket pooling | Hackney 4.8.5's default pool replaces the Unix-socket transport with TCP, producing `:nxdomain` for Testcontainers' Docker socket path. `config/test.exs` disables Hackney's default pool so Docker requests retain their Unix-socket transport. Remove this test-only workaround once a fixed Hackney release passes the RustFS integration tests with pooling enabled. |

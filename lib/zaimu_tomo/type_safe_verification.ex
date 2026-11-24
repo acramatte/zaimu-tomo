@@ -10,23 +10,15 @@ defmodule ZaimuTomo.TypeSafeVerification do
   persisted row.
   """
 
+  alias ZaimuTomo.Langfuse
   alias ZaimuTomo.TypeSafeVerification.Worker
 
   @spec enqueue(%{extracted_content_id: pos_integer(), currency_hint: String.t()}) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def enqueue(%{extracted_content_id: extracted_content_id, currency_hint: currency_hint}) do
     %{extracted_content_id: extracted_content_id, currency_hint: currency_hint}
-    |> Map.put(:traceparent, traceparent())
+    |> Map.put(:traceparent, Langfuse.traceparent())
     |> Worker.new()
     |> Oban.insert()
-  end
-
-  # W3C traceparent of the caller's active span, or nil when tracing is off
-  # (no active span yields no traceparent header).
-  defp traceparent do
-    Enum.find_value(:otel_propagator_text_map.inject([]), fn
-      {"traceparent", value} -> value
-      _header -> nil
-    end)
   end
 end

@@ -114,9 +114,10 @@ It must report zero missing and zero failed.
 
 Restore the full dump, schema and data together: it loads rows before it
 creates triggers. A data-only load into a schema that already has the
-`review_decisions` and `journal_entries` triggers is refused for every decided
-review ("review decision cannot start as approved") and every posted entry
-("journal entry cannot start as posted"). If a data-only load is unavoidable, dump
+`review_decisions`, `journal_entries`, and `extracted_content` triggers is
+refused for every decided review ("review decision cannot start as approved"),
+every posted entry ("journal entry cannot start as posted"), and every verified
+extraction ("verification cannot start as verified"). If a data-only load is unavoidable, dump
 with `pg_dump --data-only --disable-triggers` and load as a superuser.
 
 Backup credentials and destinations are not kept in the repository.

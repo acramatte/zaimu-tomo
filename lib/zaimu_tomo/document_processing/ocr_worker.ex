@@ -1,9 +1,11 @@
 defmodule ZaimuTomo.DocumentProcessing.Worker do
   @moduledoc """
-  The OCR -> extraction -> verification pipeline for a single document.
+  The OCR -> extraction pipeline for a single document.
 
   `run/1` executes one attempt and returns `{:ok, content} | {:error, reason}`.
-  It persists a SUCCESS row itself but never persists a failure: the durable
+  It persists a SUCCESS row itself, with its verification `pending` and a
+  `DocumentProcessing.VerificationJob` enqueued in the same transaction, so a
+  verifier retry never reruns OCR or extraction. It never persists a failure: the durable
   `ZaimuTomo.DocumentProcessing.OCRJob` decides whether and when to record a
   failure based on `ZaimuTomo.DocumentProcessing.ErrorClassification` and the
   attempt number, so retries never multiply failed rows.
@@ -14,8 +16,9 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   executions cannot append two terminal rows. A changed document rolls back
   with `:already_processed`; a deleted one with `:document_deleted`.
 
-  The TypeSafe shadow enqueue is fail-open: a changeset-level enqueue failure
-  commits the extraction with an `enqueue_failed` shadow (the job insert is
+  Both job enqueues are fail-open: a changeset-level enqueue failure commits
+  the extraction with an `enqueue_failed` result (`verification_failed` for
+  the verifier, a failed shadow for TypeSafe; each job insert is
   savepoint-isolated inside the success transaction), while a raised DB
   exception still rolls back the whole terminal write and surfaces to the
   durable `OCRJob` for retry.
@@ -25,6 +28,7 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
   alias ZaimuTomo.DocumentProcessing.DocumentOCR
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.TemporaryFile
+  alias ZaimuTomo.DocumentProcessing.VerificationJob
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.Repo
@@ -57,14 +61,11 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
             with {:ok, ^temporary_path} <- Storage.get_object(object_key, temporary_path),
                  {:ok, markdown, raw_llm_response} <- DocumentOCR.process(temporary_path),
                  {:ok, extracted_data} <-
-                   ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint),
-                 {:ok, verification} <-
-                   ZaimuTomo.LLMClient.verify_extraction(markdown, extracted_data) do
+                   ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint) do
               persist_and_emit_success(
                 document,
                 extracted_data,
                 raw_llm_response,
-                verification,
                 trace_id,
                 currency_hint,
                 expected_extraction_id
@@ -80,18 +81,22 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
     end)
   end
 
+  @doc """
+  Appends a success row with its pending review and verification, enqueues
+  the `VerificationJob` (and the TypeSafe shadow when enabled), then
+  broadcasts `:success`.
+  """
   def persist_and_emit_success(
         document,
         extracted_data,
         raw_llm_response,
-        verification,
         trace_id,
         currency_hint,
         expected_extraction_id \\ nil
       ) do
     analysis = %{
       "processed_at" => DateTime.utc_now(),
-      "verification" => verification
+      "verification" => %{}
     }
 
     extraction_params = %{
@@ -109,8 +114,9 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
       with {:ok, content} <- ExtractedContentContext.create_extracted_content(extraction_params),
            {:ok, _review_decision} <- Review.create_initial_decision(content) do
-        # The TypeSafe shadow job is inserted in this transaction so a shadow
-        # run cannot be lost between commit and enqueue.
+        # Both jobs are inserted in this transaction so neither can be lost
+        # between commit and enqueue.
+        enqueue_verification(content)
         enqueue_typesafe_shadow(content, currency_hint)
         content
       else
@@ -234,6 +240,25 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           _newer -> Repo.rollback(:already_processed)
         end
     end
+  end
+
+  # A failed job insert must not fail the document: the extraction commits
+  # with verification_failed (enqueue_failed), which means a human checks it.
+  # Savepoint-isolated like the TypeSafe enqueue below.
+  defp enqueue_verification(content) do
+    Repo.query!("SAVEPOINT verification_enqueue")
+
+    case content |> VerificationJob.new_for() |> Oban.insert() do
+      {:ok, _job} ->
+        Repo.query!("RELEASE SAVEPOINT verification_enqueue")
+
+      {:error, %Ecto.Changeset{}} ->
+        Repo.query!("ROLLBACK TO SAVEPOINT verification_enqueue")
+        Logger.warning("[OCR] Verification enqueue failed for extraction #{content.id}")
+        {:ok, _content} = VerificationJob.record_failure(content.id, "enqueue_failed", 0, 0)
+    end
+
+    :ok
   end
 
   # TypeSafe shadow runs are best-effort: a failed enqueue is recorded on the

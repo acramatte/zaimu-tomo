@@ -25,24 +25,12 @@ defmodule ZaimuTomo.TypeSafeVerification.Worker do
   def perform(%Oban.Job{
         args: %{"extracted_content_id" => extraction_id, "currency_hint" => currency_hint} = args
       }) do
-    with_trace_parent(Map.get(args, "traceparent"), fn ->
+    Langfuse.with_trace_parent(Map.get(args, "traceparent"), fn ->
       case ExtractedContentContext.get_by_id(extraction_id) do
         nil -> {:cancel, :extracted_content_deleted}
         content -> verify_content(content, currency_hint)
       end
     end)
-  end
-
-  defp with_trace_parent(nil, fun), do: fun.()
-
-  defp with_trace_parent(traceparent, fun) when is_binary(traceparent) do
-    token = :otel_propagator_text_map.extract([{"traceparent", traceparent}])
-
-    try do
-      fun.()
-    after
-      OpenTelemetry.Ctx.detach(token)
-    end
   end
 
   defp verify_content(content, currency_hint) do

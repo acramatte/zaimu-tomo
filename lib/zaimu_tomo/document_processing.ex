@@ -22,8 +22,9 @@ defmodule ZaimuTomo.DocumentProcessing do
   alias ZaimuTomo.Repo
 
   @ocr_job_worker "ZaimuTomo.DocumentProcessing.OCRJob"
+  @verification_job_worker "ZaimuTomo.DocumentProcessing.VerificationJob"
   @live_job_states ~w(available scheduled executing retryable)
-  @event_kinds [:success, :failed, :retried, :attempt_failed]
+  @event_kinds [:success, :failed, :retried, :attempt_failed, :verified]
 
   @typedoc """
   Processing state of a document:
@@ -39,11 +40,12 @@ defmodule ZaimuTomo.DocumentProcessing do
   Subscribes the caller to the scope owner's processing events.
 
   Messages are the maps broadcast by `broadcast_event/3`: a run finished
-  (`:success` / `:failed`), a retry was enqueued (`:retried`), or an attempt
-  failed and Oban scheduled the next one (`:attempt_failed`). A `:failed`
-  message without an `extraction_id` is a run that could not record its
-  failure, so the document reads `:stuck`. Topics are per owner, so a
-  subscriber never receives another user's extracted data.
+  (`:success` / `:failed`), a retry was enqueued (`:retried`), an attempt
+  of an OCR or verification job failed and Oban scheduled the next one
+  (`:attempt_failed`), or the verifier's result was recorded (`:verified`).
+  A `:failed` message without an `extraction_id` is a run that could not
+  record its failure, so the document reads `:stuck`. Topics are per owner,
+  so a subscriber never receives another user's extracted data.
   """
   @spec subscribe_events(Scope.t()) :: :ok | {:error, term()}
   def subscribe_events(%Scope{user: %{id: user_id}}) do
@@ -56,7 +58,11 @@ defmodule ZaimuTomo.DocumentProcessing do
   end
 
   @doc false
-  @spec broadcast_event(:success | :failed | :retried | :attempt_failed, integer(), map()) ::
+  @spec broadcast_event(
+          :success | :failed | :retried | :attempt_failed | :verified,
+          integer(),
+          map()
+        ) ::
           :ok | {:error, term()}
   def broadcast_event(kind, user_id, payload) when kind in @event_kinds do
     Phoenix.PubSub.broadcast(ZaimuTomo.PubSub, event_topic(user_id, kind), payload)
@@ -145,6 +151,29 @@ defmodule ZaimuTomo.DocumentProcessing do
     live_jobs()
     |> where([j], fragment("?->>'document_id'", j.args) in ^Map.keys(ids_by_text))
     |> select([j], {fragment("?->>'document_id'", j.args), j})
+    |> Repo.all()
+    |> Map.new(fn {id_text, job} -> {ids_by_text[id_text], Run.from_job(job)} end)
+  end
+
+  @doc """
+  Returns the live verification run of each document that has one, as a `Run`.
+
+  A separate reader from `live_runs/1` on purpose: the document status and the
+  "Retrying" pill read OCR jobs only, so a verifier retry never turns a
+  document under review back into processing. One query regardless of how
+  many ids are given.
+  """
+  @spec live_verification_runs([pos_integer()]) :: %{pos_integer() => Run.t()}
+  def live_verification_runs([]), do: %{}
+
+  def live_verification_runs(document_ids) when is_list(document_ids) do
+    ids_by_text = Map.new(document_ids, &{to_string(&1), &1})
+
+    from(j in Oban.Job,
+      where: j.worker == @verification_job_worker and j.state in @live_job_states,
+      where: fragment("?->>'document_id'", j.args) in ^Map.keys(ids_by_text),
+      select: {fragment("?->>'document_id'", j.args), j}
+    )
     |> Repo.all()
     |> Map.new(fn {id_text, job} -> {ids_by_text[id_text], Run.from_job(job)} end)
   end
