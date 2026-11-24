@@ -106,7 +106,7 @@ defmodule ZaimuTomo.FinancialAccounts do
   def delete_financial_account(%Scope{} = scope, %FinancialAccount{} = account) do
     true = account.user_id == scope.user.id
 
-    case Repo.delete(account) do
+    case account |> FinancialAccount.delete_changeset() |> Repo.delete() do
       {:ok, deleted_account} ->
         broadcast(scope, {:deleted, deleted_account})
         {:ok, deleted_account}

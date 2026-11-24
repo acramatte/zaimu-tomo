@@ -3,6 +3,8 @@ defmodule ZaimuTomo.Storage.VerificationTest do
 
   import ZaimuTomo.AccountsFixtures
   import ZaimuTomo.DocumentsFixtures
+  import ZaimuTomo.FinancialAccountsFixtures
+  import ZaimuTomo.StatementsFixtures
 
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory
@@ -36,5 +38,24 @@ defmodule ZaimuTomo.Storage.VerificationTest do
     assert {:ok, ^object_key} = Storage.put_object(object_key, "stored bytes")
 
     assert {:ok, %{present: 1, missing: [], failures: []}} = Verification.verify()
+  end
+
+  test "verifies statement objects alongside document objects", %{scope: scope} do
+    document_key = "documents/verified.pdf"
+    document_fixture(scope, %{filename: "verified.pdf", object_key: document_key})
+    assert {:ok, ^document_key} = Storage.put_object(document_key, "stored bytes")
+
+    account = financial_account_fixture(scope)
+    statement = statement_fixture(scope, account)
+
+    assert {:ok, %{present: 2, missing: [], failures: []}} = Verification.verify()
+
+    assert :ok = Storage.delete_object(statement.object_key)
+
+    assert {:error, summary} = Verification.verify()
+    assert summary.present == 1
+    assert summary.missing == [statement.object_key]
+    assert summary.failures == []
+    assert Verification.format_summary(summary) =~ "Missing object: #{statement.object_key}"
   end
 end
