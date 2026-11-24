@@ -24,6 +24,27 @@ defmodule ZaimuTomo.DocumentProcessing.DocumentOCRTest do
     end
   end
 
+  describe "page_markdowns/1" do
+    test "returns each page's markdown in page order, empty for a page without one" do
+      body = %{"pages" => [%{"markdown" => "first"}, %{"index" => 1}, %{"markdown" => "third"}]}
+
+      assert DocumentOCR.page_markdowns(body) == ["first", "", "third"]
+    end
+
+    test "turns a nil markdown value into an empty string" do
+      body = %{
+        "pages" => [
+          %{"markdown" => "first"},
+          %{"index" => 1, "markdown" => nil},
+          %{"markdown" => "third"}
+        ]
+      }
+
+      assert DocumentOCR.page_markdowns(body) == ["first", "", "third"]
+      assert {:ok, "first\n\n\n\nthird", ^body} = DocumentOCR.extract_markdown(body)
+    end
+  end
+
   describe "process/1" do
     test "returns a stage-aware error when the Mistral API key is missing" do
       previous_config = Application.fetch_env!(:zaimu_tomo, :mistral)

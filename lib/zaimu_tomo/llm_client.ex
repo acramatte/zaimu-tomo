@@ -6,14 +6,40 @@ defmodule ZaimuTomo.LLMClient do
 
   alias ZaimuTomo.DocumentProcessing.ExtractedData
   alias ZaimuTomo.DocumentProcessing.VerificationResult
+  alias ZaimuTomo.FinancialAccounts.FinancialAccount
   alias ZaimuTomo.Langfuse
+  alias ZaimuTomo.Statements.ParsedStatement
 
   @backends [:ollama, :flm, :mistral, :nousresearch]
+  @account_types FinancialAccount.account_types()
 
   @default_extractor_max_tokens 8192
   @default_extractor_receive_timeout 120_000
   @default_verifier_max_tokens 4096
   @default_verifier_receive_timeout 120_000
+
+  @nullable_string {:or, [:string, nil]}
+  @nullable_integer {:or, [:integer, nil]}
+
+  @statement_line_schema [
+    booking_date: [type: :string, required: true, doc: "YYYY-MM-DD"],
+    value_date: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    description: [type: :string, required: true],
+    amount_cents: [type: :pos_integer, required: true],
+    direction: [type: {:in, ["debit", "credit"]}, required: true],
+    original_amount_cents: [type: @nullable_integer],
+    original_currency: [type: @nullable_string]
+  ]
+
+  @statement_page_schema [
+    account_ref: [type: @nullable_string],
+    period_start: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    period_end: [type: @nullable_string, doc: "YYYY-MM-DD"],
+    currency: [type: @nullable_string],
+    opening_balance_cents: [type: @nullable_integer],
+    closing_balance_cents: [type: @nullable_integer],
+    lines: [type: {:list, {:map, @statement_line_schema}}, required: true]
+  ]
 
   @type role :: :extractor | :verifier
   @type backend :: :ollama | :flm | :mistral | :nousresearch
@@ -33,10 +59,18 @@ defmodule ZaimuTomo.LLMClient do
           provider: atom(),
           base_url: String.t(),
           model: String.t(),
-          api_key: String.t() | nil
+          api_key: String.t() | nil,
+          req_options: keyword()
         ]
   @type extraction_payload :: ExtractedData.t() | map()
   @type validation_errors :: map()
+  @type statement_page_context :: %{
+          page: pos_integer(),
+          pages: pos_integer(),
+          account_type: FinancialAccount.account_type(),
+          currency: String.t(),
+          period: {Date.t(), Date.t()} | nil
+        }
 
   @doc """
   Extracts invoice JSON using the configured extraction backend.
@@ -132,6 +166,143 @@ defmodule ZaimuTomo.LLMClient do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  defguardp is_valid_page_bounds(page, pages)
+            when is_integer(page) and page >= 1 and is_integer(pages) and page <= pages
+
+  defguardp is_valid_period(period)
+            when is_nil(period) or
+                   (tuple_size(period) == 2 and is_struct(elem(period, 0), Date) and
+                      is_struct(elem(period, 1), Date))
+
+  @doc """
+  Reads one page of a bank or card statement with the extractor backend.
+
+  `context` tells the prompt where the page sits and which account it belongs
+  to: `%{page: 2, pages: 3, account_type: :credit_card, currency: "CHF",
+  period: {~D[2026-10-01], ~D[2026-10-31]}}`, with `account_type` formatted for
+  the prompt via `FinancialAccount.type_label/1`. `period` is the one an earlier
+  page printed, or `nil`; it gives a date printed without a year its year.
+  The answer is parsed by `ParsedStatement.parse_page/1`; one call returns at
+  most one page of lines, so the output budget is bounded by the densest page.
+  """
+  @spec extract_statement_page(String.t(), statement_page_context()) ::
+          {:ok, ParsedStatement.page()} | {:error, term()}
+  def extract_statement_page(
+        markdown,
+        %{
+          page: page,
+          pages: pages,
+          account_type: account_type,
+          currency: currency,
+          period: period
+        } = context
+      )
+      when is_binary(markdown) and is_valid_page_bounds(page, pages) and
+             account_type in @account_types and is_binary(currency) and
+             byte_size(currency) == 3 and is_valid_period(period) do
+    config = backend_config!(:extractor)
+    model = req_llm_model!(config)
+    opts = Keyword.merge(req_llm_opts(config), extractor_request_opts())
+
+    with {:ok, prompt} <- fetch_statement_page_prompt(markdown, context),
+         {:ok, response} <- generate_statement_page(model, prompt, opts, config),
+         {:ok, object} <- statement_page_object(response, config) do
+      parse_statement_page(object, config)
+    end
+  end
+
+  @doc false
+  @spec statement_page_prompt_variables(String.t(), statement_page_context()) :: map()
+  def statement_page_prompt_variables(
+        markdown,
+        %{
+          page: page,
+          pages: pages,
+          account_type: account_type,
+          currency: currency,
+          period: period
+        }
+      )
+      when is_binary(markdown) and is_valid_page_bounds(page, pages) and
+             account_type in @account_types and is_binary(currency) and
+             byte_size(currency) == 3 and is_valid_period(period) do
+    %{
+      page: page,
+      pages: pages,
+      account_type: FinancialAccount.type_label(account_type),
+      currency: currency,
+      period: prompt_period(period),
+      ocr_markdown: markdown
+    }
+  end
+
+  defp prompt_period(nil), do: "none yet"
+
+  defp prompt_period({first, last}),
+    do: "#{Date.to_iso8601(first)} to #{Date.to_iso8601(last)}"
+
+  defp fetch_statement_page_prompt(markdown, context) do
+    case Langfuse.fetch_prompt(
+           "extract-statement-page",
+           statement_page_prompt_variables(markdown, context)
+         ) do
+      {:ok, prompt} ->
+        {:ok, prompt}
+
+      {:error, reason} ->
+        Logger.error("[LLM] Statement page prompt fetch failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp generate_statement_page(model, prompt, opts, config) do
+    case Langfuse.trace_llm_generation("extract-statement-page", model.id, prompt, fn ->
+           ReqLLM.generate_object(model, prompt.content, @statement_page_schema, opts)
+         end) do
+      {:ok, response} ->
+        {:ok, response}
+
+      {:error, reason} ->
+        failure = request_failure(reason)
+
+        Logger.error(
+          "[LLM] Statement page request failed with #{backend_summary(:extractor, config)}: #{inspect(failure)}"
+        )
+
+        {:error, failure}
+    end
+  end
+
+  defp statement_page_object(response, config) do
+    case structured_object(response) do
+      {:ok, object} ->
+        {:ok, object}
+
+      {:error, :no_structured_output} ->
+        Logger.error(
+          "[LLM] Statement page response missing structured object with #{backend_summary(:extractor, config)}"
+        )
+
+        {:error, :missing_structured_output}
+    end
+  end
+
+  defp parse_statement_page(object, config) do
+    case ParsedStatement.parse_page(object) do
+      {:ok, page} ->
+        {:ok, page}
+
+      {:error, {:validation_failed, errors}} = error ->
+        summary = backend_summary(:extractor, config)
+
+        Logger.error(
+          "[LLM] Statement page failed schema validation with #{summary}: #{inspect(errors)}"
+        )
+
+        error
+    end
   end
 
   @doc """
@@ -529,7 +700,8 @@ defmodule ZaimuTomo.LLMClient do
   defp req_llm_opts(config) do
     base_opts = [
       temperature: 0.0,
-      telemetry: [payloads: :none]
+      telemetry: [payloads: :none],
+      req_http_options: Keyword.get(config, :req_options, [])
     ]
 
     case Keyword.fetch!(config, :api_key) do
