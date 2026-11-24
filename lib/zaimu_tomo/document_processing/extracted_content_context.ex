@@ -98,16 +98,14 @@ defmodule ZaimuTomo.DocumentProcessing.ExtractedContentContext do
     end)
   end
 
-  # The trigger refuses a move the pending check above did not see, which the
-  # changeset reports as a constraint error.
+  # The row is locked and pending, so a failed write is a bug (an unknown
+  # status), not a race: raise, and the job retries, then records
+  # verification_failed when it is discarded, instead of leaving the row pending.
   defp update_verification(content, status, detail) do
     content
     |> ExtractedContent.verification_changeset(status, put_verification_detail(content, detail))
-    |> Repo.update()
-    |> case do
-      {:ok, content} -> {:ok, content}
-      {:error, _changeset} -> {:error, :already_recorded}
-    end
+    |> Repo.update!()
+    |> then(&{:ok, &1})
   end
 
   defp lock(extraction_id) do

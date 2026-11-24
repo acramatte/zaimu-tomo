@@ -229,6 +229,15 @@ defmodule ZaimuTomo.DocumentProcessing.VerificationJobTest do
       assert content.analysis["verification"]["reason"] == "first"
     end
 
+    test "raises on an unknown status instead of reporting it as already recorded",
+         %{content: content} do
+      assert_raise Ecto.InvalidChangesetError, fn ->
+        ExtractedContentContext.record_verification(content.id, %{"status" => "maybe"})
+      end
+
+      assert reload(content).verification_status == "pending"
+    end
+
     test "keeps the TypeSafe shadow written before it, and the shadow keeps the verdict",
          %{content: content} do
       shadow = %{"status" => "verified", "model" => "jev-latest"}

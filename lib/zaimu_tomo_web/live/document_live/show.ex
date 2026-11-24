@@ -1202,10 +1202,18 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   # The worker broadcasts before Oban acknowledges the job, and cancelled or
   # discarded jobs never broadcast, so a broadcast alone can leave a stale
-  # "Processing" pill. While a run is live or the verifier has not answered,
-  # re-read the durable state, which also keeps a retry countdown current.
-  defp schedule_refresh(%{assigns: %{processing_state: state, verification_pending?: pending?}})
-       when state == :processing or pending? do
+  # "Processing" pill. While a run is live, or a verification job is live and
+  # its "Verifying" card shows, re-read the durable state, which also keeps a
+  # retry countdown current.
+  defp schedule_refresh(%{
+         assigns: %{
+           processing_state: state,
+           verification_pending?: pending?,
+           stage: stage,
+           verification_run: run
+         }
+       })
+       when state == :processing or (pending? and stage == :check and not is_nil(run)) do
     interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
     Process.send_after(self(), :refresh_processing, interval)
   end
