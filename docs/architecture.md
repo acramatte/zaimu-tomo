@@ -27,6 +27,7 @@ Main capabilities:
 | Human review | Approve, amend, or reject each extraction. Nothing is booked without sign-off. |
 | Bookkeeping | An approved or amended invoice becomes a journal entry, booked in the same step with a category, a need/want label, and its tax deductibility. |
 | Wealth tracking | Financial accounts (current, savings, cash, investment, credit card) with balance snapshots over time. Balances are from the account holder's side, so card debt is negative. |
+| Statements | Upload a monthly bank or card statement against a financial account. It is read page by page into its lines, and `opening + lines = closing` checks the read. |
 | Insight | Dashboard, activity feed, and monthly and year-to-date spending views. |
 
 ### Quality goals
@@ -92,8 +93,8 @@ flowchart LR
 | Browser | in | — | yes |
 | PostgreSQL | internal | all relational data and the Oban job table | yes |
 | RustFS (S3 API) | internal | original document bytes | yes |
-| Mistral OCR | out | the uploaded document file | yes, to process documents |
-| Extractor and verifier LLM | out | OCR markdown and extracted fields | yes. In local dev, FLM or Ollama keep it on the machine. Prod sends it to a third-party inference provider (Nous Research by default). |
+| Mistral OCR | out | the uploaded document or statement file | yes, to process documents and statements |
+| Extractor and verifier LLM | out | OCR markdown (invoice, or one statement page per call) and extracted fields | yes. In local dev, FLM or Ollama keep it on the machine. Prod sends it to a third-party inference provider (Nous Research by default). |
 | TypeSafe | out | OCR markdown and extracted fields | no. Enabled by `TYPESAFE_API_KEY`. |
 | Langfuse | out | prompts, traces, and user feedback scores | no. Enabled by `LANGFUSE_*` keys. Local prompt fallbacks exist. |
 
@@ -122,8 +123,8 @@ mediates every access.
 ```mermaid
 flowchart TB
     web["<b>ZaimuTomoWeb</b> · lib/zaimu_tomo_web<br/>Router + UserAuth · LiveViews · Controllers"]
-    core["<b>Domain contexts</b> · lib/zaimu_tomo<br/>Accounts · Documents · Review · Accounting<br/>FinancialAccounts · Activity"]
-    oban[["<b>Oban</b><br/>queues: documents, typesafe"]]
+    core["<b>Domain contexts</b> · lib/zaimu_tomo<br/>Accounts · Documents · Review · Accounting<br/>FinancialAccounts · Statements · Activity"]
+    oban[["<b>Oban</b><br/>queues: documents, typesafe, statements"]]
     proc["<b>DocumentProcessing</b> + TypeSafeVerification<br/>OCRJob · Worker · VerificationJob · Recovery"]
     adapters["<b>Infrastructure adapters</b><br/>Storage (S3 / Memory) · DocumentOCR · LLMClient<br/>TypeSafeClient · Langfuse"]
     repo[("Repo → PostgreSQL")]
@@ -147,9 +148,10 @@ flowchart TB
 | `Review` | `lib/zaimu_tomo/review*` | One `ReviewDecision` per extraction (pending → approved / amended / rejected, each final; `failed` when extraction fails), the `EventLog` audit trail, and Langfuse feedback scores. |
 | `Accounting` | `lib/zaimu_tomo/accounting*` | Journal entries from decisions, duplicate-invoice detection (`duplicate_check/3`: exact source file, invoice number, and field tuple), posting (category plus need/want; `list_categories/1` suggests the user's own earlier categories), tax deduction claims (set at posting, revised afterwards with `revise_tax_deduction_claim/3`), spending aggregates, and the journal ledger reads: unbooked entries for the booking queue, and posted entries per invoice month and year (`posted_journal_months/3`, `list_posted_journal_entries/4`), each narrowed by an optional case-insensitive text search over issuer, invoice number, category, description, and notes (the journal page's `?q=`). |
 | `FinancialAccounts` | `lib/zaimu_tomo/financial_accounts*` | Accounts and balance snapshots, net worth by currency, and accounts grouped by type for the dashboard (`list_accounts_with_latest_balance_by_type/1`). The `account_type` enum (current, savings, cash, investment, credit card) is the one list of types: the account form reads its options from it. A current account is the everyday bank account that pays bills and receives salary. |
+| `Statements` | `lib/zaimu_tomo/statements*` | Bank and card statements: upload (file and `ExtractJob` in one transaction, one statement per file per user), list, get, retry, delete, the statement status rule (`status/2`), the balance check (`balance/1`), and which statements may be read again (`retryable?/2`). The only writer of `statements` and `statement_lines`. |
 | `Activity` | `lib/zaimu_tomo/activity.ex` | A read model assembling each document's current workflow state and live run for the feeds. |
 | `Storage` | `lib/zaimu_tomo/storage*` | Provider-neutral facade (`put/get/head/delete/read`) with S3 and in-memory adapters, plus migration and verification tooling. `store_upload/3` stores an uploaded file under a key prefix (`documents`) and fingerprints the same bytes. |
-| `Fingerprint` | `lib/zaimu_tomo/fingerprint.ex` | Pure. The exact-byte SHA-256 of an uploaded file (`sha256/1`) and the format every stored digest must match (`format/0`). Outside every context so that `Storage`, `Documents`, and `Accounting` can share it without depending on each other. |
+| `Fingerprint` | `lib/zaimu_tomo/fingerprint.ex` | Pure. The exact-byte SHA-256 of an uploaded file (`sha256/1`) and the format every stored digest must match (`format/0`). Outside every context so that `Storage`, `Documents`, `Accounting`, and `Statements` can share it without depending on each other. |
 | `LLMClient` | `lib/zaimu_tomo/llm_client.ex` | Per-role (extractor and verifier) backend and model resolution through ReqLLM, and response parsing and validation. |
 | `Langfuse` | `lib/zaimu_tomo/langfuse.ex` | Prompt fetch (with built-in local fallbacks), OpenTelemetry spans, and feedback scores. |
 | `Release` | `lib/zaimu_tomo/release.ex`, `rel/overlays/bin/*` | Release-time commands: migrate, rollback, S3 migration and verification, stuck-document recovery, and the document fingerprint backfill. |
@@ -166,6 +168,13 @@ flowchart TB
 | `DocumentProcessing.AttemptOutcomes` | Telemetry handler on Oban's job and plugin events that records what happened to an OCR or verification attempt once Oban has settled it. A failed attempt with a retry ahead stores its failure code in the job's `meta.last_error` and broadcasts `attempt_failed`. A final attempt Oban discards (raise, crash, job timeout, or a Lifeline discard) records the failed extraction. A run that could not record its failure broadcasts `failed`. For a `VerificationJob` it also counts unreadable verifier answers in `meta.invalid_outputs`, and a discarded final attempt records `verification_failed` on the row. |
 | `DocumentProcessing.Recovery` | Finds documents with no extraction and no live job, and re-enqueues them. |
 | `ObanFailureLogger` | Telemetry handler that logs failed attempts without payloads. |
+
+### Level 2 — statement extraction
+
+| Module | Role |
+|---|---|
+| `Statements.ExtractJob` | Oban worker (`statements` queue, 5 attempts, 10-minute timeout, one live job per `statement_id`, enforced by a partial unique index). One attempt: download to a temp file → `DocumentOCR.process/1` → `DocumentOCR.page_markdowns/1` → `LLMClient.extract_statement_page/2` once per page, in order → `ParsedStatement.from_pages/2` → persist. Its private `persist/2` is the only writer of the extraction facts. |
+| `Statements.ParsedStatement` | Pure. `parse_page/1` types one page of extractor output or refuses it. `from_pages/2` merges the pages, applies each line's sign once from its `direction`, and checks the currency and account reference against the account. The two references, uppercased and stripped to letters, digits, and mask characters, are compared right-aligned over the shorter one; a mask character (`X`, `*`, `•`, `·`, `●`) on either side matches anything, any other difference is an `account_mismatch`, and fewer than four unmasked characters to compare count as a match. So two full IBANs must be equal, and a masked card number matches an account that holds its last digits. Multi-page `account_ref` values use the same reference matcher across pages (keeping the most informative printed value) rather than strict equality. A line dated more than two months outside the period is a `line_outside_period`: a date printed without a year and read in the wrong year still balances, and this is what catches it. |
 
 ---
 
@@ -308,7 +317,43 @@ stateDiagram-v2
     posted --> posted: revise tax treatment
 ```
 
-### 6.3 TypeSafe shadow verification (optional)
+### 6.3 Statement upload and extraction
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant LV as LiveView
+    participant S3 as RustFS
+    participant DB as Postgres
+    participant J as ExtractJob (Oban)
+    participant M as Mistral OCR
+    participant L as Extractor LLM
+
+    U->>LV: upload a statement for an account
+    LV->>S3: Storage.store_upload: PUT to statements/<uuid>.<ext>
+    LV->>DB: txn: insert statement + oban job
+    Note over LV,S3: same bytes uploaded before: the object is deleted<br/>and the earlier statement is returned
+    J->>S3: GET to temp file
+    J->>M: OCR → one markdown per page
+    loop each page, in order
+        J->>L: extract-statement-page (header facts printed on it, its lines)
+    end
+    J->>DB: txn: lock statement, replace lines, set header + extracted_at
+    J-->>LV: PubSub user:id:statements {:statement_updated, id}
+```
+
+The extractor returns each line with a positive amount and a `direction`, and
+`ParsedStatement.from_pages/2` applies the sign once: money out is negative,
+card debt is a negative balance. A transient error on a non-final attempt
+persists nothing and Oban retries. A permanent error, a transient error on the
+final attempt, or a statement that does not fit its account (`currency_mismatch`,
+`account_mismatch`, `inconsistent_header`, `missing_header`, `no_lines`,
+`line_outside_period`, `duplicate_period`) sets `failure_code` and keeps the earlier read, if any.
+Retry only enqueues a job. Deleting a statement deletes its row and lines,
+then its file; a job still queued for it cancels itself.
+
+### 6.4 TypeSafe shadow verification (optional)
 
 When `TYPESAFE_API_KEY` is set, the success transaction also enqueues a
 `TypeSafeVerification.Worker` job on the `typesafe` queue, isolated by a
@@ -368,6 +413,9 @@ flowchart LR
 erDiagram
     users ||--o{ documents : owns
     users ||--o{ financial_accounts : owns
+    users ||--o{ statements : owns
+    financial_accounts ||--o{ statements : "statement of"
+    statements ||--o{ statement_lines : "last successful read"
     documents ||--o{ extracted_content : "processing attempts (append-only)"
     extracted_content ||--|| review_decisions : "one decision"
     review_decisions ||--o{ event_logs : "audit trail"
@@ -388,9 +436,11 @@ erDiagram
 - A partial unique index on `oban_jobs ((args->>'document_id'))`, limited to `OCRJob` jobs in a live state (`available`, `scheduled`, `executing`, `retryable`), allows one live OCR job per document. Oban's own unique check is an advisory lock and a select, which two concurrent enqueues can both pass. Retry processing and Recovery already serialize on the document row lock, so the index is the backstop for any other path. `DocumentProcessing.ocr_job/4` declares the index as a constraint, so a refused insert is an error, not an exception: Recovery skips the document and `retry_document/2` returns `{:not_retryable, :processing}`.
 - `journal_entries.source_document_sha256` is an immutable posting-time copy of the source document's `content_sha256`; `source_file_reuse_confirmed` (default false) marks a posting the reviewer explicitly confirmed as a reuse of the same file. The partial unique index `journal_entries (user_id, source_document_sha256) WHERE source_document_sha256 IS NOT NULL AND NOT source_file_reuse_confirmed` allows one unconfirmed posting per file per user. `Accounting.duplicate_check/3` ranks matches as same file > invoice number > same details; a file match is confirmable only when no field rule also matches (the tuple is compared against the file-matched entries even for numbered invoices). No index covers a confirmed reuse. The same gate checks its "no field match" condition under the same lock. Confirmations are logged as `source_file_reuse_confirmed` events with the matched entry IDs. Fingerprints are user-scoped, redacted from inspect output, and never rendered or sent to an AI provider. Only `FingerprintBackfill` may set them on existing entries, and only where the digest is missing. The `BEFORE UPDATE` trigger `journal_entries_guard_fingerprint` enforces this for every writer. An update may set both columns only while the digest is null, and only to a digest. Once a digest is set, a change to either column fails as a check violation named `journal_entries_fingerprint_immutable_check`.
 
+- `statements` stores the upload (`filename`, `object_key` under `statements/`, `content_sha256`, unique per user) and the facts of the last successful read: `extracted_at`, `account_ref`, `period_start`/`period_end`, `currency`, `opening_balance_cents`, `closing_balance_cents`, all signed from the holder's side. `failure_code` is the last failed run's code, cleared by a success. `financial_account_id` is required and `on_delete: :restrict`, so `FinancialAccounts.delete_financial_account/2` returns an error on `:statements` ("delete its statements first") for an account that still has statements. The check `statements_extracted_header` requires the whole header once `extracted_at` is set, and `statements_one_per_account_period` allows one statement per account and period. `statement_lines` (`position`, `booking_date`, `value_date`, `description`, signed `amount_cents` in the statement currency, optional `original_amount_cents` + `original_currency` for foreign card spend) are replaced wholesale by each successful read and copy `user_id` and `currency` for the `(user_id, currency, amount_cents)` index. A partial unique index on `oban_jobs ((args->>'statement_id'))` allows one live `ExtractJob` per statement, like the OCR job index.
+
 ### State machines
 
-Six things have a status with rules about how it may change. Each rule lives in
+Seven things have a status with rules about how it may change. Each rule lives in
 one function. To change a rule, change that function. Do not add a second place
 that writes the status.
 
@@ -426,6 +476,27 @@ flowchart LR
     rev -->|"approved or amended"| posted(["posted"])
     rev -->|"rejected"| rejected(["rejected"])
 ```
+
+**Statement status** is shown, never stored, like the document status. Every
+screen asks `Statements.status/2`. `ExtractJob`'s `persist/2` is the only writer
+of the facts it reads (`extracted_at`, `failure_code`), under the statement row
+lock that retry and delete take too. Retry only enqueues a job. (D36)
+
+```mermaid
+stateDiagram-v2
+    [*] --> processing: upload (job in the same txn)
+    processing --> ready: read succeeded (extracted_at, failure_code cleared)
+    processing --> failed: permanent error or final attempt (failure_code)
+    processing --> stalled: job discarded by a crash, nothing recorded
+    failed --> processing: retry_extraction
+    stalled --> processing: retry_extraction
+    ready --> processing: retry_extraction, only when unbalanced
+```
+
+A live job is `processing`. Otherwise a failure code is `failed`, even over an
+earlier read whose lines stay shown, a read is `ready`, and nothing recorded is
+`stalled`. Whether a ready read balances (`Statements.balance/1`) is derived on
+read, never stored.
 
 **Review decision** (`review_decisions.review_status`). A review is decided
 once, on a locked row. Nothing leaves `approved`, `amended`, `rejected`, or
@@ -527,6 +598,7 @@ stuck recovery, fingerprint backfill) and say so in their docs.
 | `documents` | `DocumentProcessing.OCRJob` | `OBAN_DOCUMENTS_CONCURRENCY` (2) | 5 | One live job per document: Oban's unique check, backed by the partial unique index `oban_jobs_one_live_ocr_job_per_document`. 10-minute timeout. `meta.trigger` is `upload` or `manual_retry`. `meta.last_error` is the failure code of the last failed attempt, written by `AttemptOutcomes`. |
 | `documents` | `DocumentProcessing.VerificationJob` | shares `OBAN_DOCUMENTS_CONCURRENCY` | 4 | One live job per `extracted_content_id` (Oban's unique check; the pending-only write makes a duplicate harmless). Backoff 30 s, 2 min, 10 min; timeout `AI_VERIFIER_RECEIVE_TIMEOUT` + 30 s. A job waiting to retry holds no slot. `meta.last_error` and `meta.invalid_outputs` are written by `AttemptOutcomes`. |
 | `typesafe` | `TypeSafeVerification.Worker` | `TYPESAFE_MAX_CONCURRENCY` (2) | 3 | Fail-open shadow run. |
+| `statements` | `Statements.ExtractJob` | `OBAN_STATEMENTS_CONCURRENCY` (1) | 5 | One live job per statement: Oban's unique check, backed by the partial unique index `oban_jobs_one_live_extract_job_per_statement`. 10-minute timeout. One extractor call per page. |
 
 Plugins: `Oban.Pruner` (7 days) and `Oban.Lifeline` (30 minutes, which must exceed
 the OCR timeout). Rules: job args are self-contained commands resolved at
@@ -546,7 +618,11 @@ environments run older rules. See [local-ai.md](local-ai.md) and [configuration.
 with a ReqLLM schema whose `lines` is a list of objects. The model returns each
 line's amount as a positive number with a `debit`/`credit` direction, and
 `Statements.ParsedStatement.parse_page/1` types the answer or refuses it with
-`{:validation_failed, fields}`.
+`{:validation_failed, fields}`. Pages are read in order, and each request after
+the one that prints the statement period carries it in `{{period}}` (`none yet`
+before that), so a date printed without a year gets the period's year. A
+Langfuse-hosted `extract-statement-page` must use the same variables as the
+local template.
 
 ### Observability
 
@@ -565,7 +641,8 @@ line's amount as a positive number with a `debit`/`credit` direction, and
 
 PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried|attempt_failed|verified`
 (`attempt_failed` is sent for OCR and verification attempts),
-`invoice_review:completed`, and `user:<id>:financial_accounts`. LiveViews
+`invoice_review:completed`, `user:<id>:financial_accounts`, and `user:<id>:statements`
+(`{:statement_updated, id}` after an upload, a retry, or a read; `{:statement_deleted, id}`). LiveViews
 subscribe in `mount/3` when connected.
 
 Account settings renders inside the authenticated `zaimutomo` root layout.
@@ -636,6 +713,7 @@ is in [`specs/`](../specs/README.md).
 | D33 | 2026-11 | Version releases with release-please (`release-type: elixir`): a bot-maintained release PR bumps `mix.exs`, `.release-please-manifest.json`, and `CHANGELOG.md` from the conventional commits on `main`; merging it tags `vX.Y.Z` and publishes a GitHub Release | The app stayed at 0.1.0 with no record of what each deploy shipped. Commits were already conventional, so the version and notes can be derived instead of written. The version lives in `mix.exs`, so the release and the sidebar report it with no build-time plumbing. git-cliff with tag-only versions (as in foglio) was rejected: there are no release artifacts to attach, and a committed `CHANGELOG.md` plus a `mix.exs` version is readable without GitHub. Consequences: the repository must allow Actions to create PRs; the release PR, opened with `GITHUB_TOKEN`, does not run CI; commit types hidden from the changelog never cut a release on their own. Version rules and the type list: [deployment.md](deployment.md#releases). |
 | D34 | 2026-11 | Add `current` and `credit_card` to `financial_accounts.account_type`, with every balance from the account holder's side: card debt is a negative balance | Bank and card statements need an account to belong to: the everyday current account that pays the bills had no type of its own and was filed as cash or savings, and net worth must subtract what a card owes. A string column behind `Ecto.Enum` needs no migration. The account form used a hand-kept list of types that a new enum value would silently miss, so its options and validation now come from `Ecto.Enum.values/2`, and the dashboard groups accounts in one call keyed by every type. Consequences: a positive balance on a card account means credit in the holder's favour; the dashboard shows a Current accounts figure first and a Credit cards figure last, each only when the user has such an account. |
 | D35 | 2026-11 | Verify each extraction in its own `VerificationJob` on the `documents` queue, after the OCR run saves the extraction, and store the result in a guarded column `extracted_content.verification_status` (pending → verified, needs_review, rejected, or verification_failed, once), written only by `ExtractedContentContext.record_verification/2` | One `OCRJob` attempt covered download, OCR, extraction, and verification, and persisted only on success, so a verifier failure could not go back to Oban without rerunning OCR and extraction; the verifier stayed fail-open with one immediate ReqLLM retry, and a briefly stalled verifier left the document "Could not verify" for good (#144). The job retries a transient failure with backoff (30 s, 2 min, 10 min) and the first unreadable answer, and ReqLLM retries nothing. The document is reviewable as soon as extraction lands; the invoice page shows "Verifying" and the OCR retry line for verification retries, from a separate reader (`live_verification_runs/1`) so the document status never goes back to processing. The status is a column with triggers, as for reviews and journal entries, because the next step is posting verified invoices without a human, which makes it decide what reaches the books; `record_verification/2` is the transaction that step will join, and each result records the verifier model and prompt version. Consequences: `verification_failed` means a human checks it, never a pass; the TypeSafe shadow writes `analysis` under the same row lock; a data-only load of verified rows needs `--disable-triggers` ([operations.md](operations.md)); a row whose job an operator cancels stays pending. Supersedes the interim one-retry cap. |
+| D36 | 2026-11 | Statements are their own aggregate (`statements`, `statement_lines`, context `Statements`), read by one Oban job (`ExtractJob`, queue `statements`) with OCR and then one extractor call per page; the status is derived by `Statements.status/2` and never stored; the job's `persist/2` is the only writer of the extraction facts | A statement is not an invoice: the document pipeline, its review decisions, and `Review.document_status/2` all assume an invoice chain, so a `documents.kind` flag would have needed a branch in each. One call per page bounds the output budget by the densest page, not the statement. The model returns a positive amount and a direction, because models flip signs more often than they misread a debit/credit column, and one pure function applies the sign. `opening + sum(lines) = closing` is a free integrity check, computed on read. Consequences: a failed re-read keeps the earlier lines and shows as failed; a statement with no lines is accepted only when its balance did not move; a statement's account cannot be deleted while it has statements (`on_delete: :restrict`); deleting it returns an error that asks to delete its statements first. |
 
 ---
 
@@ -681,6 +759,7 @@ is in [`specs/`](../specs/README.md).
 | Shadow verification | TypeSafe Jev run whose results are stored for comparison but never used for decisions. |
 | Review decision | A human verdict on an extraction: pending, approved, amended, rejected, or failed. |
 | Journal entry | A booked expense, posted with a category and need/want label. Entries approved before D17 may still be `uncategorized` until booked. |
+| Statement | A bank or card account statement for one period, uploaded against a financial account and read into lines. Its status is processing, ready, failed, or stalled. |
 | Stuck document | Has no extraction row and no live OCR job. |
 | Live run | A document's queued, running, or waiting OCR job (`DocumentProcessing.Run`). It is a retry when the user started it with Retry processing or it is past its first attempt. |
 | Currency hint | The user's base currency, snapshotted when the job is enqueued, to guide extraction. |

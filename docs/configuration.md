@@ -65,6 +65,7 @@ Backend setup and model choices: [local-ai.md](local-ai.md).
 |---|---|---|
 | `OBAN_DOCUMENTS_CONCURRENCY` | `2` | `documents` queue limit. Use `1` with a single local NPU. |
 | `TYPESAFE_MAX_CONCURRENCY` | `2` | `typesafe` queue limit. |
+| `OBAN_STATEMENTS_CONCURRENCY` | `1` | `statements` queue limit. Each statement makes one extractor call per page, so keep it low on a local backend. |
 
 Invalid integers make boot fail on purpose.
 

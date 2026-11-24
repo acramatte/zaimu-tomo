@@ -1,10 +1,11 @@
 defmodule ZaimuTomo.Storage.Verification do
   @moduledoc """
-  Verifies that every document record has a corresponding object in the
-  configured storage provider.
+  Verifies that every stored document and statement record has a corresponding
+  object in the configured storage provider.
   """
 
   alias ZaimuTomo.Documents
+  alias ZaimuTomo.Statements
   alias ZaimuTomo.Storage
 
   @type failure :: %{object_key: String.t(), reason: term()}
@@ -17,8 +18,10 @@ defmodule ZaimuTomo.Storage.Verification do
 
   @spec verify() :: {:ok, summary()} | {:error, summary()}
   def verify do
+    keys = Documents.list_document_object_keys() ++ Statements.list_statement_object_keys()
+
     summary =
-      Documents.list_document_object_keys()
+      keys
       |> Enum.reduce(empty_summary(), &verify_object/2)
       |> finalize_summary()
 

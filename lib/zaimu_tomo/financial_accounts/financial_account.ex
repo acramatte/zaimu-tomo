@@ -45,4 +45,18 @@ defmodule ZaimuTomo.FinancialAccounts.FinancialAccount do
     |> validate_length(:account_number, max: 255)
     |> put_change(:user_id, user_scope.user.id)
   end
+
+  @doc """
+  Changeset for deleting an account. Its statements keep it
+  (`on_delete: :restrict`), so deleting an account that still has statements
+  returns an error on `:statements` instead of raising.
+  """
+  def delete_changeset(financial_account) do
+    financial_account
+    |> change()
+    |> foreign_key_constraint(:statements,
+      name: :statements_financial_account_id_fkey,
+      message: "has statements; delete its statements first"
+    )
+  end
 end
