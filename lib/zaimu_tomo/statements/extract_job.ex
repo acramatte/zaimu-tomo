@@ -6,13 +6,14 @@ defmodule ZaimuTomo.Statements.ExtractJob do
   reads each page with the extractor (one call per page, in order), and merges
   the pages with `ParsedStatement.from_pages/2`.
 
-  `persist/2` is the only writer of `extracted_at`, the header, the lines, and
-  `failure_code`. It locks the statement row, so a retry or a delete waits for
-  it. A success replaces the lines wholesale and clears `failure_code`, so a
-  rerun converges on the same rows. A failure sets `failure_code` and keeps
-  the last good read. A transient error on a non-final attempt persists
-  nothing and returns `{:error, ErrorClassification.summarize(reason)}`, so
-  Oban retries with a body-free reason. A deleted statement cancels the job.
+  `persist/2` and `record_discarded/2` are the only writers of `extracted_at`,
+  the header, the lines, and `failure_code`. Both lock the statement row, so a
+  retry or a delete waits for them. A success replaces the lines wholesale and
+  clears `failure_code`, so a rerun converges on the same rows. A failure sets
+  `failure_code` and keeps the last good read. A transient error on a non-final
+  attempt persists nothing and returns
+  `{:error, ErrorClassification.summarize(reason)}`, so Oban retries with a
+  body-free reason. A deleted statement cancels the job.
   """
   @live_states [:available, :scheduled, :executing, :retryable]
 
@@ -30,6 +31,7 @@ defmodule ZaimuTomo.Statements.ExtractJob do
   require Logger
 
   alias ZaimuTomo.DocumentProcessing.{DocumentOCR, ErrorClassification, TemporaryFile}
+  alias ZaimuTomo.Langfuse
   alias ZaimuTomo.LLMClient
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Statements
@@ -62,12 +64,42 @@ defmodule ZaimuTomo.Statements.ExtractJob do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"statement_id" => id}} = job) do
-    with {:ok, statement} <- fetch(id),
-         {:ok, pages} <- read_pages(statement),
+    case fetch(id) do
+      {:ok, statement} ->
+        Langfuse.trace_statement_extraction(statement, fn ->
+          extract_statement(statement, job)
+        end)
+
+      {:cancel, _reason} = cancel ->
+        cancel
+    end
+  end
+
+  @doc false
+  @spec record_discarded(pos_integer(), String.t()) :: :ok
+  def record_discarded(id, code) do
+    Repo.transact(fn ->
+      case lock_statement(id) do
+        nil -> {:error, :statement_deleted}
+        statement -> write_discarded(statement, code)
+      end
+    end)
+    |> case do
+      {:ok, statement} ->
+        Logger.warning("[Statements] Extraction failed for statement #{id} (discarded): #{code}")
+        Statements.broadcast_updated(statement)
+        :ok
+
+      {:error, _reason} ->
+        :ok
+    end
+  end
+
+  defp extract_statement(%Statement{id: id} = statement, job) do
+    with {:ok, pages} <- read_pages(statement),
          {:ok, parsed} <- parse(pages, statement) do
       persist(id, {:ok, parsed})
     else
-      {:cancel, _reason} = cancel -> cancel
       {:failed, code} -> persist(id, {:error, code})
       {:error, reason} -> settle_error(id, reason, job)
     end
@@ -145,7 +177,7 @@ defmodule ZaimuTomo.Statements.ExtractJob do
 
   defp persist(id, result) do
     Repo.transact(fn ->
-      case Repo.one(from s in Statement, where: s.id == ^id, lock: "FOR UPDATE") do
+      case lock_statement(id) do
         nil -> {:error, :statement_deleted}
         statement -> write(statement, result)
       end
@@ -163,6 +195,18 @@ defmodule ZaimuTomo.Statements.ExtractJob do
 
       {:error, {:persistence_failed, _errors}} ->
         persist(id, {:error, "persistence_failed"})
+    end
+  end
+
+  defp lock_statement(id) do
+    Repo.one(from s in Statement, where: s.id == ^id, lock: "FOR UPDATE")
+  end
+
+  defp write_discarded(statement, code) do
+    if Statements.has_live_job?(statement.id) do
+      {:error, :already_retrying}
+    else
+      write(statement, {:error, code})
     end
   end
 
@@ -194,18 +238,18 @@ defmodule ZaimuTomo.Statements.ExtractJob do
         {:ok, updated}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        handle_update_error(statement.id, changeset)
+        handle_write_error(statement.id, changeset)
     end
   end
 
-  defp handle_update_error(statement_id, changeset) do
+  defp handle_write_error(statement_id, changeset) do
     if duplicate_period?(changeset) do
       {:error, :duplicate_period}
     else
-      keys = changeset.errors |> Keyword.keys() |> Enum.uniq() |> Enum.sort()
+      keys = changeset.errors |> Keyword.keys() |> Enum.uniq()
 
       Logger.warning(
-        "[Statements] Could not persist extraction for statement #{statement_id}: #{inspect(keys)}"
+        "[Statements] Persistence failed for statement #{statement_id}: #{inspect(keys)}"
       )
 
       {:error, {:persistence_failed, changeset.errors}}

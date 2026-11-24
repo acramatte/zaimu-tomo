@@ -272,4 +272,35 @@ defmodule ZaimuTomo.Statements.ExtractJobTest do
     assert read.failure_code == nil
     assert %DateTime{} = read.extracted_at
   end
+
+  test "record_discarded/2 writes failure_code and broadcasts only when no live job exists",
+       %{statement: statement} do
+    statement_id = statement.id
+    Statements.subscribe(statement_scope(statement))
+
+    # The upload fixture created a live job, so record_discarded/2 is a no-op.
+    assert :ok = ExtractJob.record_discarded(statement_id, "job_timeout")
+    assert read(statement).failure_code == nil
+    refute_received {:statement_updated, ^statement_id}
+
+    Repo.update_all(Oban.Job, set: [state: "discarded", discarded_at: DateTime.utc_now()])
+
+    log =
+      capture_log(fn ->
+        assert :ok = ExtractJob.record_discarded(statement_id, "job_timeout")
+      end)
+
+    assert log =~ "job_timeout"
+    assert read(statement).failure_code == "job_timeout"
+    assert_received {:statement_updated, ^statement_id}
+  end
+
+  test "record_discarded/2 is a no-op for a deleted statement",
+       %{scope: scope, statement: statement} do
+    Statements.subscribe(scope)
+    {:ok, _} = Statements.delete_statement(scope, statement)
+
+    assert :ok = ExtractJob.record_discarded(statement.id, "job_timeout")
+    refute_received {:statement_updated, _}
+  end
 end

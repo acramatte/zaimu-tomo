@@ -1,7 +1,15 @@
 defmodule ZaimuTomo.LangfuseTest do
   use ExUnit.Case, async: false
 
+  require Record
+
   alias ZaimuTomo.Langfuse
+
+  Record.defrecordp(
+    :otel_span,
+    :span,
+    Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
+  )
 
   setup do
     original_config = Application.get_env(:zaimu_tomo, :langfuse)
@@ -139,6 +147,65 @@ defmodule ZaimuTomo.LangfuseTest do
 
     assert result == {:ok, %{status: "failed"}}
     assert Langfuse.enabled?()
+  end
+
+  describe "trace_statement_extraction/2" do
+    test "leaves statement extraction unchanged when Langfuse is not configured" do
+      result =
+        Langfuse.trace_statement_extraction(%{id: 123, user_id: 456}, fn ->
+          assert Langfuse.current_trace_id() == nil
+          :ok
+        end)
+
+      assert result == :ok
+      refute Langfuse.enabled?()
+    end
+
+    test "emits a process-statement span with statement_id and user_id metadata when enabled" do
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
+
+      assert :ok = Langfuse.setup()
+
+      result =
+        Langfuse.trace_statement_extraction(%{id: 123, user_id: 456}, fn ->
+          span_ctx = :otel_tracer.current_span_ctx()
+          span_id = :otel_span.span_id(span_ctx)
+          [active_span] = :ets.lookup(:otel_span_table, span_id)
+          attributes = :otel_attributes.map(otel_span(active_span, :attributes))
+
+          assert otel_span(active_span, :name) == "process-statement"
+          assert attributes["langfuse.trace.name"] == "process-statement"
+          assert attributes["langfuse.environment"] == "test"
+          assert attributes["langfuse.user.id"] == "456"
+          assert attributes["langfuse.trace.tags"] == ["statement-extraction", "test"]
+          assert attributes["langfuse.trace.metadata.statement_id"] == "123"
+          assert attributes["langfuse.trace.metadata.workflow"] == "statement-extraction"
+
+          assert Jason.decode!(attributes["langfuse.observation.input"]) == %{
+                   "workflow" => "statement-extraction"
+                 }
+
+          assert is_binary(Langfuse.current_trace_id())
+          :ok
+        end)
+
+      assert result == :ok
+      assert Langfuse.enabled?()
+    end
+
+    test "preserves cancel and error results when enabled" do
+      Application.put_env(:zaimu_tomo, :langfuse, enabled: true, environment: "test")
+
+      assert {:cancel, :statement_deleted} ==
+               Langfuse.trace_statement_extraction(%{id: 123, user_id: 456}, fn ->
+                 {:cancel, :statement_deleted}
+               end)
+
+      assert {:error, :timeout} ==
+               Langfuse.trace_statement_extraction(%{id: 123, user_id: 456}, fn ->
+                 {:error, :timeout}
+               end)
+    end
   end
 
   test "leaves custom spans unchanged when Langfuse is not configured" do
