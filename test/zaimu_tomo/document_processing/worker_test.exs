@@ -5,6 +5,7 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
   alias ZaimuTomo.DocumentProcessing.ExtractedContent.ExtractedContent
   alias ZaimuTomo.DocumentProcessing.ExtractedContentContext
   alias ZaimuTomo.DocumentProcessing.ExtractedData
+  alias ZaimuTomo.DocumentProcessing.VerificationJob
   alias ZaimuTomo.DocumentProcessing.Worker
   alias ZaimuTomo.Documents.Document
   alias ZaimuTomo.Repo
@@ -105,7 +106,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
           document,
           extracted_data,
           raw_llm_response,
-          %{"status" => "not_run"},
           nil,
           "CHF"
         )
@@ -114,7 +114,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.document_id == document.id
       assert content.status == "success"
       assert content.raw_llm_response == raw_llm_response
-      assert content.analysis["verification"]["status"] == "not_run"
       assert content.trace_id == nil
     end
 
@@ -137,7 +136,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
           document,
           extracted_data,
           %{},
-          %{"status" => "verified"},
           "abc123def456abc123def456abc123def4",
           "CHF"
         )
@@ -145,35 +143,39 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.trace_id == "abc123def456abc123def456abc123def4"
     end
 
-    test "stores verifier analysis when provided" do
-      user = user_fixture()
-      scope = user_scope_fixture(user)
+    test "saves the verification as pending and enqueues one VerificationJob for the row" do
+      scope = user_scope_fixture(user_fixture())
       document = document_fixture(scope, %{})
 
-      extracted_data = %ExtractedData{
-        amount_to_pay_cents: 1000,
-        invoice_date: "2024-01-15",
-        invoice_number: "INV-001",
-        currency: "USD",
-        reason_for_payment: "Test payment",
-        issuer: "Test Issuer"
-      }
+      {:ok, content} =
+        Worker.persist_and_emit_success(document, extracted_data(), %{"pages" => []}, nil, "CHF")
 
-      raw_llm_response = %{"pages" => []}
-      verification = %{"status" => "needs_review", "raw_response" => "NEEDS_REVIEW"}
+      assert content.verification_status == "pending"
+      refute Map.has_key?(content.analysis["verification"], "status")
+
+      assert [job] = all_enqueued(worker: VerificationJob)
+      assert job.args["extracted_content_id"] == content.id
+      assert job.args["document_id"] == document.id
+      assert job.queue == "documents"
+    end
+
+    test "a refused verification job insert commits the extraction as verification_failed" do
+      scope = user_scope_fixture(user_fixture())
+      document = document_fixture(scope, %{})
+
+      # The job insert fails in the database with a constraint Oban's job
+      # changeset declares, so it comes back as a changeset error.
+      fail_inserts!("oban_jobs", Oban.Job.new(%{}, worker: "X"), :max_attempts)
 
       {:ok, content} =
-        Worker.persist_and_emit_success(
-          document,
-          extracted_data,
-          raw_llm_response,
-          verification,
-          nil,
-          "CHF"
-        )
+        Worker.persist_and_emit_success(document, extracted_data(), %{"pages" => []}, nil, "CHF")
 
-      assert content.status == "success"
-      assert content.analysis["verification"] == verification
+      content = ExtractedContentContext.get_by_id(content.id)
+      assert content.verification_status == "verification_failed"
+      assert content.analysis["verification"]["error"] == "enqueue_failed"
+
+      assert Repo.get_by!(ReviewDecision, extracted_content_id: content.id).review_status ==
+               "pending"
     end
 
     test "persists first and enqueues the TypeSafe shadow job with the currency hint" do
@@ -206,7 +208,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                  document,
                  extracted_data,
                  %{"pages" => []},
-                 %{"status" => "verified", "reason" => "All fields match."},
                  nil,
                  "CHF"
                )
@@ -277,7 +278,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                  document,
                  extracted_data(),
                  %{},
-                 %{"status" => "not_run"},
                  nil,
                  "CHF",
                  stale.id
@@ -363,7 +363,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
                  document,
                  extracted_data(),
                  %{},
-                 %{"status" => "not_run"},
                  nil,
                  "CHF",
                  nil

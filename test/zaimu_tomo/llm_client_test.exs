@@ -5,6 +5,7 @@ defmodule ZaimuTomo.LLMClientTest do
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.Response
   alias ReqLLM.ToolCall
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.LLMClient
 
   defmodule StalledStub do
@@ -491,8 +492,10 @@ defmodule ZaimuTomo.LLMClientTest do
       assert {:ok, extracted} = LLMClient.extract_invoice("Invoice total: CHF 12.00", "CHF")
       assert extracted.amount_to_pay_cents == 1200
 
-      assert {:ok, %{"status" => "verified"}} =
+      assert {:ok, %{"status" => "verified", "verifier_model" => "verifier"} = verdict} =
                LLMClient.verify_extraction("Invoice total: CHF 12.00", extracted)
+
+      assert is_integer(verdict["prompt_version"])
 
       for model <- ["extractor", "verifier"] do
         assert_receive {:ollama_request, "/v1/chat/completions", headers, body}
@@ -661,7 +664,7 @@ defmodule ZaimuTomo.LLMClientTest do
   end
 
   describe "verify_extraction/2 against a stalled endpoint" do
-    test "retries once inside ReqLLM, then reports a failed verification" do
+    test "sends one request and returns the timeout for VerificationJob to retry" do
       original_config = Application.fetch_env!(:zaimu_tomo, :ollama)
       original_langfuse = Application.fetch_env!(:zaimu_tomo, :langfuse)
 
@@ -686,13 +689,13 @@ defmodule ZaimuTomo.LLMClientTest do
         verifier: [backend: :ollama, model: "verifier", receive_timeout: 100]
       )
 
-      assert {:ok, %{"status" => "verification_failed", "error" => error}} =
+      assert {:error, {:llm_request_failed, %{status: nil, reason: reason}} = failure} =
                LLMClient.verify_extraction("Invoice total: CHF 12.00", %{
                  "amount_to_pay_cents" => 1200
                })
 
-      assert error =~ "timeout"
-      assert_received :stalled_request
+      assert reason =~ "timeout"
+      assert ErrorClassification.classify(failure) == :transient
       assert_received :stalled_request
       refute_receive :stalled_request, 300
     end

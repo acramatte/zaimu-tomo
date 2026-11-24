@@ -44,7 +44,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
       |> assign(:feedback_value, nil)
       |> load_document(document)
 
-    if connected?(socket), do: schedule_refresh(socket.assigns.processing_state)
+    if connected?(socket), do: schedule_refresh(socket)
 
     {:ok, socket}
   end
@@ -160,6 +160,23 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
             {label}
           </li>
         </ol>
+
+        <section
+          :if={@verification_pending? && @stage == :check}
+          id="invoice-verifying"
+          class="card"
+        >
+          <div class="muted" style="display:flex;align-items:center;gap:10px">
+            <span class="spinner"></span> Verifying the extraction against the document.
+          </div>
+          <div
+            :if={retry_note(@verification_run)}
+            id="invoice-verification-retry"
+            class="mt-2 text-[color:var(--info)]"
+          >
+            {retry_note(@verification_run)}
+          </div>
+        </section>
 
         <section :if={@verification && @stage == :check} class="card" style="border-color:var(--warn)">
           <div class="card-head" style="margin-bottom:10px">
@@ -872,8 +889,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
     case DocumentProcessing.retry_document(scope, document) do
       {:ok, _job} ->
-        schedule_refresh(:processing)
-        {:noreply, socket |> reload() |> put_flash(:info, "Processing restarted")}
+        socket = reload(socket)
+        schedule_refresh(socket)
+        {:noreply, put_flash(socket, :info, "Processing restarted")}
 
       {:error, {:not_retryable, state}} ->
         {:noreply,
@@ -921,7 +939,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   def handle_info(:refresh_processing, socket) do
     socket = reload(socket)
-    schedule_refresh(socket.assigns.processing_state)
+    schedule_refresh(socket)
     {:noreply, socket}
   end
 
@@ -1051,6 +1069,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   defp load_document(socket, document) do
     processing_state = DocumentProcessing.processing_state(document)
     run = DocumentProcessing.live_runs([document.id])[document.id]
+    verification_run = DocumentProcessing.live_verification_runs([document.id])[document.id]
     ec = List.first(document.extracted_content)
     rd = ec && ec.review_decision
     stage = stage(processing_state, rd)
@@ -1072,6 +1091,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     |> assign(:changes, if(rd, do: ExtractedData.changes(original, data), else: []))
     |> assign(:trace?, is_binary(ec && ec.trace_id))
     |> assign(:verification, verifier_feedback(ec))
+    |> assign(:verification_pending?, match?(%{verification_status: "pending"}, ec))
+    |> assign(:verification_run, verification_run)
     |> assign(:typesafe_shadow, typesafe_shadow(ec))
     |> assign(:original_values, original_values)
     |> assign(:rejection_form, to_form(%{}, as: :review_decision))
@@ -1181,13 +1202,23 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
 
   # The worker broadcasts before Oban acknowledges the job, and cancelled or
   # discarded jobs never broadcast, so a broadcast alone can leave a stale
-  # "Processing" pill. While a run is live, re-read the durable state.
-  defp schedule_refresh(:processing) do
+  # "Processing" pill. While a run is live, or a verification job is live and
+  # its "Verifying" card shows, re-read the durable state, which also keeps a
+  # retry countdown current.
+  defp schedule_refresh(%{
+         assigns: %{
+           processing_state: state,
+           verification_pending?: pending?,
+           stage: stage,
+           verification_run: run
+         }
+       })
+       when state == :processing or (pending? and stage == :check and not is_nil(run)) do
     interval = Application.get_env(:zaimu_tomo, :processing_refresh_interval_ms, 3_000)
     Process.send_after(self(), :refresh_processing, interval)
   end
 
-  defp schedule_refresh(_state), do: :ok
+  defp schedule_refresh(_socket), do: :ok
 
   # ── View helpers ───────────────────────────────────────────────────────────
 
@@ -1331,9 +1362,13 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
     document.filename |> Path.extname() |> String.trim_leading(".") |> String.upcase()
   end
 
-  defp verifier_feedback(%{analysis: %{"verification" => %{"status" => status} = verification}})
-       when status in ["needs_review", "rejected", "verification_failed"],
-       do: verification
+  defp verifier_feedback(%{verification_status: status} = content)
+       when status in ["needs_review", "rejected", "verification_failed"] do
+    content.analysis
+    |> Kernel.||(%{})
+    |> Map.get("verification", %{})
+    |> Map.put("status", status)
+  end
 
   defp verifier_feedback(_content), do: nil
 

@@ -39,6 +39,36 @@ defmodule ZaimuTomo.Langfuse do
   end
 
   @doc """
+  The W3C `traceparent` of the caller's active span, or nil when tracing is
+  off (no active span yields no traceparent header). A job stores it in its
+  args to join the enqueuing trace (`with_trace_parent/2`).
+  """
+  @spec traceparent() :: String.t() | nil
+  def traceparent do
+    Enum.find_value(:otel_propagator_text_map.inject([]), fn
+      {"traceparent", value} -> value
+      _header -> nil
+    end)
+  end
+
+  @doc """
+  Runs `fun` inside the trace a `traceparent/0` value names, then detaches it.
+  A nil traceparent runs `fun` as is.
+  """
+  @spec with_trace_parent(String.t() | nil, (-> result)) :: result when result: term()
+  def with_trace_parent(nil, fun) when is_function(fun, 0), do: fun.()
+
+  def with_trace_parent(traceparent, fun) when is_binary(traceparent) and is_function(fun, 0) do
+    token = :otel_propagator_text_map.extract([{"traceparent", traceparent}])
+
+    try do
+      fun.()
+    after
+      OpenTelemetry.Ctx.detach(token)
+    end
+  end
+
+  @doc """
   Records user feedback about extraction quality as a boolean score on the
   given trace. `value` is `1` for correct, `0` for incorrect.
 

@@ -136,6 +136,13 @@ defmodule ZaimuTomo.LLMClient do
 
   @doc """
   Verifies extraction against the markdown using the configured verifier backend.
+
+  Returns `{:ok, verdict}` with the verifier's `status` (`verified`,
+  `needs_review`, or `rejected`), its `reason` and `field_issues`, and the
+  `verifier_model` and `prompt_version` that produced it. A failed request or
+  prompt fetch returns its reason, and an answer with no valid structured
+  object returns `{:invalid_verifier_output, raw_response}`, so the caller can
+  classify and retry it (`DocumentProcessing.VerificationJob`).
   """
   @spec verify_extraction(String.t(), extraction_payload() | term()) ::
           {:ok, map()} | {:error, term()}
@@ -161,7 +168,7 @@ defmodule ZaimuTomo.LLMClient do
 
         {:error, reason} ->
           Logger.error("[LLM] Extraction verification prompt fetch failed: #{inspect(reason)}")
-          {:ok, verification_failure_result(%{"error" => inspect(reason)}, reason)}
+          {:error, reason}
       end
     end
   end
@@ -171,7 +178,10 @@ defmodule ZaimuTomo.LLMClient do
            ReqLLM.generate_object(model, prompt.content, schema, opts)
          end) do
       {:ok, response} ->
-        handle_verifier_response(response, config)
+        with {:ok, verdict} <- handle_verifier_response(response, config) do
+          {:ok,
+           Map.merge(verdict, %{"verifier_model" => model.id, "prompt_version" => prompt.version})}
+        end
 
       {:error, reason} ->
         failure = request_failure(reason)
@@ -180,7 +190,7 @@ defmodule ZaimuTomo.LLMClient do
           "[LLM] Extraction verification request failed with #{backend_summary(:verifier, config)}: #{inspect(failure)}"
         )
 
-        {:ok, verification_failure_result(%{"error" => inspect(failure)}, failure)}
+        {:error, failure}
     end
   end
 
@@ -207,7 +217,7 @@ defmodule ZaimuTomo.LLMClient do
           "[LLM] Extraction verification returned no valid verifier output with #{backend_summary(:verifier, config)}: #{inspect(reason)} #{inspect(raw_response)}"
         )
 
-        {:ok, verification_failure_result(raw_response, reason)}
+        {:error, {:invalid_verifier_output, raw_response}}
     end
   end
 
@@ -370,17 +380,6 @@ defmodule ZaimuTomo.LLMClient do
   end
 
   @doc false
-  @spec verification_failure_result(term(), term()) :: map()
-  def verification_failure_result(raw_response, reason) do
-    %{
-      "status" => "verification_failed",
-      "reason" => "Verifier did not return valid structured output.",
-      "raw_response" => raw_response,
-      "error" => inspect(reason)
-    }
-  end
-
-  @doc false
   @spec request_failure(term()) ::
           {:llm_request_failed, %{status: integer() | nil, reason: String.t()}}
   def request_failure(%ReqLLM.Error.API.Request{reason: reason, status: status})
@@ -428,17 +427,15 @@ defmodule ZaimuTomo.LLMClient do
   def verifier_receive_timeout,
     do: role_receive_timeout(:verifier, @default_verifier_receive_timeout)
 
-  # The verifier is unstreamed too, so it needs the same receive window. A failed
-  # verification request becomes a `verification_failed` result, not a job
-  # failure, so Oban never retries it and ReqLLM's retry is its only one. One
-  # retry, not ReqLLM's default three, keeps a stalled verifier (two receive
-  # windows) plus the extractor well inside OCRJob's 10-minute timeout.
+  # The verifier is unstreamed too, so it needs the same receive window. A
+  # failed request comes back to `VerificationJob`, which classifies it and
+  # retries a transient failure with backoff, so ReqLLM retries nothing.
   @spec verifier_request_opts() :: keyword()
   defp verifier_request_opts do
     [
       max_tokens: verifier_max_tokens(),
       receive_timeout: verifier_receive_timeout(),
-      max_retries: 1
+      max_retries: 0
     ]
   end
 

@@ -67,7 +67,6 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerLockTest do
         issuer: "Test Issuer"
       },
       %{},
-      %{"status" => "not_run"},
       nil,
       "CHF",
       nil

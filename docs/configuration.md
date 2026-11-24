@@ -51,7 +51,7 @@ Tests always use `ZaimuTomo.Storage.Memory`, so these variables are not read in 
 | `AI_VERIFIER_BACKEND` | `flm` / `nousresearch` | |
 | `AI_VERIFIER_MODEL` | `phi4-mini-it:4b` / `qwen/qwen3.6-35b-a3b` | |
 | `AI_VERIFIER_MAX_TOKENS` | `4096` | Reasoning verifiers need room before the JSON. |
-| `AI_VERIFIER_RECEIVE_TIMEOUT` | `120000` | Milliseconds the verifier waits for a response (not streamed). A failed verification does not fail the job, so ReqLLM retries the request once; a stalled verifier costs two windows. Keep both receive timeouts, with OCR, inside the 10-minute job timeout. |
+| `AI_VERIFIER_RECEIVE_TIMEOUT` | `120000` | Milliseconds the verifier waits for a response (not streamed). Each `VerificationJob` attempt sends one request; a timeout is retried by the job with backoff, and the job's own timeout is this value plus 30 seconds. |
 | `NOUSRESEARCH_API_KEY` | — | **Secret.** |
 | `NOUSRESEARCH_URL` | `https://inference-api.nousresearch.com/v1` | |
 | `FLM_URL` / `FLM_API_KEY` | `http://localhost:52625/v1` / `ollama` | Any local OpenAI-compatible server. |
