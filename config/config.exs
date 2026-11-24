@@ -61,7 +61,7 @@ config :zaimu_tomo, Oban,
     # Keep finished jobs a week for debugging/audit of retries.
     {Oban.Pruner, max_age: 7 * 24 * 60 * 60},
     # OSS Oban leaves jobs in `executing` when a node dies mid-run (deploy/OOM);
-    # Lifeline moves them back. Must be > OCRJob.timeout/1.
+    # Lifeline moves them back. Must exceed every worker's timeout/1.
     {Oban.Lifeline, rescue_after: :timer.minutes(30)}
   ]
 

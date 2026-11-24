@@ -1,6 +1,10 @@
 defmodule ZaimuTomo.RuntimeConfigTest do
   use ExUnit.Case, async: false
 
+  alias ZaimuTomo.DocumentProcessing.OCRJob
+  alias ZaimuTomo.Statements.ExtractJob
+  alias ZaimuTomo.TypeSafeVerification
+
   @runtime_path Path.expand("../../config/runtime.exs", __DIR__)
   @typesafe_env ~w(
     TYPESAFE_API_KEY
@@ -106,6 +110,74 @@ defmodule ZaimuTomo.RuntimeConfigTest do
 
       System.delete_env(name)
     end
+  end
+
+  test "Oban.Lifeline rescue_after exceeds every Oban worker's timeout" do
+    rescue_after_ms = read_lifeline_rescue_after_ms()
+    workers = oban_workers()
+
+    assert OCRJob in workers
+    assert ExtractJob in workers
+    assert TypeSafeVerification.Worker in workers
+
+    for worker <- [OCRJob, ExtractJob] do
+      timeout_ms = worker.timeout(%Oban.Job{})
+      assert is_integer(timeout_ms) and timeout_ms > 0
+      assert rescue_after_ms > timeout_ms
+    end
+
+    for worker <- workers do
+      assert_timeout_below_lifeline(worker, rescue_after_ms)
+    end
+  end
+
+  defp assert_timeout_below_lifeline(worker, rescue_after_ms) do
+    case worker.timeout(%Oban.Job{}) do
+      :infinity ->
+        :ok
+
+      timeout_ms when is_integer(timeout_ms) and timeout_ms > 0 ->
+        message =
+          "Oban.Lifeline rescue_after (#{rescue_after_ms}ms) must exceed " <>
+            "#{inspect(worker)}.timeout/1 (#{timeout_ms}ms)"
+
+        assert rescue_after_ms > timeout_ms, message
+    end
+  end
+
+  defp read_lifeline_rescue_after_ms do
+    plugins =
+      :zaimu_tomo
+      |> Application.fetch_env!(Oban)
+      |> Keyword.fetch!(:plugins)
+
+    lifeline_opts =
+      Enum.find_value(plugins, fn
+        {Oban.Lifeline, opts} -> opts
+        Oban.Lifeline -> [rescue_after: :timer.minutes(60)]
+        _other -> nil
+      end)
+
+    assert is_list(lifeline_opts), "expected Oban.Lifeline plugin to be configured"
+
+    lifeline_opts
+    |> Keyword.fetch!(:rescue_after)
+    |> Oban.Period.to_milliseconds()
+  end
+
+  defp oban_workers do
+    {:ok, modules} = :application.get_key(:zaimu_tomo, :modules)
+    Enum.filter(modules, &oban_worker?/1)
+  end
+
+  defp oban_worker?(module) do
+    Code.ensure_loaded?(module) and Oban.Worker in behaviours(module)
+  end
+
+  defp behaviours(module) do
+    module.module_info(:attributes)
+    |> Keyword.get_values(:behaviour)
+    |> List.flatten()
   end
 
   defp read_typesafe_config do
