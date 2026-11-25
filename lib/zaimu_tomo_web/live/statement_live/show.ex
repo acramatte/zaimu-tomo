@@ -178,7 +178,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
             <span class={["num right", line.amount_cents > 0 && "credit"]}>
               {fmt_cents(line.amount_cents, line.currency)}
             </span>
-            <.backing line={line} backing={backing} />
+            <.backing backing={backing} />
           </div>
         </div>
       </div>
@@ -186,7 +186,6 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     """
   end
 
-  attr :line, :any, required: true
   attr :backing, :any, required: true
 
   defp backing(%{backing: {:matched, entry, confidence}} = assigns)
@@ -203,13 +202,13 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     """
   end
 
-  defp backing(%{line: %{amount_cents: cents}} = assigns) when cents > 0 do
+  defp backing(%{backing: :credit} = assigns) do
     ~H"""
     <span class="backing faint">Money in</span>
     """
   end
 
-  defp backing(assigns) do
+  defp backing(%{backing: :unbacked} = assigns) do
     ~H"""
     <span class="backing none">Not backed</span>
     """
