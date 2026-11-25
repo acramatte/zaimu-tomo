@@ -5,6 +5,9 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
   alias ZaimuTomo.Statements
   alias ZaimuTomoWeb.ProcessingRefresh
 
+  @max_file_size_mb 20
+  @max_file_size @max_file_size_mb * 1_000_000
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -51,9 +54,9 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
             />
             <div class="drop-zone" phx-drop-target={@uploads.statement.ref}>
               <label for={@uploads.statement.ref} style="cursor:pointer;display:block">
-                <.live_file_input upload={@uploads.statement} style="display:none" />
+                <.live_file_input upload={@uploads.statement} class="sr-only" />
                 <div class="glyph">+</div>
-                <div class="h">Drop the statement PDF</div>
+                <div class="h">Drop the statement PDF or image</div>
                 <div class="sub">
                   One file per statement · read page by page · click to
                   <span class="kbd">browse</span>
@@ -96,7 +99,12 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
           </p>
 
           <div style="margin-top:16px">
-            <.button type="submit" variant="primary" phx-disable-with="Uploading...">
+            <.button
+              type="submit"
+              variant="primary"
+              disabled={has_upload_errors?(@uploads.statement)}
+              phx-disable-with="Uploading..."
+            >
               Upload and read
             </.button>
           </div>
@@ -146,17 +154,21 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Statements.subscribe(socket.assigns.current_scope)
+    scope = socket.assigns.current_scope
+
+    if connected?(socket) do
+      Statements.subscribe(scope)
+      FinancialAccounts.subscribe_financial_accounts(scope)
+    end
 
     {:ok,
      socket
      |> assign(:page_title, "Statements")
      |> assign(:current_path, "/statements")
-     |> assign(:refresh_timer, nil)
-     |> assign(:accounts, FinancialAccounts.list_financial_accounts(socket.assigns.current_scope))
+     |> assign(:accounts, FinancialAccounts.list_financial_accounts(scope))
      |> allow_upload(:statement,
        accept: ~w(.pdf .jpg .jpeg .png),
-       max_file_size: 20_000_000,
+       max_file_size: @max_file_size,
        max_entries: 1
      )
      |> assign_statements()}
@@ -164,7 +176,12 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
 
   @impl true
   def handle_params(params, _url, socket) do
-    {:noreply, assign(socket, :form, account_form(socket.assigns.accounts, params["account"]))}
+    socket =
+      socket
+      |> maybe_cancel_pending_uploads()
+      |> assign(:form, account_form(socket.assigns.accounts, params["account"]))
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -172,11 +189,46 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     {:noreply, assign(socket, :form, account_form(socket.assigns.accounts, id))}
   end
 
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
+
   def handle_event("cancel-upload", %{"ref" => ref}, socket) do
     {:noreply, cancel_upload(socket, :statement, ref)}
   end
 
   def handle_event("save", %{"statement" => %{"financial_account_id" => account_id}}, socket) do
+    if has_upload_errors?(socket.assigns.uploads.statement) do
+      {:noreply, put_flash(socket, :error, "Fix the file error before uploading.")}
+    else
+      save_statement(socket, account_id)
+    end
+  end
+
+  def handle_event("save", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Choose one of your accounts.")}
+  end
+
+  @impl true
+  def handle_info({event, _id}, socket)
+      when event in [:statement_updated, :statement_deleted] do
+    {:noreply, assign_statements(socket)}
+  end
+
+  def handle_info({event, _account}, socket) when event in [:created, :updated, :deleted] do
+    accounts = FinancialAccounts.list_financial_accounts(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> assign(:accounts, accounts)
+     |> assign(:form, account_form(accounts, selected_account_id(socket)))}
+  end
+
+  def handle_info({:balance_recorded, _snapshot}, socket), do: {:noreply, socket}
+
+  def handle_info(:refresh_processing, socket) do
+    {:noreply, socket |> ProcessingRefresh.clear() |> assign_statements()}
+  end
+
+  defp save_statement(socket, account_id) do
     scope = socket.assigns.current_scope
 
     results =
@@ -208,15 +260,15 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     end
   end
 
-  @impl true
-  def handle_info({event, _id}, socket)
-      when event in [:statement_updated, :statement_deleted] do
-    {:noreply, assign_statements(socket)}
+  defp maybe_cancel_pending_uploads(%{assigns: %{live_action: :index}} = socket) do
+    Enum.reduce(
+      socket.assigns.uploads.statement.entries,
+      socket,
+      &cancel_upload(&2, :statement, &1.ref)
+    )
   end
 
-  def handle_info(:refresh_processing, socket) do
-    {:noreply, socket |> assign(:refresh_timer, nil) |> assign_statements()}
-  end
+  defp maybe_cancel_pending_uploads(socket), do: socket
 
   defp assign_statements(socket) do
     entries = Statements.list_statements(socket.assigns.current_scope)
@@ -230,6 +282,11 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     |> assign(:groups, groups)
     |> ProcessingRefresh.schedule(Enum.any?(entries, &(&1.status == :processing)))
   end
+
+  defp selected_account_id(%{assigns: %{form: form}}) when is_map(form),
+    do: form[:financial_account_id].value
+
+  defp selected_account_id(_socket), do: nil
 
   defp account_form(accounts, requested_id) do
     selected =
@@ -255,13 +312,19 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
   defp period_label(%{period_start: from, period_end: to}),
     do: "#{Calendar.strftime(from, "%-d %b %Y")} – #{Calendar.strftime(to, "%-d %b %Y")}"
 
-  defp upload_error_message(%Ecto.Changeset{errors: [{field, error} | _] = errors}) do
-    if Keyword.has_key?(errors, :financial_account_id),
-      do: "Choose one of your accounts.",
-      else: "#{Phoenix.Naming.humanize(field)} #{translate_error(error)}."
+  defp has_upload_errors?(upload) do
+    upload_errors(upload) != [] or Enum.any?(upload.entries, &(upload_errors(upload, &1) != []))
   end
 
-  defp upload_error_label(:too_large), do: "The file is larger than 20 MB."
+  defp upload_error_message(%Ecto.Changeset{errors: errors}) do
+    case {Keyword.fetch(errors, :financial_account_id), Keyword.fetch(errors, :filename)} do
+      {{:ok, _error}, _} -> "Choose one of your accounts."
+      {:error, {:ok, error}} -> "Filename #{translate_error(error)}."
+      _ -> "The statement could not be uploaded."
+    end
+  end
+
+  defp upload_error_label(:too_large), do: "The file is larger than #{@max_file_size_mb} MB."
   defp upload_error_label(:not_accepted), do: "Upload a PDF or an image of the statement."
   defp upload_error_label(:too_many_files), do: "Upload one statement at a time."
   defp upload_error_label(_error), do: "The file could not be uploaded."

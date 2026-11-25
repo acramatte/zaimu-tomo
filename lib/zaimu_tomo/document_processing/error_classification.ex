@@ -231,6 +231,16 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
     do: "the extraction service returned an answer that could not be understood"
 
   def describe("missing_structured_output"), do: "the extraction service returned no answer"
+  def describe("persistence_failed"), do: "the extracted result could not be saved"
+  def describe("missing_prompt_variables"), do: "the prompt service is misconfigured"
+  def describe("local_prompt_not_found"), do: "the prompt service is misconfigured"
+  def describe("langfuse_prompt_api_not_configured"), do: "the prompt service is not configured"
+
+  def describe("invalid_langfuse_prompt_response"),
+    do: "the prompt service returned an invalid response"
+
+  def describe("prompt_fetcher_failed"), do: "couldn't reach the prompt service"
+  def describe("unexpected_api_structure"), do: "the OCR service returned an unexpected response"
 
   def describe(code) when is_binary(code) do
     with [stage, detail] <- String.split(code, ":", parts: 2),
@@ -251,5 +261,6 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassification do
 
   defp describe_service(service, "http_5" <> _status), do: "#{service} returned an error"
   defp describe_service(service, "transport" <> _reason), do: "couldn't reach #{service}"
+  defp describe_service(service, "missing_api_key"), do: "#{service} is not configured"
   defp describe_service(service, _detail), do: "#{service} refused the request"
 end

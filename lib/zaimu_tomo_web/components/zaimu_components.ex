@@ -7,6 +7,7 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
 
   alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.DocumentProcessing.Run
+  alias ZaimuTomo.FinancialAccounts.FinancialAccount
 
   # ── Number formatting ──────────────────────────────────────────────────────
 
@@ -57,14 +58,16 @@ defmodule ZaimuTomoWeb.ZaimuComponents do
     |> String.reverse()
   end
 
+  @account_types FinancialAccount.account_types()
+
   @doc """
   Reads an account type as words: `:credit_card` is "Credit card". `:current`
   alone reads as a time, so it is "Current account".
   """
   def account_type_label(:current), do: "Current account"
 
-  def account_type_label(type) when is_atom(type) do
-    type |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+  def account_type_label(type) when type in @account_types do
+    type |> FinancialAccount.type_label() |> String.capitalize()
   end
 
   # ── Status pill ────────────────────────────────────────────────────────────

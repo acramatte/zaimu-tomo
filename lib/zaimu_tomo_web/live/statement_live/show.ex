@@ -88,7 +88,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
         <div class="card span-5" id="statement-totals">
           <div class="card-head">
             <div class="card-title">Lines</div>
-            <div class="card-meta">{length(@statement.lines)} lines</div>
+            <div class="card-meta">{line_count_label(@statement.lines)}</div>
           </div>
           <div class="detail-row">
             <div class="name">Money out</div>
@@ -146,7 +146,6 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     {:ok,
      socket
      |> assign(:current_path, "/statements")
-     |> assign(:refresh_timer, nil)
      |> assign_statement(statement)}
   end
 
@@ -192,7 +191,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
       do: {:noreply, socket}
 
   def handle_info(:refresh_processing, socket),
-    do: {:noreply, socket |> assign(:refresh_timer, nil) |> reload()}
+    do: {:noreply, socket |> ProcessingRefresh.clear() |> reload()}
 
   defp reload(socket) do
     case Statements.get_statement(socket.assigns.current_scope, socket.assigns.statement.id) do
@@ -211,18 +210,25 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     status = Statements.status(statement)
     balance = Statements.balance(statement)
 
-    {credits, debits} =
-      statement.lines |> Enum.map(& &1.amount_cents) |> Enum.split_with(&(&1 > 0))
-
     socket
     |> assign(:page_title, title(statement))
     |> assign(:statement, statement)
     |> assign(:status, status)
     |> assign(:balance, balance)
     |> assign(:retryable?, Statements.retryable?(status, balance))
-    |> assign(:totals, %{in: Enum.sum(credits), out: Enum.sum(debits)})
+    |> assign(:totals, totals(statement))
     |> ProcessingRefresh.schedule(status == :processing)
   end
+
+  defp totals(%{extracted_at: nil}), do: %{in: nil, out: nil}
+
+  defp totals(%{lines: lines}) do
+    {credits, debits} = lines |> Enum.map(& &1.amount_cents) |> Enum.split_with(&(&1 > 0))
+    %{in: Enum.sum(credits), out: Enum.sum(debits)}
+  end
+
+  defp line_count_label([_]), do: "1 line"
+  defp line_count_label(lines), do: "#{length(lines)} lines"
 
   defp title(%{period_end: nil, filename: filename}), do: filename
   defp title(%{period_end: date}), do: "#{Calendar.strftime(date, "%B %Y")} statement"
@@ -234,5 +240,5 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
 
   defp currency(statement), do: statement.currency || statement.financial_account.currency
 
-  defp off_by({:off_by, gap}), do: gap
+  defp off_by({:off_by, gap}), do: abs(gap)
 end

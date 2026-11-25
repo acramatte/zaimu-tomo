@@ -272,6 +272,32 @@ defmodule ZaimuTomo.DocumentProcessing.ErrorClassificationTest do
                "the extraction service returned no answer"
     end
 
+    test "persistence, prompt, OCR structure, and missing API key failures" do
+      assert ErrorClassification.describe("persistence_failed") ==
+               "the extracted result could not be saved"
+
+      assert ErrorClassification.describe("missing_prompt_variables") ==
+               "the prompt service is misconfigured"
+
+      assert ErrorClassification.describe("local_prompt_not_found") ==
+               "the prompt service is misconfigured"
+
+      assert ErrorClassification.describe("langfuse_prompt_api_not_configured") ==
+               "the prompt service is not configured"
+
+      assert ErrorClassification.describe("invalid_langfuse_prompt_response") ==
+               "the prompt service returned an invalid response"
+
+      assert ErrorClassification.describe("prompt_fetcher_failed") ==
+               "couldn't reach the prompt service"
+
+      assert ErrorClassification.describe("unexpected_api_structure") ==
+               "the OCR service returned an unexpected response"
+
+      assert ErrorClassification.describe("ocr_upload_failed:missing_api_key") ==
+               "the OCR service is not configured"
+    end
+
     test "a job timeout and unknown codes" do
       assert ErrorClassification.describe("job_timeout") == "the run took too long"
       assert ErrorClassification.describe("job_interrupted") == "the run was interrupted"
