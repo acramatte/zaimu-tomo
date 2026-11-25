@@ -225,7 +225,7 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
   def handle_info({:balance_recorded, _snapshot}, socket), do: {:noreply, socket}
 
   def handle_info(:refresh_processing, socket) do
-    {:noreply, socket |> ProcessingRefresh.clear() |> assign_statements()}
+    {:noreply, ProcessingRefresh.on_tick(socket, &assign_statements/1)}
   end
 
   defp save_statement(socket, account_id) do

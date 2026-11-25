@@ -50,7 +50,7 @@ defmodule ZaimuTomoWeb.ActivityLive.Index do
       do: {:noreply, load_activity(socket)}
 
   def handle_info(:refresh_processing, socket),
-    do: {:noreply, socket |> ProcessingRefresh.clear() |> load_activity()}
+    do: {:noreply, ProcessingRefresh.on_tick(socket, &load_activity/1)}
 
   def handle_info(_message, socket), do: {:noreply, socket}
 

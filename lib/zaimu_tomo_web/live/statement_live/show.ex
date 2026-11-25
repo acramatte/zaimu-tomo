@@ -191,7 +191,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
       do: {:noreply, socket}
 
   def handle_info(:refresh_processing, socket),
-    do: {:noreply, socket |> ProcessingRefresh.clear() |> reload()}
+    do: {:noreply, ProcessingRefresh.on_tick(socket, &reload/1)}
 
   defp reload(socket) do
     case Statements.get_statement(socket.assigns.current_scope, socket.assigns.statement.id) do
