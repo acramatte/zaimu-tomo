@@ -8,6 +8,8 @@ defmodule ZaimuTomo.StatementsTest do
   import ZaimuTomo.ReviewFixtures, only: [journal_entry_fixture: 3]
   import ZaimuTomo.StatementsFixtures
 
+  alias Ecto.Adapters.SQL
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Statements
   alias ZaimuTomo.Statements.{ExtractJob, Reconciliation, Statement, StatementLine}
@@ -500,10 +502,94 @@ defmodule ZaimuTomo.StatementsTest do
         assert Statements.get_reconciliation!(scope, id).statement.id == statement.id
       end
 
-      for id <- [foreign.id, -1, "not-an-id"] do
+      for id <- [foreign.id, -1, "not-an-id", nil] do
         assert Statements.get_reconciliation(scope, id) == nil
         assert_raise Ecto.NoResultsError, fn -> Statements.get_reconciliation!(scope, id) end
       end
+    end
+
+    test "reconcile/2 short-circuits an empty id list", %{scope: scope} do
+      assert Statements.reconcile(scope, []) == %{}
+    end
+
+    test "frontier closure spans multi-hop foreign-amount chains across statements",
+         %{scope: scope, account: account} do
+      # Statement 1 (EUR/USD) bridges to Statement 2 (USD/GBP), which bridges to
+      # Statement 3 (GBP). Starting from Statement 1 alone must still see the
+      # entire 3-currency chain so each entry backs the right line.
+      eur_account = account
+      usd_account = financial_account_fixture(scope, %{name: "USD Card", currency: "USD"})
+      gbp_account = financial_account_fixture(scope, %{name: "GBP Card", currency: "GBP"})
+
+      s1 =
+        read_statement(scope, eur_account, ~D[2026-09-01], [
+          {~D[2026-09-20], "ACME NYC", -4_200, {-5_000, "USD"}}
+        ])
+
+      s2 =
+        read_statement(scope, usd_account, ~D[2026-09-01], [
+          {~D[2026-09-21], "BETA LONDON", -5_000, {-3_900, "GBP"}}
+        ])
+
+      s3 =
+        read_statement(scope, gbp_account, ~D[2026-09-01], [
+          {~D[2026-09-22], "Cafe", -3_900}
+        ])
+
+      usd_entry = entry(scope, "ACME Corp", 5_000, "USD", "2026-09-19")
+      gbp_entry = entry(scope, "BETA Ltd", 3_900, "GBP", "2026-09-20")
+
+      assert backings(Statements.reconcile(scope, [s1.id])[s1.id]) == [
+               {"ACME NYC", usd_entry.id, :named}
+             ]
+
+      assert backings(Statements.reconcile(scope, [s2.id])[s2.id]) == [
+               {"BETA LONDON", gbp_entry.id, :named}
+             ]
+
+      assert backings(Statements.reconcile(scope, [s3.id])[s3.id]) == [
+               {"Cafe", :unbacked}
+             ]
+    end
+
+    test "undated posted entries are excluded by list_posted_entries_for_amount_keys/2",
+         %{scope: scope} do
+      dated = entry(scope, "ACME", 4_200, "EUR", "2026-10-01")
+      undated = entry(scope, "ACME", 4_200, "EUR", "2026-10-02")
+
+      Repo.query!("UPDATE journal_entries SET date = NULL WHERE id = $1", [undated.id])
+
+      ids =
+        scope
+        |> Accounting.list_posted_entries_for_amount_keys([{4_200, "EUR"}])
+        |> Enum.map(& &1.id)
+
+      assert ids == [dated.id]
+    end
+
+    test "reconciliation queries use semi-join UNION and partial index plans without SubPlans",
+         %{scope: scope} do
+      Repo.query!("SET LOCAL enable_seqscan = off")
+
+      lines_plan =
+        explain_plan(
+          Statements.debit_lines_with_keys_query(scope, [{4_200, "EUR"}, {5_000, "USD"}])
+        )
+
+      assert lines_plan =~ "Append"
+      refute lines_plan =~ "SubPlan"
+
+      entries_plan =
+        explain_plan(Accounting.posted_entries_for_amount_keys_query(scope, [{4_200, "EUR"}]))
+
+      assert entries_plan =~ "journal_entries_user_id_currency_amount_cents_index"
+      refute entries_plan =~ "SubPlan"
+    end
+
+    defp explain_plan(query) do
+      {sql, params} = SQL.to_sql(:all, Repo, query)
+      %{rows: rows} = Repo.query!("EXPLAIN " <> sql, params)
+      Enum.map_join(rows, "\n", fn [line] -> line end)
     end
   end
 end

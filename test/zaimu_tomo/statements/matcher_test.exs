@@ -126,8 +126,58 @@ defmodule ZaimuTomo.Statements.MatcherTest do
              }) == []
     end
 
+    test "ignores non-negative original amounts and deduplicates identical keys" do
+      assert Matcher.line_keys(%{
+               amount_cents: -4_200,
+               currency: "CHF",
+               original_amount_cents: 4_200,
+               original_currency: "EUR"
+             }) == [{4_200, "CHF"}]
+
+      assert Matcher.line_keys(%{
+               amount_cents: -4_200,
+               currency: "CHF",
+               original_amount_cents: 0,
+               original_currency: "EUR"
+             }) == [{4_200, "CHF"}]
+
+      assert Matcher.line_keys(%{
+               amount_cents: -4_200,
+               currency: "CHF",
+               original_amount_cents: -4_200,
+               original_currency: "CHF"
+             }) == [{4_200, "CHF"}]
+    end
+
     test "an entry is keyed by its amount and currency as booked" do
       assert Matcher.entry_key(%{amount_cents: 4_200, currency: "CHF"}) == {4_200, "CHF"}
+    end
+  end
+
+  describe "match/2 preconditions" do
+    test "raises ArgumentError when line ids are duplicated" do
+      key = {4_200, "CHF"}
+
+      assert_raise ArgumentError, ~r/duplicate line id/, fn ->
+        Matcher.match([line(:dup, 0, [key]), line(:dup, 1, [key])], [entry(:e, key)])
+      end
+    end
+
+    test "raises ArgumentError when entry ids are duplicated" do
+      key = {4_200, "CHF"}
+
+      assert_raise ArgumentError, ~r/duplicate entry id/, fn ->
+        Matcher.match([line(:l, 0, [key])], [entry(:dup, key), entry(:dup, key)])
+      end
+    end
+
+    test "skips lines or entries with nil dates instead of crashing" do
+      key = {4_200, "CHF"}
+      undated_line = %{id: :l1, date: nil, keys: [key], description: "ACME"}
+      undated_entry = %{id: :e1, date: nil, key: key, issuer: "ACME"}
+
+      assert Matcher.match([undated_line], [entry(:e2, key)]) == %{}
+      assert Matcher.match([line(:l2, 0, [key])], [undated_entry]) == %{}
     end
   end
 
@@ -141,9 +191,20 @@ defmodule ZaimuTomo.Statements.MatcherTest do
       assert Matcher.named?("BP (Switzerland) AG", "BP STATION 1234 BERN")
     end
 
-    test "single letters and connector words do not name an issuer" do
+    test "matches German and Swiss umlauts and ß against both stripped and digraph forms" do
+      assert Matcher.named?("Müller GmbH", "MUELLER ZUERICH")
+      assert Matcher.named?("Müller GmbH", "MULLER ZURICH")
+      assert Matcher.named?("Mueller GmbH", "MÜLLER ZÜRICH")
+      assert Matcher.named?("Bäckerei Huber", "BAECKEREI BERN")
+      assert Matcher.named?("Zürich Versicherung", "ZUERICH AG")
+      assert Matcher.named?("Bahnhofstraße Apotheke", "BAHNHOFSTRASSE 12")
+    end
+
+    test "single letters, TLDs, country codes, and connector words do not name an issuer" do
       refute Matcher.named?("Bäckerei M. Huber", "MIGROS M ZUERICH")
       refute Matcher.named?("Café de la Gare", "BOULANGERIE DE LA PLACE")
+      refute Matcher.named?("Spotify CH", "galaxus.ch")
+      refute Matcher.named?("Acme Com", "shop.example.com")
     end
 
     test "a word only matches whole, so a prefix of a longer word does not name the issuer" do
@@ -155,10 +216,11 @@ defmodule ZaimuTomo.Statements.MatcherTest do
       refute Matcher.named?("Müller & Co AG", "CO AG ZUERICH")
     end
 
-    test "a missing or blank issuer is never named" do
+    test "a missing or blank issuer or description is never named" do
       refute Matcher.named?(nil, "SBB CFF FFS")
       refute Matcher.named?("", "SBB CFF FFS")
       refute Matcher.named?("  ", "SBB CFF FFS")
+      refute Matcher.named?("SBB", nil)
     end
   end
 
@@ -227,6 +289,40 @@ defmodule ZaimuTomo.Statements.MatcherTest do
         assert %{l: {:e, _confidence}} = Matcher.match([lone_line], [lone_entry])
       end
     end
+
+    property "closing over amount groups matches any subset identically to a global run" do
+      check all(
+              {lines, entries} <- books(),
+              take_count <- integer(0..length(lines))
+            ) do
+        subset = Enum.take(lines, take_count)
+        global = Matcher.match(lines, entries)
+
+        initial_keys = subset |> Enum.flat_map(& &1.keys) |> MapSet.new()
+        closed_keys = close_keys(lines, initial_keys)
+
+        closed_lines =
+          Enum.filter(lines, fn l -> Enum.any?(l.keys, &MapSet.member?(closed_keys, &1)) end)
+
+        closed_entries = Enum.filter(entries, &MapSet.member?(closed_keys, &1.key))
+        local = Matcher.match(closed_lines, closed_entries)
+
+        for l <- subset do
+          assert Map.get(local, l.id) == Map.get(global, l.id)
+        end
+      end
+    end
+  end
+
+  defp close_keys(lines, keys) do
+    grown =
+      lines
+      |> Enum.filter(fn l -> Enum.any?(l.keys, &MapSet.member?(keys, &1)) end)
+      |> Enum.flat_map(& &1.keys)
+      |> MapSet.new()
+      |> MapSet.union(keys)
+
+    if MapSet.equal?(grown, keys), do: keys, else: close_keys(lines, grown)
   end
 
   defp eligible?(line, entry) do
