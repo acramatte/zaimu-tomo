@@ -33,6 +33,13 @@ defmodule ZaimuTomo.Statements.Reconciliation do
           summary: summary()
         }
 
+  @filters [:all, :unbacked, :backed, :credits]
+  @confidences Matcher.confidences()
+
+  @doc "All supported reconciliation row filters."
+  @spec filters() :: [filter()]
+  def filters, do: @filters
+
   @doc false
   @spec new(
           Statement.t(),
@@ -40,8 +47,8 @@ defmodule ZaimuTomo.Statements.Reconciliation do
           Statements.balance() | nil,
           %{integer() => {JournalEntry.t(), Matcher.confidence()}}
         ) :: t()
-  def new(%Statement{lines: lines} = statement, status, balance, matches) do
-    rows = Enum.map(lines, &%{line: &1, backing: backing(Map.get(matches, &1.id))})
+  def new(%Statement{lines: lines} = statement, status, balance, matches) when is_list(lines) do
+    rows = Enum.map(lines, &%{line: &1, backing: backing(&1, Map.get(matches, &1.id))})
 
     %__MODULE__{
       statement: statement,
@@ -52,8 +59,14 @@ defmodule ZaimuTomo.Statements.Reconciliation do
     }
   end
 
-  defp backing(nil), do: :unbacked
-  defp backing({entry, confidence}), do: {:matched, entry, confidence}
+  defp backing(_line, nil), do: :unbacked
+
+  defp backing(%{amount_cents: cents, id: id}, {_entry, _confidence}) when cents >= 0 do
+    raise ArgumentError, "non-debit statement line #{inspect(id)} cannot be matched"
+  end
+
+  defp backing(_line, {entry, confidence}) when confidence in @confidences,
+    do: {:matched, entry, confidence}
 
   @doc """
   The rows under one filter, in statement order: `:backed` and `:unbacked`
@@ -61,7 +74,9 @@ defmodule ZaimuTomo.Statements.Reconciliation do
   """
   @spec rows(t(), filter()) :: [row()]
   def rows(%__MODULE__{rows: rows}, :all), do: rows
-  def rows(%__MODULE__{rows: rows}, filter), do: Enum.filter(rows, &(section(&1) == filter))
+
+  def rows(%__MODULE__{rows: rows}, filter) when filter in @filters,
+    do: Enum.filter(rows, &(section(&1) == filter))
 
   defp section(%{line: %{amount_cents: cents}}) when cents > 0, do: :credits
   defp section(%{backing: :unbacked}), do: :unbacked

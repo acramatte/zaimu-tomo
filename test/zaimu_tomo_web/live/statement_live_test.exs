@@ -510,12 +510,13 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/statements/#{statement}?filter=unbacked")
       assert has_element?(view, "#statement-line-1 .backing", "Not backed")
-      assert has_element?(view, "#statement-coverage", "0 of 1 payments backed")
+      assert has_element?(view, "#statement-coverage", "0 of 1 payment backed")
 
       entry = posted_entry(scope, "SBB", 4_200, "2026-10-01")
 
       assert has_element?(view, "#statement-tab-empty", "Every payment")
-      assert has_element?(view, "#statement-coverage", "1 of 1 payments backed")
+      refute has_element?(view, ".statement-line-cols")
+      assert has_element?(view, "#statement-coverage", "1 of 1 payment backed")
 
       view |> element("#statement-tab-backed") |> render_click()
 
