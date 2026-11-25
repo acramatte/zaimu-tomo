@@ -1,6 +1,7 @@
 defmodule ZaimuTomoWeb.StatementLive.Index do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Statements
   alias ZaimuTomoWeb.ProcessingRefresh
@@ -167,7 +168,7 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     if connected?(socket) do
       Statements.subscribe(scope)
       FinancialAccounts.subscribe_financial_accounts(scope)
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "invoice_review:completed")
+      Accounting.subscribe_journal_entries(scope)
     end
 
     {:ok,
@@ -234,11 +235,8 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
   def handle_info({:balance_recorded, _snapshot}, socket), do: {:noreply, socket}
 
   # A posted invoice can back a line of a listed statement.
-  def handle_info(%{user_id: user_id}, socket)
-      when user_id == socket.assigns.current_scope.user.id,
-      do: {:noreply, assign_statements(socket)}
-
-  def handle_info(%{user_id: _other_user}, socket), do: {:noreply, socket}
+  def handle_info({:journal_entry_posted, _id}, socket),
+    do: {:noreply, assign_statements(socket)}
 
   def handle_info(:refresh_processing, socket) do
     {:noreply, ProcessingRefresh.on_tick(socket, &assign_statements/1)}
@@ -300,7 +298,11 @@ defmodule ZaimuTomoWeb.StatementLive.Index do
     coverage =
       scope
       |> Statements.reconcile(ready_ids)
-      |> Map.new(fn {id, reconciliation} -> {id, reconciliation.summary} end)
+      |> Enum.reduce(%{}, fn {id, reconciliation}, acc ->
+        if reconciliation.summary.debits > 0,
+          do: Map.put(acc, id, reconciliation.summary),
+          else: acc
+      end)
 
     socket
     |> assign(:groups, groups)

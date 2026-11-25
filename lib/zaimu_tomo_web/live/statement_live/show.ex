@@ -1,8 +1,9 @@
 defmodule ZaimuTomoWeb.StatementLive.Show do
   use ZaimuTomoWeb, :live_view
 
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.Statements
-  alias ZaimuTomo.Statements.Reconciliation
+  alias ZaimuTomo.Statements.{Matcher, Reconciliation}
   alias ZaimuTomoWeb.ProcessingRefresh
 
   @filters [
@@ -12,6 +13,12 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     {:credits, "credits", "Credits"}
   ]
   @filter_by_param Map.new(@filters, fn {filter, param, _label} -> {param, filter} end)
+  @confidences Matcher.confidences()
+
+  if Enum.map(@filters, &elem(&1, 0)) != Reconciliation.filters() do
+    raise CompileError,
+      description: "StatementLive.Show @filters drifted from Reconciliation.filters/0"
+  end
 
   @impl true
   def render(assigns) do
@@ -109,7 +116,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
           </div>
           <div :if={@summary.debits > 0} class="statement-coverage" id="statement-coverage">
             <div class="statement-coverage-label">
-              <span>{@summary.debits_backed} of {@summary.debits} payments backed</span>
+              <span>{coverage_label(@summary)}</span>
               <span class="muted">by a booked invoice</span>
             </div>
             <div class="budget-bar" aria-hidden="true">
@@ -143,7 +150,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
               {label} <span class="count">{tab_count(@reconciliation, @summary, filter)}</span>
             </.link>
           </nav>
-          <div :if={@statement.lines != []} class="statement-line-cols" aria-hidden="true">
+          <div :if={@rows != []} class="statement-line-cols" aria-hidden="true">
             <span>Date</span>
             <span>Description</span>
             <span class="right">Foreign amount</span>
@@ -182,7 +189,8 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
   attr :line, :any, required: true
   attr :backing, :any, required: true
 
-  defp backing(%{backing: {:matched, entry, confidence}} = assigns) do
+  defp backing(%{backing: {:matched, entry, confidence}} = assigns)
+       when confidence in @confidences do
     assigns = assign(assigns, entry: entry, confidence: confidence)
 
     ~H"""
@@ -214,7 +222,7 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
     # Subscribe first, so a read that finishes while the page loads is not missed.
     if connected?(socket) do
       Statements.subscribe(scope)
-      Phoenix.PubSub.subscribe(ZaimuTomo.PubSub, "invoice_review:completed")
+      Accounting.subscribe_journal_entries(scope)
     end
 
     reconciliation = Statements.get_reconciliation!(scope, id)
@@ -276,11 +284,8 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
       do: {:noreply, reload(socket)}
 
   # A posted invoice can back a line here.
-  def handle_info(%{user_id: user_id}, socket)
-      when user_id == socket.assigns.current_scope.user.id,
-      do: {:noreply, reload(socket)}
-
-  def handle_info(%{user_id: _other_user}, socket), do: {:noreply, socket}
+  def handle_info({:journal_entry_posted, _id}, socket),
+    do: {:noreply, reload(socket)}
 
   def handle_info(:refresh_processing, socket),
     do: {:noreply, ProcessingRefresh.on_tick(socket, &reload/1)}
@@ -346,12 +351,31 @@ defmodule ZaimuTomoWeb.StatementLive.Show do
   defp empty_tab(:unbacked), do: "Every payment on this statement is backed by a booked invoice."
   defp empty_tab(:backed), do: "No payment on this statement is backed by a booked invoice yet."
   defp empty_tab(:credits), do: "No money came in on this statement."
+  defp empty_tab(:all), do: "No lines."
+
+  defp coverage_label(%{debits_backed: backed, debits: 1}), do: "#{backed} of 1 payment backed"
+
+  defp coverage_label(%{debits_backed: backed, debits: debits}),
+    do: "#{backed} of #{debits} payments backed"
 
   defp coverage_percent(%{debits_backed: backed, debits: debits}),
     do: round(backed * 100 / debits)
 
-  defp entry_label(entry),
-    do: "#{entry.issuer || "Invoice"} · #{Calendar.strftime(entry.date, "%d.%m.%Y")}"
+  defp entry_label(entry) do
+    issuer =
+      case entry.issuer do
+        text when is_binary(text) ->
+          case String.trim(text) do
+            "" -> "Invoice"
+            trimmed -> trimmed
+          end
+
+        _ ->
+          "Invoice"
+      end
+
+    "#{issuer} · #{Calendar.strftime(entry.date, "%d.%m.%Y")}"
+  end
 
   defp title(%{period_end: nil, filename: filename}), do: filename
   defp title(%{period_end: date}), do: "#{Calendar.strftime(date, "%B %Y")} statement"

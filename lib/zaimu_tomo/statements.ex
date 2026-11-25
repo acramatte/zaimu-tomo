@@ -158,7 +158,11 @@ defmodule ZaimuTomo.Statements do
   are matched together, so one entry never backs two lines on two statements.
   """
   @spec reconcile(Scope.t(), [integer()]) :: %{integer() => Reconciliation.t()}
+  def reconcile(%Scope{}, []), do: %{}
+
   def reconcile(%Scope{} = scope, ids) do
+    ids = Enum.uniq(ids)
+
     statements =
       from(s in Statement,
         where: s.user_id == ^scope.user.id and s.id in ^ids,
@@ -190,7 +194,7 @@ defmodule ZaimuTomo.Statements do
   """
   @spec get_reconciliation(Scope.t(), term()) :: Reconciliation.t() | nil
   def get_reconciliation(%Scope{} = scope, id) do
-    with {:ok, id} <- Ecto.Type.cast(:id, id),
+    with {:ok, id} when is_integer(id) <- Ecto.Type.cast(:id, id),
          %{^id => reconciliation} <- reconcile(scope, [id]) do
       reconciliation
     else
@@ -206,22 +210,25 @@ defmodule ZaimuTomo.Statements do
   # groups of `lines` whole gives every line the answer a run over all of the
   # user's lines would give.
   defp matches(scope, lines) do
-    {group_lines, keys} = amount_groups(scope, amount_keys(lines))
+    initial_keys = amount_keys(lines)
 
-    # An entry without an invoice date has no window to match in.
-    entries =
-      scope
-      |> Accounting.list_posted_entries_for_amount_keys(MapSet.to_list(keys))
-      |> Enum.reject(&is_nil(&1.date))
+    if MapSet.size(initial_keys) == 0 do
+      %{}
+    else
+      {group_lines, keys} = amount_groups(scope, initial_keys, MapSet.new(), %{})
 
-    entries_by_id = Map.new(entries, &{&1.id, &1})
+      entries =
+        Accounting.list_posted_entries_for_amount_keys(scope, MapSet.to_list(keys))
 
-    group_lines
-    |> Enum.map(&line_in/1)
-    |> Matcher.match(Enum.map(entries, &entry_in/1))
-    |> Map.new(fn {line_id, {entry_id, confidence}} ->
-      {line_id, {Map.fetch!(entries_by_id, entry_id), confidence}}
-    end)
+      entries_by_id = Map.new(entries, &{&1.id, &1})
+
+      group_lines
+      |> Enum.map(&line_in/1)
+      |> Matcher.match(Enum.map(entries, &entry_in/1))
+      |> Map.new(fn {line_id, {entry_id, confidence}} ->
+        {line_id, {Map.fetch!(entries_by_id, entry_id), confidence}}
+      end)
+    end
   end
 
   defp line_in(line) do
@@ -237,30 +244,51 @@ defmodule ZaimuTomo.Statements do
     do: %{id: entry.id, date: entry.date, key: Matcher.entry_key(entry), issuer: entry.issuer}
 
   # A foreign-amount line has two keys and joins two amount groups, so load
-  # the user's lines under the keys until no new key turns up.
-  defp amount_groups(scope, keys) do
-    lines = debit_lines_with_keys(scope, keys)
-    grown = MapSet.union(keys, amount_keys(lines))
+  # only newly discovered frontier keys until no new key turns up.
+  defp amount_groups(scope, frontier, seen_keys, lines_by_id) do
+    if MapSet.size(frontier) == 0 do
+      {Map.values(lines_by_id), seen_keys}
+    else
+      fetched = debit_lines_with_keys(scope, frontier)
+      seen_keys = MapSet.union(seen_keys, frontier)
+      lines_by_id = Map.merge(lines_by_id, Map.new(fetched, &{&1.id, &1}))
+      next_frontier = MapSet.difference(amount_keys(fetched), seen_keys)
 
-    if MapSet.equal?(grown, keys), do: {lines, keys}, else: amount_groups(scope, grown)
+      amount_groups(scope, next_frontier, seen_keys, lines_by_id)
+    end
   end
 
   defp amount_keys(lines), do: lines |> Enum.flat_map(&Matcher.line_keys/1) |> MapSet.new()
 
   defp debit_lines_with_keys(scope, keys) do
+    scope
+    |> debit_lines_with_keys_query(keys)
+    |> Repo.all()
+  end
+
+  @doc false
+  def debit_lines_with_keys_query(%Scope{} = scope, keys) do
     {cents, currencies} =
       keys |> Enum.map(fn {cents, currency} -> {-cents, currency} end) |> Enum.unzip()
 
-    from(l in StatementLine,
-      where: l.user_id == ^scope.user.id and l.amount_cents < 0,
-      where:
-        fragment(
-          "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
-          l.amount_cents,
-          l.currency,
-          ^cents,
-          ^currencies
-        ) or
+    by_account_amount =
+      from(l in StatementLine,
+        where: l.user_id == ^scope.user.id and l.amount_cents < 0,
+        where:
+          fragment(
+            "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
+            l.amount_cents,
+            l.currency,
+            ^cents,
+            ^currencies
+          )
+      )
+
+    by_original_amount =
+      from(l in StatementLine,
+        where:
+          l.user_id == ^scope.user.id and l.amount_cents < 0 and not is_nil(l.original_currency),
+        where:
           fragment(
             "(?, ?) IN (SELECT * FROM unnest(?::bigint[], ?::text[]))",
             l.original_amount_cents,
@@ -268,8 +296,9 @@ defmodule ZaimuTomo.Statements do
             ^cents,
             ^currencies
           )
-    )
-    |> Repo.all()
+      )
+
+    union(by_account_amount, ^by_original_amount)
   end
 
   @doc """

@@ -405,8 +405,13 @@ defmodule ZaimuTomo.Review do
     end)
     |> Repo.transaction()
     |> case do
-      {:ok, %{review_decision: updated}} ->
+      {:ok, %{review_decision: updated} = changes} ->
         emit_review_completed_event(updated, to)
+
+        if posted = Map.get(changes, :posted_journal_entry) do
+          Accounting.broadcast_journal_entry_posted(posted)
+        end
+
         {:ok, updated}
 
       {:error, operation, reason, _changes}

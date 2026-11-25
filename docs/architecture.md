@@ -383,12 +383,13 @@ entry that backs it (issuer and invoice date, linked to `/journal_entries/:id`),
 "Not backed". A coverage meter reads "41 of 52 payments backed", and the tabs
 All, Not backed, Backed, and Credits filter the lines through `?filter=`, so
 back and refresh keep the tab. `/statements` shows "backed 41/52" per read
-statement from one `reconcile/2` call for the whole list. Nothing is stored:
-both pages call `Statements.reconcile/2` on every load and re-run it on
-`invoice_review:completed` for their user (an invoice approved with a booking
-is posted in that transaction) and on any `user:<id>:statements` event,
-because another statement's read can take or free an entry in a shared
-amount group. Credits are listed but never matched.
+statement that has payments, from one `reconcile/2` call for the whole list.
+Nothing is stored: both pages call `Statements.reconcile/2` on every load and
+re-run it on `user:<id>:journal_entries` (`{:journal_entry_posted, id}`, sent
+when a review approves with a booking or when `Accounting.post_entry/6` books
+an uncategorized entry) and on any `user:<id>:statements` event, because
+another statement's read can take or free an entry in a shared amount group.
+Credits are listed but never matched.
 
 ### 6.4 TypeSafe shadow verification (optional)
 
@@ -474,7 +475,7 @@ erDiagram
 - `journal_entries.source_document_sha256` is an immutable posting-time copy of the source document's `content_sha256`; `source_file_reuse_confirmed` (default false) marks a posting the reviewer explicitly confirmed as a reuse of the same file. The partial unique index `journal_entries (user_id, source_document_sha256) WHERE source_document_sha256 IS NOT NULL AND NOT source_file_reuse_confirmed` allows one unconfirmed posting per file per user. `Accounting.duplicate_check/3` ranks matches as same file > invoice number > same details; a file match is confirmable only when no field rule also matches (the tuple is compared against the file-matched entries even for numbered invoices). No index covers a confirmed reuse. The same gate checks its "no field match" condition under the same lock. Confirmations are logged as `source_file_reuse_confirmed` events with the matched entry IDs. Fingerprints are user-scoped, redacted from inspect output, and never rendered or sent to an AI provider. Only `FingerprintBackfill` may set them on existing entries, and only where the digest is missing. The `BEFORE UPDATE` trigger `journal_entries_guard_fingerprint` enforces this for every writer. An update may set both columns only while the digest is null, and only to a digest. Once a digest is set, a change to either column fails as a check violation named `journal_entries_fingerprint_immutable_check`.
 
 - `statements` stores the upload (`filename`, `object_key` under `statements/`, `content_sha256`, unique per user) and the facts of the last successful read: `extracted_at`, `account_ref`, `period_start`/`period_end`, `currency`, `opening_balance_cents`, `closing_balance_cents`, all signed from the holder's side. `failure_code` is the last failed run's code, cleared by a success. `financial_account_id` is required, and a composite foreign key `(financial_account_id, user_id)` → `financial_accounts (id, user_id)` (`ON DELETE RESTRICT`) enforces same-user ownership and ensures `FinancialAccounts.delete_financial_account/2` returns an error on `:statements` ("delete its statements first") for an account that still has statements. The bidirectional check `statements_extracted_header` requires all header columns (including `account_ref`) to be null while `extracted_at` is null and the full header (with `period_start <= period_end`) once `extracted_at` is set; additional checks enforce the `statements/` object key prefix, 64-char lowercase hex `content_sha256`, 3-letter uppercase ISO `currency` when set, and non-empty `failure_code`, while `statements_one_per_account_period` allows one statement per account and period. Two triggers enforce lifecycle invariants for every writer: `statements_guard_initial_state` (`BEFORE INSERT`) rejects inserts with `extracted_at` or `failure_code` set (`statements_initial_state_check`), and `statements_guard_invariants` (`BEFORE UPDATE`) forbids changing `user_id`, `financial_account_id`, `object_key`, or `content_sha256` (`statements_upload_immutable_check`) or clearing `extracted_at` once set (`statements_extracted_at_monotonic_check`). `statement_lines` (`position`, `booking_date`, `value_date`, `description`, signed `amount_cents` in the statement currency, optional `original_amount_cents` + `original_currency` for foreign card spend) are replaced wholesale by each successful read and copy `user_id` and `currency` for the `(user_id, currency, amount_cents)` index; a composite foreign key `(statement_id, user_id, currency)` → `statements (id, user_id, currency)` (`ON DELETE CASCADE`) ties each line to an extracted statement's owner and currency, and checks enforce `position >= 1`, non-zero `amount_cents`, paired non-zero `original_amount_cents`/`original_currency` matching the sign of `amount_cents`, and 3-letter uppercase ISO codes on both currencies. A partial unique index on `oban_jobs ((args->>'statement_id'))` allows one live `ExtractJob` per statement, like the OCR job index.
-- Which journal entry backs a statement line is computed on read by `Statements.reconcile/2`, never stored. Its lookups are by amount key: `statement_lines (user_id, currency, amount_cents)` and the partial `(user_id, original_currency, original_amount_cents) where original_currency is not null` for the amount-group closure, and `journal_entries (user_id, currency, amount_cents)` for the posted entries under those keys. (D37)
+- Which journal entry backs a statement line is computed on read by `Statements.reconcile/2`, never stored. Its lookups are by amount key: `statement_lines (user_id, currency, amount_cents)` and the partial `(user_id, original_currency, original_amount_cents) where original_currency is not null` (combined via SQL `UNION` in the frontier closure), and the partial `journal_entries (user_id, currency, amount_cents) where status = 'posted' and date is not null` for the posted entries under those keys. (D37)
 
 ### State machines
 
@@ -685,10 +686,12 @@ local template.
 
 PubSub topics: `user:<id>:documents`, `user:<id>:document_processing:success|failed|retried|attempt_failed|verified`
 (`attempt_failed` is sent for OCR and verification attempts),
-`invoice_review:completed`, `user:<id>:financial_accounts`, and `user:<id>:statements`
+`invoice_review:completed`, `user:<id>:financial_accounts`, `user:<id>:journal_entries`
+(`{:journal_entry_posted, id}` when a review posts a booking or `Accounting.post_entry/6`
+books an uncategorized entry), and `user:<id>:statements`
 (`{:statement_updated, id}` after an upload, a retry, or a read; `{:statement_deleted, id}`). LiveViews
-subscribe in `mount/3` when connected. The statement pages also listen to `invoice_review:completed`,
-filtered to their user, to re-run `Statements.reconcile/2` after a posting.
+subscribe in `mount/3` when connected. The statement pages listen to `user:<id>:journal_entries`
+to re-run `Statements.reconcile/2` after a posting.
 
 Account settings renders inside the authenticated `zaimutomo` root layout.
 Its `Layouts.app` call uses `shell: :product` to render content and LiveView
@@ -785,7 +788,7 @@ is in [`specs/`](../specs/README.md).
 | Legacy upload volume | `zaimu_tomo_uploads` is still mounted (`config/deploy.yml`, `Dockerfile`) from the pre-S3 migration. Remove it after the restore check is recorded (see [operations.md](operations.md#legacy-upload-volume)). |
 | Single host | App, DB, and object store share one VPS. Backups are the only DR mechanism. |
 | Statement reconciliation read cost | `Statements.reconcile/2` runs on every statement page load and after every posting, and loads every line and posted entry in the amount groups it touches. Cost grows with the lines per amount group (a monthly subscription of one amount gathers a line per month, forever). Fine at personal scale; if it shows, bound the closure by date or persist matches (D37). |
-| No human override of a statement match | A wrong `Same amount, check` match, or a payment that needs no invoice, cannot be corrected yet, and a newer statement can move a match from an older one. Line decisions (link an invoice, no invoice expected) are the planned follow-up. Booking an `uncategorized` entry from the invoice page (`Accounting.post_entry/6`) broadcasts nothing, so an open statement page shows that backing only on its next load. |
+| No human override of a statement match | A wrong `Same amount, check` match, or a payment that needs no invoice, cannot be corrected yet, and a newer statement can move a match from an older one. Line decisions (link an invoice, no invoice expected) are the planned follow-up. |
 | No production mailer | `runtime.exs` configures no Swoosh adapter for prod, so email-based auth flows (confirmation, magic links) don't deliver in production. |
 | Shared S3 credential | The app's S3 key is the RustFS root credential. Per-application credentials are not yet introduced. |
 | `force_ssl` off | HTTP behind the VPN is by design. Enable `FORCE_SSL` at build time if the app is ever exposed publicly. |
