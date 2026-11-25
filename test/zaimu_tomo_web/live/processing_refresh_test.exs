@@ -18,61 +18,79 @@ defmodule ZaimuTomoWeb.ProcessingRefreshTest do
     :ok
   end
 
-  test "schedule/2 works on a fresh socket without pre-assigning :refresh_timer" do
+  test "schedule/2 transitions a fresh socket from :idle to {:scheduled, ref}" do
     socket = %Socket{transport_pid: self()}
+    assert ProcessingRefresh.state(socket) == :idle
 
     updated = ProcessingRefresh.schedule(socket, true)
 
-    assert is_reference(updated.assigns.refresh_timer)
+    assert {:scheduled, ref} = ProcessingRefresh.state(updated)
+    assert is_reference(ref)
     assert_receive :refresh_processing, 200
   end
 
-  test "schedule/2 does not schedule a second timer if one is already active" do
+  test "schedule/2 does not schedule a second timer if already scheduled" do
     socket = %Socket{transport_pid: self()}
 
     first = ProcessingRefresh.schedule(socket, true)
     second = ProcessingRefresh.schedule(first, true)
 
-    assert second.assigns.refresh_timer == first.assigns.refresh_timer
+    assert ProcessingRefresh.state(second) == ProcessingRefresh.state(first)
     assert_receive :refresh_processing, 200
     refute_receive :refresh_processing, 80
   end
 
-  test "schedule/2 does nothing when disconnected" do
+  test "schedule/2 stays :idle when disconnected" do
     socket = %Socket{transport_pid: nil}
 
     updated = ProcessingRefresh.schedule(socket, true)
 
     assert updated == socket
-    refute Map.has_key?(updated.assigns, :refresh_timer)
+    assert ProcessingRefresh.state(updated) == :idle
     refute_receive :refresh_processing, 80
   end
 
-  test "schedule(socket, false) cancels an active timer and is a no-op without one" do
+  test "schedule(socket, false) cancels an active timer and is a no-op when :idle" do
     idle = %Socket{transport_pid: self()}
     assert ProcessingRefresh.schedule(idle, false) == idle
 
     scheduled = ProcessingRefresh.schedule(idle, true)
-    assert is_reference(scheduled.assigns.refresh_timer)
+    assert {:scheduled, _ref} = ProcessingRefresh.state(scheduled)
 
     cancelled = ProcessingRefresh.schedule(scheduled, false)
-    assert cancelled.assigns.refresh_timer == nil
+    assert ProcessingRefresh.state(cancelled) == :idle
     refute_receive :refresh_processing, 80
   end
 
-  test "clear/1 clears :refresh_timer so a subsequent schedule/2 schedules a fresh timer" do
+  test "on_tick/2 transitions back to :idle before reloading and lets reload reschedule" do
     socket = %Socket{transport_pid: self()}
 
     first = ProcessingRefresh.schedule(socket, true)
-    first_ref = first.assigns.refresh_timer
+    {:scheduled, first_ref} = ProcessingRefresh.state(first)
     assert_receive :refresh_processing, 200
 
-    cleared = ProcessingRefresh.clear(first)
-    assert cleared.assigns.refresh_timer == nil
+    rescheduled =
+      ProcessingRefresh.on_tick(first, fn ticked ->
+        assert ProcessingRefresh.state(ticked) == :idle
+        ProcessingRefresh.schedule(ticked, true)
+      end)
 
-    rescheduled = ProcessingRefresh.schedule(cleared, true)
-    assert is_reference(rescheduled.assigns.refresh_timer)
-    assert rescheduled.assigns.refresh_timer != first_ref
+    assert {:scheduled, next_ref} = ProcessingRefresh.state(rescheduled)
+    assert next_ref != first_ref
     assert_receive :refresh_processing, 200
+  end
+
+  test "on_tick/2 cancels a still-pending timer if invoked early" do
+    socket = %Socket{transport_pid: self()}
+    scheduled = ProcessingRefresh.schedule(socket, true)
+
+    reloaded =
+      ProcessingRefresh.on_tick(scheduled, fn ticked ->
+        assert ProcessingRefresh.state(ticked) == :idle
+        ticked
+      end)
+
+    assert ProcessingRefresh.state(reloaded) == :idle
+    refute_receive :refresh_processing, 80
   end
 end
