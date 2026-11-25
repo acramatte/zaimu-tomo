@@ -1,8 +1,11 @@
 defmodule ZaimuTomo.Statements.InvariantsTest do
   use ExUnit.Case, async: true
 
+  alias ZaimuTomo.DocumentProcessing.ErrorClassification
   alias ZaimuTomo.Langfuse
   alias ZaimuTomo.LLMClient
+  alias ZaimuTomo.Statements
+  alias ZaimuTomo.Statements.ParsedStatement
 
   @statement_mod [:ZaimuTomo, :Statements, :Statement]
   @statement_line_mod [:ZaimuTomo, :Statements, :StatementLine]
@@ -243,6 +246,58 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
     test "local_prompt_variables/1 returns an error for unknown prompts" do
       assert {:error, {:local_prompt_not_found, "does-not-exist"}} =
                Langfuse.local_prompt_variables("does-not-exist")
+    end
+  end
+
+  describe "failure descriptions" do
+    test "every ParsedStatement refusal and duplicate_period has a dedicated description" do
+      failures = ParsedStatement.failures()
+      assert Enum.any?(failures)
+
+      codes = Enum.map(failures, &Atom.to_string/1) ++ ["duplicate_period"]
+
+      for code <- codes do
+        description = Statements.describe_failure(code)
+
+        assert description != "",
+               "expected a non-empty description for #{inspect(code)}"
+
+        assert description != "an unexpected error",
+               "expected a dedicated description for #{inspect(code)}"
+      end
+    end
+
+    test "every non-service summary code has a dedicated description" do
+      codes = [
+        "validation_failed",
+        "missing_structured_output",
+        "missing_prompt_variables",
+        "local_prompt_not_found",
+        "langfuse_prompt_api_not_configured",
+        "invalid_langfuse_prompt_response",
+        "prompt_fetcher_failed",
+        "unexpected_api_structure",
+        "persistence_failed",
+        "job_timeout",
+        "job_interrupted",
+        "invalid_verifier_output",
+        "storage:not_found",
+        "scratch_unavailable:enospc",
+        "ocr_upload_failed:missing_api_key"
+      ]
+
+      for code <- codes do
+        description = ErrorClassification.describe(code)
+
+        assert description != "",
+               "expected a non-empty description for #{inspect(code)}"
+
+        assert description != "an unexpected error",
+               "expected a dedicated description for #{inspect(code)}"
+      end
+
+      missing_key = ErrorClassification.describe("ocr_upload_failed:missing_api_key")
+      refute missing_key =~ "refused the request"
     end
   end
 
