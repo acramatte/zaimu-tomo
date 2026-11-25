@@ -90,8 +90,8 @@ defmodule ZaimuTomo.Statements.ReconciliationTest do
 
       assert length(all) == length(backed) + length(unbacked) + length(credits)
       assert Enum.map(backed, & &1.line.id) == [1, 2]
-      assert Enum.map(unbacked, & &1.line.id) == [3]
-      assert Enum.map(credits, & &1.line.id) == [4]
+      assert Enum.map(unbacked, &{&1.line.id, &1.backing}) == [{3, :unbacked}]
+      assert Enum.map(credits, &{&1.line.id, &1.backing}) == [{4, :credit}]
     end
   end
 

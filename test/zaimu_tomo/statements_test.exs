@@ -352,8 +352,8 @@ defmodule ZaimuTomo.StatementsTest do
         %{line: line, backing: {:matched, entry, confidence}} ->
           {line.description, entry.id, confidence}
 
-        %{line: line, backing: :unbacked} ->
-          {line.description, :unbacked}
+        %{line: line, backing: backing} when backing in [:unbacked, :credit] ->
+          {line.description, backing}
       end)
     end
 
@@ -390,7 +390,7 @@ defmodule ZaimuTomo.StatementsTest do
                {"CARD 1234 SHOP", amount_only.id, :amount_only},
                {"Unbooked uncategorized", :unbacked},
                {"Too late an invoice", :unbacked},
-               {"Refund", :unbacked}
+               {"Refund", :credit}
              ]
 
       assert reconciliation.summary == %{debits: 4, debits_backed: 2, credits: 1}

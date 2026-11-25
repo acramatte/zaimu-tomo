@@ -6,14 +6,15 @@ defmodule ZaimuTomo.Statements.Reconciliation do
   Built by `ZaimuTomo.Statements.reconcile/2` on every read and never stored,
   so an invoice posted after the upload backs its line on the next read.
   A debit line is `{:matched, entry, confidence}` or `:unbacked`. A credit is
-  never matched, because only money out is backed by an invoice.
+  `:credit` and is never matched, because only money out is backed by an
+  invoice.
   """
 
   alias ZaimuTomo.Accounting.JournalEntry
   alias ZaimuTomo.Statements
   alias ZaimuTomo.Statements.{Matcher, Statement, StatementLine}
 
-  @type backing :: {:matched, JournalEntry.t(), Matcher.confidence()} | :unbacked
+  @type backing :: {:matched, JournalEntry.t(), Matcher.confidence()} | :unbacked | :credit
   @type row :: %{line: StatementLine.t(), backing: backing()}
   @type filter :: :all | :backed | :unbacked | :credits
   @type summary :: %{
@@ -59,11 +60,12 @@ defmodule ZaimuTomo.Statements.Reconciliation do
     }
   end
 
-  defp backing(_line, nil), do: :unbacked
-
   defp backing(%{amount_cents: cents, id: id}, {_entry, _confidence}) when cents >= 0 do
     raise ArgumentError, "non-debit statement line #{inspect(id)} cannot be matched"
   end
+
+  defp backing(%{amount_cents: cents}, nil) when cents > 0, do: :credit
+  defp backing(_line, nil), do: :unbacked
 
   defp backing(_line, {entry, confidence}) when confidence in @confidences,
     do: {:matched, entry, confidence}
@@ -78,7 +80,7 @@ defmodule ZaimuTomo.Statements.Reconciliation do
   def rows(%__MODULE__{rows: rows}, filter) when filter in @filters,
     do: Enum.filter(rows, &(section(&1) == filter))
 
-  defp section(%{line: %{amount_cents: cents}}) when cents > 0, do: :credits
+  defp section(%{backing: :credit}), do: :credits
   defp section(%{backing: :unbacked}), do: :unbacked
   defp section(%{backing: {:matched, _entry, _confidence}}), do: :backed
 
