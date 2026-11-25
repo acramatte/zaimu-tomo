@@ -6,13 +6,14 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
   import Phoenix.LiveViewTest
   import ZaimuTomo.AccountsFixtures, only: [user_scope_fixture: 0]
   import ZaimuTomo.FinancialAccountsFixtures
-  import ZaimuTomo.ReviewFixtures, only: [journal_entry_fixture: 2]
+  import ZaimuTomo.ReviewFixtures, only: [journal_entry_fixture: 2, journal_entry_fixture: 3]
   import ZaimuTomo.StatementsFixtures
 
+  alias ZaimuTomo.Accounting
   alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Statements
-  alias ZaimuTomo.Statements.{ExtractJob, Statement}
+  alias ZaimuTomo.Statements.{ExtractJob, Reconciliation, Statement}
   alias ZaimuTomo.Storage
   alias ZaimuTomo.Storage.Memory
 
@@ -545,6 +546,77 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
 
       posted_entry(scope, "Parking", 700, "2026-10-05")
       assert has_element?(view, "#statement-#{read.id}-coverage", "backed 2/2")
+    end
+
+    test "booking an uncategorized entry via Accounting.post_entry/6 updates open Show and Index pages",
+         %{conn: conn, scope: scope, account: account} do
+      statement = read_october(scope, account, [{~D[2026-10-03], "SBB CFF FFS", -4_200}])
+
+      uncategorized =
+        journal_entry_fixture(
+          scope,
+          %{
+            issuer: "SBB",
+            amount_to_pay_cents: 4_200,
+            currency: "CHF",
+            invoice_date: "2026-10-01"
+          },
+          post: false
+        )
+
+      {:ok, show_view, _html} = live(conn, ~p"/statements/#{statement}")
+      {:ok, index_view, _html} = live(conn, ~p"/statements")
+
+      assert has_element?(show_view, "#statement-line-1 .backing", "Not backed")
+      assert has_element?(index_view, "#statement-#{statement.id}-coverage", "backed 0/1")
+
+      assert {:ok, posted} =
+               Accounting.post_entry(uncategorized, scope.user.id, "Travel", "need")
+
+      assert has_element?(
+               show_view,
+               ~s(#statement-line-1 .backing.named a[href="/journal_entries/#{posted.id}"]),
+               "SBB · 01.10.2026"
+             )
+
+      assert has_element?(index_view, "#statement-#{statement.id}-coverage", "backed 1/1")
+    end
+
+    test "hides the index coverage chip when a read statement has no payments",
+         %{conn: conn, scope: scope, account: account} do
+      credit_only =
+        read_october(scope, account, [{~D[2026-10-10], "Interest", 500}])
+
+      {:ok, view, _html} = live(conn, ~p"/statements")
+
+      assert has_element?(view, "#statement-#{credit_only.id}")
+      refute has_element?(view, "#statement-#{credit_only.id}-coverage")
+    end
+
+    test "falls back to Invoice when a matched entry has a blank issuer and supports every filter tab",
+         %{conn: conn, scope: scope, account: account} do
+      statement =
+        read_october(scope, account, [
+          {~D[2026-10-03], "CARD PAYMENT", -1_500},
+          {~D[2026-10-10], "Refund", 1_500}
+        ])
+
+      entry = posted_entry(scope, "ACME", 1_500, "2026-10-01")
+      Repo.query!("UPDATE journal_entries SET issuer = '   ' WHERE id = $1", [entry.id])
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}")
+
+      assert has_element?(
+               view,
+               ~s(#statement-line-1 .backing.check a[href="/journal_entries/#{entry.id}"]),
+               "Invoice · 01.10.2026"
+             )
+
+      for filter <- Reconciliation.filters() do
+        param = Atom.to_string(filter)
+        {:ok, tab_view, _html} = live(conn, ~p"/statements/#{statement}?filter=#{param}")
+        assert has_element?(tab_view, "#statement-tab-#{param}.active")
+      end
     end
   end
 

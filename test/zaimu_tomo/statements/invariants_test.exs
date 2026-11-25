@@ -7,12 +7,21 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
   alias ZaimuTomo.Statements
   alias ZaimuTomo.Statements.ParsedStatement
 
+  @statements_mod [:ZaimuTomo, :Statements]
   @statement_mod [:ZaimuTomo, :Statements, :Statement]
   @statement_line_mod [:ZaimuTomo, :Statements, :StatementLine]
   @extract_job_mod [:ZaimuTomo, :Statements, :ExtractJob]
+  @matcher_mod [:ZaimuTomo, :Statements, :Matcher]
+  @reconciliation_mod [:ZaimuTomo, :Statements, :Reconciliation]
   @repo_mod [:ZaimuTomo, :Repo]
   @multi_mod [:Ecto, :Multi]
   @changeset_mod [:Ecto, :Changeset]
+  @impure_reconciliation_mods MapSet.new([
+                                [:ZaimuTomo, :Repo],
+                                [:Oban],
+                                [:ZaimuTomo, :Storage],
+                                [:Phoenix, :PubSub]
+                              ])
 
   @repo_writes [
     :insert,
@@ -225,6 +234,45 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
 
       assert check_source(source) == []
     end
+
+    test "flags Matcher.match/2 called outside ZaimuTomo.Statements" do
+      source = """
+      defmodule ZaimuTomoWeb.RogueLive do
+        alias ZaimuTomo.Statements.Matcher
+
+        def sneak(lines, entries), do: Matcher.match(lines, entries)
+      end
+      """
+
+      violations = check_source(source)
+      assert Enum.any?(violations, &(&1.rule == :reconciliation_entry_point_violation))
+    end
+
+    test "flags Reconciliation.new/4 called outside ZaimuTomo.Statements" do
+      source = """
+      defmodule ZaimuTomo.OtherContext do
+        alias ZaimuTomo.Statements.Reconciliation
+
+        def build(s), do: Reconciliation.new(s, :ready, :balanced, %{})
+      end
+      """
+
+      violations = check_source(source)
+      assert Enum.any?(violations, &(&1.rule == :reconciliation_entry_point_violation))
+    end
+
+    test "flags impure dependencies inside Statements.Matcher or Statements.Reconciliation" do
+      source = """
+      defmodule ZaimuTomo.Statements.Matcher do
+        alias ZaimuTomo.Repo
+
+        def bad(q), do: Repo.all(q)
+      end
+      """
+
+      violations = check_source(source)
+      assert Enum.any?(violations, &(&1.rule == :pure_reconciliation_module_violation))
+    end
   end
 
   describe "Langfuse extract-statement-page prompt variable contract" do
@@ -341,7 +389,10 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
   defp check_module({module_name, body}, path) do
     ctx = collect_context(module_name, body)
 
-    rule_a_violations(body, ctx, path) ++ rule_b_violations(body, ctx, path)
+    rule_a_violations(body, ctx, path) ++
+      rule_b_violations(body, ctx, path) ++
+      rule_c_violations(body, ctx, path) ++
+      rule_d_violations(body, ctx, path)
   end
 
   defp collect_context(module_name, body) do
@@ -351,6 +402,7 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
     %{
       module_name: module_name,
       aliases: aliases,
+      referenced_mods: referenced_mods,
       imports_changeset?: imports_changeset?,
       references_statement?:
         module_name == @statement_mod or MapSet.member?(referenced_mods, @statement_mod),
@@ -720,6 +772,65 @@ defmodule ZaimuTomo.Statements.InvariantsTest do
       "#{call} writing #{inspect(field)}"
     )
   end
+
+  # -- Rule C: only ZaimuTomo.Statements runs Matcher.match/2 or builds Reconciliation.new/4 --
+
+  defp rule_c_violations(_body, %{module_name: @statements_mod}, _path), do: []
+
+  defp rule_c_violations(body, ctx, path) do
+    {_, violations} =
+      Macro.prewalk(body, [], fn
+        {:alias, _, _}, acc ->
+          {nil, acc}
+
+        {:import, _, _}, acc ->
+          {nil, acc}
+
+        {{:., _, [mod_ast, fun]}, meta, _args} = node, acc ->
+          mod = resolve_module(mod_ast, ctx.aliases, ctx.module_name)
+
+          if (mod == @matcher_mod and fun == :match) or
+               (mod == @reconciliation_mod and fun == :new) do
+            v =
+              violation(
+                path,
+                meta,
+                ctx.module_name,
+                :reconciliation_entry_point_violation,
+                "#{format_mod(mod)}.#{fun}"
+              )
+
+            {node, [v | acc]}
+          else
+            {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    violations |> Enum.reverse() |> Enum.uniq()
+  end
+
+  # -- Rule D: Matcher and Reconciliation remain pure (no Repo/Oban/Storage/PubSub) --
+
+  defp rule_d_violations(_body, %{module_name: mod} = ctx, path)
+       when mod in [@matcher_mod, @reconciliation_mod] do
+    ctx.referenced_mods
+    |> MapSet.intersection(@impure_reconciliation_mods)
+    |> Enum.sort()
+    |> Enum.map(fn impure ->
+      violation(
+        path,
+        [],
+        ctx.module_name,
+        :pure_reconciliation_module_violation,
+        "references #{format_mod(impure)}"
+      )
+    end)
+  end
+
+  defp rule_d_violations(_body, _ctx, _path), do: []
 
   defp violation(path, meta, module_name, rule, detail) do
     %{
