@@ -8,6 +8,7 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
   import ZaimuTomo.FinancialAccountsFixtures
   import ZaimuTomo.StatementsFixtures
 
+  alias ZaimuTomo.FinancialAccounts
   alias ZaimuTomo.Repo
   alias ZaimuTomo.Statements
   alias ZaimuTomo.Statements.{ExtractJob, Statement}
@@ -37,6 +38,13 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
       has_element?(view, selector, text) -> :ok
       attempts == 0 -> flunk("expected #{selector} with #{text}, got: #{render(view)}")
       true -> Process.sleep(25) && await(view, selector, text, attempts - 1)
+    end
+  end
+
+  test "unauthenticated requests redirect to log in" do
+    for path <- [~p"/statements", ~p"/statements/new", ~p"/statements/1"] do
+      conn = get(Phoenix.ConnTest.build_conn(), path)
+      assert redirected_to(conn) == ~p"/users/log-in"
     end
   end
 
@@ -159,6 +167,87 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
 
       assert has_element?(view, "#statement-upload-no-accounts")
       refute has_element?(view, "#statement-form")
+    end
+
+    test "canceling the upload clears queued files when reopening upload",
+         %{conn: conn, account: account} do
+      {:ok, view, _html} = live(conn, ~p"/statements/new?account=#{account.id}")
+
+      file =
+        file_input(view, "#statement-form", :statement, [
+          %{name: "queued.pdf", content: "%PDF queued", type: "application/pdf"}
+        ])
+
+      assert render_upload(file, "queued.pdf") =~ "queued.pdf"
+      assert has_element?(view, ".statement-upload-entry", "queued.pdf")
+
+      view |> element("#statement-upload a", "Cancel") |> render_click()
+      refute has_element?(view, "#statement-upload")
+
+      view |> element(".view-title-row a", "Upload statement") |> render_click()
+      assert has_element?(view, "#statement-upload")
+      refute has_element?(view, ".statement-upload-entry")
+    end
+
+    test "a rejected file disables submit and refuses to save", %{conn: conn, account: account} do
+      {:ok, view, _html} = live(conn, ~p"/statements/new?account=#{account.id}")
+
+      file =
+        file_input(view, "#statement-form", :statement, [
+          %{name: "notes.txt", content: "not a statement", type: "text/plain"}
+        ])
+
+      assert {:error, [[_ref, :not_accepted]]} = render_upload(file, "notes.txt")
+
+      assert has_element?(
+               view,
+               ".statement-upload-error",
+               "Upload a PDF or an image of the statement."
+             )
+
+      assert has_element?(view, ~s(#statement-form button[type="submit"][disabled]))
+
+      html =
+        view
+        |> form("#statement-form", statement: %{financial_account_id: account.id})
+        |> render_submit()
+
+      assert html =~ "Fix the file error before uploading."
+      assert Repo.aggregate(Statement, :count) == 0
+    end
+
+    test "ignores malformed validate and save events without crashing",
+         %{conn: conn, account: account} do
+      {:ok, view, _html} = live(conn, ~p"/statements/new?account=#{account.id}")
+
+      assert render_change(view, "validate", %{}) =~ "Upload a statement"
+      assert render_submit(view, "save", %{}) =~ "Choose one of your accounts."
+      assert Repo.aggregate(Statement, :count) == 0
+    end
+
+    test "adds a newly created account to the dropdown live via PubSub",
+         %{conn: conn, scope: scope, account: account} do
+      {:ok, view, _html} = live(conn, ~p"/statements/new?account=#{account.id}")
+
+      {:ok, %{account: created}} =
+        FinancialAccounts.create_financial_account_with_balance(
+          scope,
+          %{name: "Checking", account_type: :current, currency: "CHF"},
+          %{amount_cents: 50_000, recorded_on: ~D[2026-10-01]}
+        )
+
+      assert render(view) =~ "Checking"
+
+      assert has_element?(
+               view,
+               ~s(#statement-form select option[value="#{created.id}"]),
+               "Checking · Current account · CHF"
+             )
+
+      assert has_element?(
+               view,
+               ~s(#statement-form select option[value="#{account.id}"][selected])
+             )
     end
   end
 
@@ -301,11 +390,47 @@ defmodule ZaimuTomoWeb.StatementLiveTest do
       assert {"/statements", %{"info" => "This statement was deleted."}} = assert_redirect(view)
     end
 
+    test "shows absolute gap for negative balance differences and singularizes one line",
+         %{conn: conn, scope: scope, account: account} do
+      statement =
+        scope
+        |> statement_fixture(account)
+        |> put_extraction(%{currency: "CHF", closing_balance_cents: 100_000}, [
+          {~D[2026-10-03], "Coffee", -500}
+        ])
+
+      settle_jobs()
+
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}")
+
+      assert has_element?(view, "#statement-balance .pill", "Off by CHF 5.00")
+      refute has_element?(view, "#statement-balance .pill", "−")
+      assert has_element?(view, "#statement-totals .card-meta", "1 line")
+      refute has_element?(view, "#statement-totals .card-meta", "1 lines")
+    end
+
+    test "shows dashes for money out and money in before extraction",
+         %{conn: conn, scope: scope, account: account} do
+      statement = statement_fixture(scope, account)
+      {:ok, view, _html} = live(conn, ~p"/statements/#{statement}")
+
+      totals =
+        view
+        |> element("#statement-totals")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(".detail-row .num")
+        |> Enum.map(&String.trim(LazyHTML.text(&1)))
+
+      assert totals == ["—", "—"]
+      refute has_element?(view, "#statement-totals", "CHF 0.00")
+    end
+
     test "a foreign or missing statement is not found", %{conn: conn} do
       foreign_scope = user_scope_fixture()
       foreign = statement_fixture(foreign_scope, financial_account_fixture(foreign_scope))
 
-      for id <- [foreign.id, -1] do
+      for id <- [foreign.id, -1, "not-an-id"] do
         assert_raise Ecto.NoResultsError, fn -> live(conn, ~p"/statements/#{id}") end
       end
     end

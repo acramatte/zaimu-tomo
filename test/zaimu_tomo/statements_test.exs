@@ -159,6 +159,14 @@ defmodule ZaimuTomo.StatementsTest do
       end
     end
 
+    test "get_statement/2 and get_statement!/2 reject invalid ids", %{scope: scope} do
+      assert Statements.get_statement(scope, "not-an-id") == nil
+
+      assert_raise Ecto.NoResultsError, fn ->
+        Statements.get_statement!(scope, "not-an-id")
+      end
+    end
+
     test "status/2 is the one status rule" do
       read = %Statement{extracted_at: DateTime.utc_now()}
 

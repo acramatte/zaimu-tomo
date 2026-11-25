@@ -150,11 +150,8 @@ defmodule ZaimuTomo.Statements do
   `Ecto.NoResultsError` for a missing or foreign id.
   """
   @spec get_statement!(Scope.t(), term()) :: Statement.t()
-  def get_statement!(%Scope{} = scope, id) do
-    Statement
-    |> Repo.get_by!(id: id, user_id: scope.user.id)
-    |> Repo.preload([:financial_account, :lines])
-  end
+  def get_statement!(%Scope{} = scope, id),
+    do: get_statement(scope, id) || raise(Ecto.NoResultsError, queryable: Statement)
 
   @doc """
   Gets one of the scope's statements with its account and lines, or `nil` for
@@ -162,11 +159,17 @@ defmodule ZaimuTomo.Statements do
   """
   @spec get_statement(Scope.t(), term()) :: Statement.t() | nil
   def get_statement(%Scope{} = scope, id) do
-    case Repo.get_by(Statement, id: id, user_id: scope.user.id) do
-      nil -> nil
-      statement -> Repo.preload(statement, [:financial_account, :lines])
+    with {:ok, id} when is_integer(id) <- Ecto.Type.cast(:id, id),
+         %Statement{} = statement <- Repo.get_by(Statement, id: id, user_id: scope.user.id) do
+      Repo.preload(statement, [:financial_account, :lines])
+    else
+      _missing -> nil
     end
   end
+
+  @doc "All derived statement statuses returned by `status/2`."
+  @spec statuses() :: [status()]
+  def statuses, do: [:processing, :ready, :failed, :stalled]
 
   @doc """
   The status of a statement, as `status/2` reads it with its live job.

@@ -91,6 +91,15 @@ defmodule ZaimuTomo.Statements.ParsedStatement do
           | :no_lines
           | :line_outside_period
 
+  @failures [
+    :missing_header,
+    :inconsistent_header,
+    :currency_mismatch,
+    :account_mismatch,
+    :no_lines,
+    :line_outside_period
+  ]
+
   @header_fields [
     account_ref: :text,
     period_start: :date,
@@ -112,6 +121,10 @@ defmodule ZaimuTomo.Statements.ParsedStatement do
 
   @matched_header [:account_ref, :period_start, :period_end, :currency]
   @masks ["X", "*", "•", "·", "●"]
+
+  @doc "All statement-level refusal reasons returned by `from_pages/2`."
+  @spec failures() :: [failure()]
+  def failures, do: @failures
 
   @doc """
   Parses one page of extractor output (a JSON map with string keys).
