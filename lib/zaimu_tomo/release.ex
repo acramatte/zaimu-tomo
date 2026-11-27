@@ -7,6 +7,8 @@ defmodule ZaimuTomo.Release do
 
   alias ZaimuTomo.Accounting.LegacyBookingBackfill
   alias ZaimuTomo.Datasets.Builder, as: DatasetBuilder
+  alias ZaimuTomo.Datasets.Exporters, as: DatasetExporters
+  alias ZaimuTomo.Datasets.LangfusePublisher
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents.FingerprintBackfill
   alias ZaimuTomo.Storage.{Migration, Verification}
@@ -59,6 +61,32 @@ defmodule ZaimuTomo.Release do
 
       {:error, reason} ->
         raise "dataset build failed: #{inspect(reason)}"
+    end
+  end
+
+  def export_dataset!(opts \\ []) do
+    start_app()
+
+    case DatasetExporters.export(opts) do
+      {:ok, summary} ->
+        IO.puts(DatasetExporters.format_summary(summary))
+        summary
+
+      {:error, reason} ->
+        raise "dataset export failed: #{inspect(reason)}"
+    end
+  end
+
+  def publish_dataset_to_langfuse!(opts \\ []) do
+    start_app()
+
+    case LangfusePublisher.publish(opts) do
+      {:ok, summary} ->
+        IO.puts(LangfusePublisher.format_summary(summary))
+        summary
+
+      {:error, reason} ->
+        raise "langfuse dataset publish failed: #{inspect(reason)}"
     end
   end
 

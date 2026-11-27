@@ -19,8 +19,10 @@ Day-2 tasks for the production deployment described in
 | Complete legacy bookings (dry run) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!()'"` |
 | Complete legacy bookings (apply) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!(confirm: true)'"` |
 | Build canonical dataset (to S3) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.build_dataset!(version: \"v001\", output_dir: nil, upload_s3: true, enrich_langfuse: true)'"` |
+| Export task datasets (S3 → S3) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.export_dataset!(from_s3: true, version: \"v001\", output_dir: nil, upload_s3: true)'"` |
+| Publish eval slice to Langfuse | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.publish_dataset_to_langfuse!(s3_key: \"datasets/v001/exports/eval/challenge.jsonl\", dataset: \"invoice-eval-challenge-v001\", task: \"extraction\")'"` |
 
-Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`, and `mix zaimu_tomo.dataset.build --version v001 [--output-dir DIR] [--upload-s3] [--enrich-langfuse]`.
+Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`, `mix zaimu_tomo.dataset.build`, `mix zaimu_tomo.dataset.export`, and `mix zaimu_tomo.dataset.publish_langfuse`.
 
 ## Document processing
 
