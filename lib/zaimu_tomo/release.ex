@@ -6,6 +6,7 @@ defmodule ZaimuTomo.Release do
   @app :zaimu_tomo
 
   alias ZaimuTomo.Accounting.LegacyBookingBackfill
+  alias ZaimuTomo.Datasets.Builder, as: DatasetBuilder
   alias ZaimuTomo.DocumentProcessing
   alias ZaimuTomo.Documents.FingerprintBackfill
   alias ZaimuTomo.Storage.{Migration, Verification}
@@ -46,6 +47,19 @@ defmodule ZaimuTomo.Release do
   def verify_storage! do
     start_app()
     report_or_raise(Verification.verify(), Verification)
+  end
+
+  def build_dataset!(opts \\ []) do
+    start_app()
+
+    case DatasetBuilder.build(opts) do
+      {:ok, summary} ->
+        IO.puts(DatasetBuilder.format_summary(summary))
+        summary
+
+      {:error, reason} ->
+        raise "dataset build failed: #{inspect(reason)}"
+    end
   end
 
   def recover_stuck_documents!(opts \\ []) do
