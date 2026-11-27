@@ -1,0 +1,62 @@
+name: datasets
+description: >
+  Data integrity, split isolation, provenance, and privacy invariants for the
+  canonical dataset builder, task exporters, and Langfuse Datasets publisher.
+paths:
+  - "lib/zaimu_tomo/datasets/**"
+  - "lib/mix/tasks/zaimu_tomo.dataset*"
+
+criteria:
+  - id: ground_truth_label_hygiene
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Never promotes unreviewed, rejected, incomplete audit-overlay, or amended
+      reviews without explicit human feedback (extraction_feedback / Langfuse
+      thumbs) to gold_reviewed or gold_audited (D39).
+
+  - id: zero_eval_leakage
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Strictly restricts evaluation slices (eval/representative.jsonl,
+      eval/challenge.jsonl) to split == "test"; keeps synthetic verifier
+      negatives isolated inside their source split (omitted from test by
+      default); excludes file-snapshot mismatches from vlm_sft (D40).
+
+  - id: split_stability_across_versions
+    weight: 0.15
+    inspect: [diff]
+    check: >
+      Assigns train/validation/test splits deterministically per entity group via
+      hash-bucketing so adding new documents in later dataset versions never
+      migrates existing groups from test into train.
+
+  - id: manifest_honesty_and_provenance
+    weight: 0.15
+    inspect: [diff]
+    check: >
+      Records input_sha256 and per-output SHA-256 digests in manifests, reports
+      enrichment flags honestly (e.g. langfuse_enriched true only when requested
+      AND credentials are configured), and refuses silent overwrites without an
+      explicit overwrite flag.
+
+  - id: s3_and_langfuse_boundary_safety
+    weight: 0.20
+    inspect: [diff]
+    check: >
+      Strips private fields (content_sha256, review notes, rejection reasons)
+      before publishing to Langfuse; skips S3 HEAD calls for ineligible records
+      and distinguishes :not_found from transient errors; paginates Langfuse API
+      reads and filters scores by score name.
+
+penalties:
+  - id: slop_train_in_eval
+    penalty: -0.30
+    check: Any train or validation record can enter an evaluation JSONL slice.
+  - id: slop_silent_label_inflation
+    penalty: -0.25
+    check: Labels amended-without-thumbs, rejected, or partial-overlay records as gold ground truth.
+  - id: slop_private_field_export
+    penalty: -0.25
+    check: Exports content_sha256, raw review comments, or rejection reasons to Langfuse Datasets.

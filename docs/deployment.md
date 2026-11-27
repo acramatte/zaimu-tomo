@@ -153,7 +153,17 @@ in `mix.exs`, see D31 in architecture.md). Other known tool/stdlib false positiv
 suppressed in `.dialyzer_ignore.exs`, each with a comment explaining why it's
 benign — re-verify them after any Ecto, Elixir, or OTP upgrade.
 
-All jobs in all four workflows pin `runs-on: ubuntu-26.04` rather than
+A separate PR workflow (`.github/workflows/rubric-review.yml`) runs an advisory
+LLM critic (`mix zaimu_tomo.rubric_review`, `continue-on-error: true`, reusing
+the same Elixir/OTP cache key as `ci.yml`) against the path-matched rubrics in
+`.rubrics/*.yaml` when the `RUBRIC_LLM_API_KEY` repository secret is configured
+(with optional `RUBRIC_LLM_BASE_URL` and `RUBRIC_LLM_MODEL` repository
+variables), posting or updating one sticky comment on the PR. Schema validation
+of `.rubrics/*.yaml` runs inside `ci.yml`'s `mix test` (`ZaimuTomo.RubricsTest`),
+and the critic job skips immediately when `RUBRIC_LLM_API_KEY` is unset. See
+[`.rubrics/README.md`](../.rubrics/README.md).
+
+All jobs in all five workflows pin `runs-on: ubuntu-26.04` rather than
 `ubuntu-latest`, so a GitHub image migration can't silently change the toolchain
 under a green build. Bump the label deliberately, in one commit, when a newer
 image is worth adopting.
