@@ -18,8 +18,9 @@ Day-2 tasks for the production deployment described in
 | Backfill document fingerprints | `kamal backfill_document_fingerprints` |
 | Complete legacy bookings (dry run) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!()'"` |
 | Complete legacy bookings (apply) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.backfill_legacy_bookings!(confirm: true)'"` |
+| Build canonical dataset (to S3) | `kamal app exec "bin/zaimu_tomo eval 'ZaimuTomo.Release.build_dataset!(version: \"v001\", output_dir: nil, upload_s3: true, enrich_langfuse: true)'"` |
 
-Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, and `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`.
+Locally, the equivalents are `mix ecto.migrate`, `mix zaimu_tomo.recover_stuck_documents [--confirm]`, `mix zaimu_tomo.verify_storage`, `mix zaimu_tomo.backfill_document_fingerprints [--confirm-reuse ID]...`, and `mix zaimu_tomo.dataset.build --version v001 [--output-dir DIR] [--upload-s3] [--enrich-langfuse]`.
 
 ## Document processing
 
