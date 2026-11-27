@@ -143,6 +143,57 @@ defmodule ZaimuTomo.DocumentProcessing.WorkerTest do
       assert content.trace_id == "abc123def456abc123def456abc123def4"
     end
 
+    test "persists extraction provenance in analysis without copying the redacted fingerprint" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      sha = String.duplicate("a", 64)
+      document = document_fixture(scope, %{content_sha256: sha})
+
+      raw_ocr = %{"model" => "mistral-ocr-2505", "pages" => [%{"markdown" => "CHF 42.00"}]}
+
+      extraction_meta = %{
+        "extractor_model" => "ibm-granite/granite-4.2-8b",
+        "extractor_backend" => "nousresearch",
+        "prompt_version" => 2
+      }
+
+      {:ok, content} =
+        Worker.persist_and_emit_success(
+          document,
+          extracted_data(),
+          raw_ocr,
+          nil,
+          "CHF",
+          nil,
+          extraction_meta
+        )
+
+      assert content.analysis["extraction"] == %{
+               "currency_hint" => "CHF",
+               "ocr_model" => "mistral-ocr-2505",
+               "extractor_model" => "ibm-granite/granite-4.2-8b",
+               "extractor_backend" => "nousresearch",
+               "prompt_version" => 2
+             }
+
+      refute Map.has_key?(content.analysis["extraction"], "source_content_sha256")
+
+      document_without_model = document_fixture(scope, %{content_sha256: nil})
+
+      {:ok, fallback_content} =
+        Worker.persist_and_emit_success(
+          document_without_model,
+          extracted_data(),
+          %{"pages" => []},
+          nil,
+          "EUR"
+        )
+
+      assert fallback_content.analysis["extraction"] == %{
+               "currency_hint" => "EUR"
+             }
+    end
+
     test "saves the verification as pending and enqueues one VerificationJob for the row" do
       scope = user_scope_fixture(user_fixture())
       document = document_fixture(scope, %{})

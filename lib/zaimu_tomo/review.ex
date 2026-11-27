@@ -128,6 +128,9 @@ defmodule ZaimuTomo.Review do
       `uncategorized`, in the same transaction.
     * `:tax_claim_attrs` — attributes for the entry's tax deduction claim,
       such as `%{"status" => "candidate"}`; defaults to undecided.
+    * `:extraction_feedback` — optional explicit feedback (`true`/`false` or
+      `1`/`0`) on whether the extraction itself was accurate. Defaults to
+      `true` on approval and `false` on amendment.
 
   Returns `{:error, {:confirmation_required, verdict}}` when the posting needs
   the reviewer's confirmation of `verdict` first, `{:error, :duplicate_invoice}`
@@ -149,12 +152,22 @@ defmodule ZaimuTomo.Review do
   @doc """
   Rejects a pending invoice with a reason, and records it in the event log, in
   one transaction. Nothing is posted.
+
+  Options:
+
+    * `:extraction_feedback` — optional explicit feedback (`true`/`false` or
+      `1`/`0`) on whether the extraction itself was accurate; defaults to `nil`
+      because a rejection alone says nothing about extraction quality.
   """
-  def reject_invoice(extracted_content_id, user_id, rejection_reason, notes \\ nil) do
+  def reject_invoice(extracted_content_id, user_id, rejection_reason, notes \\ nil, opts \\ []) do
+    extraction_feedback =
+      resolve_extraction_feedback(Keyword.get(opts, :extraction_feedback), nil)
+
     Multi.new()
     |> decide(extracted_content_id, user_id, "rejected", %{
       rejection_reason: rejection_reason,
-      review_notes: notes
+      review_notes: notes,
+      extraction_feedback: extraction_feedback
     })
     |> Multi.run(:event_log, fn repo, _changes ->
       insert_event_log(repo, "invoice_rejected", extracted_content_id, user_id, %{
@@ -322,6 +335,19 @@ defmodule ZaimuTomo.Review do
 
   defp failure_review_note(_error), do: "Automatically marked as failed: unknown error"
 
+  defp put_extraction_feedback(attrs, opts, default) do
+    Map.put(
+      attrs,
+      :extraction_feedback,
+      resolve_extraction_feedback(Keyword.get(opts, :extraction_feedback), default)
+    )
+  end
+
+  defp resolve_extraction_feedback(value, _default) when is_boolean(value), do: value
+  defp resolve_extraction_feedback(1, _default), do: true
+  defp resolve_extraction_feedback(0, _default), do: false
+  defp resolve_extraction_feedback(nil, default), do: default
+
   # The one place a review is decided. Adds a `:review_decision` step that
   # locks the user's pending review row and applies the transition, so of two
   # concurrent decisions on one review the second waits, then finds it no
@@ -367,6 +393,7 @@ defmodule ZaimuTomo.Review do
     confirmation = Keyword.get(opts, :confirm)
     booking = Keyword.get(opts, :booking)
     tax_claim_attrs = Keyword.get(opts, :tax_claim_attrs, %{})
+    attrs = put_extraction_feedback(attrs, opts, to == "approved")
 
     event_metadata =
       if booking,

@@ -58,6 +58,26 @@ defmodule ZaimuTomo.LLMClientTest do
               issuer: "Coop Genossenschaft"
             })
 
+          "extractor-zero" ->
+            Jason.encode!(%{
+              amount_to_pay_cents: 0,
+              invoice_date: "2026-10-29",
+              invoice_number: "Q9AXHSIV-0001",
+              currency: "USD",
+              reason_for_payment: nil,
+              issuer: "Namespace Labs"
+            })
+
+          "extractor-credit-note" ->
+            Jason.encode!(%{
+              amount_to_pay_cents: -4500,
+              invoice_date: "2026-11-10",
+              invoice_number: "CN-42",
+              currency: "CHF",
+              reason_for_payment: "Returned item credit note",
+              issuer: "Digitec Galaxus AG"
+            })
+
           _verifier ->
             Jason.encode!(%{status: "verified", reason: "All fields match."})
         end
@@ -528,6 +548,29 @@ defmodule ZaimuTomo.LLMClientTest do
       assert extracted.amount_to_pay_cents == 13_940
       assert extracted.reason_for_payment == nil
       assert extracted.issuer == "Coop Genossenschaft"
+    end
+
+    test "extracts zero-amount invoices and negative credit notes and returns run metadata" do
+      use_openai_stub_extractor("extractor-zero")
+
+      assert {:ok, extracted, meta} =
+               LLMClient.extract_invoice_with_meta("Total amount due: $0.00 USD", "CHF")
+
+      assert extracted.amount_to_pay_cents == 0
+      assert extracted.currency == "USD"
+
+      assert meta == %{
+               "extractor_model" => "extractor-zero",
+               "extractor_backend" => "nousresearch",
+               "prompt_version" => 0
+             }
+
+      use_openai_stub_extractor("extractor-credit-note")
+
+      assert {:ok, credit_note} =
+               LLMClient.extract_invoice("Credit note: CHF -45.00", "CHF")
+
+      assert credit_note.amount_to_pay_cents == -4500
     end
   end
 

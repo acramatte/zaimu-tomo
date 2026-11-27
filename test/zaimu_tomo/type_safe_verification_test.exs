@@ -167,7 +167,7 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
   end
 
   describe "required-currency persistence contract" do
-    test "only persist_and_emit_success/5 and /6 are exported" do
+    test "only persist_and_emit_success/5, /6, and /7 are exported" do
       arities =
         PipelineWorker.__info__(:functions)
         |> Enum.filter(&match?({:persist_and_emit_success, _}, &1))
@@ -177,7 +177,7 @@ defmodule ZaimuTomo.TypeSafeVerificationTest do
       # Default arguments would export smaller arities that let callers omit
       # trace_id or the required currency hint; pin the export surface so that
       # omission cannot come back silently.
-      assert arities == [5, 6]
+      assert arities == [5, 6, 7]
     end
 
     test "an explicitly supplied nil currency raises and rolls back extraction, review and job writes" do

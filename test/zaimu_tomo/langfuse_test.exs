@@ -270,6 +270,7 @@ defmodule ZaimuTomo.LangfuseTest do
       assert payload.name == "user-extraction-thumbs"
       assert payload.value == 1
       assert payload.dataType == "BOOLEAN"
+      assert payload.environment == "test"
       assert payload.comment == "Amount matched the PDF"
     end
 

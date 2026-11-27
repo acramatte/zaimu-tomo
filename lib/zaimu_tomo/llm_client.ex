@@ -81,13 +81,27 @@ defmodule ZaimuTomo.LLMClient do
   @spec extract_invoice(String.t(), String.t()) ::
           {:ok, ExtractedData.t()} | {:error, term()}
   def extract_invoice(markdown, currency_hint) do
+    case extract_invoice_with_meta(markdown, currency_hint) do
+      {:ok, extracted_data, _meta} -> {:ok, extracted_data}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Extracts invoice JSON like `extract_invoice/2` and also returns the
+  extractor model, backend, and prompt version that produced it so callers can
+  persist run provenance alongside the extraction.
+  """
+  @spec extract_invoice_with_meta(String.t(), String.t()) ::
+          {:ok, ExtractedData.t(), map()} | {:error, term()}
+  def extract_invoice_with_meta(markdown, currency_hint) do
     config = backend_config!(:extractor)
     model = req_llm_model!(config)
     opts = Keyword.merge(req_llm_opts(config), extractor_request_opts())
     Logger.info("[LLM] Extracting invoice with #{backend_summary(:extractor, config)}")
 
     schema = [
-      amount_to_pay_cents: [type: :pos_integer, required: true],
+      amount_to_pay_cents: [type: :integer, required: true],
       invoice_date: [type: :string, required: true],
       invoice_number: [type: :string, required: false],
       currency: [type: :string, required: true],
@@ -113,9 +127,16 @@ defmodule ZaimuTomo.LLMClient do
            ReqLLM.generate_object(model, prompt.content, schema, opts)
          end) do
       {:ok, response} ->
-        response
-        |> structured_object()
-        |> parse_extracted_data(config)
+        with {:ok, extracted_data} <-
+               response |> structured_object() |> parse_extracted_data(config) do
+          meta = %{
+            "extractor_model" => model.id,
+            "extractor_backend" => Atom.to_string(backend_for(:extractor)),
+            "prompt_version" => prompt.version
+          }
+
+          {:ok, extracted_data, meta}
+        end
 
       {:error, reason} ->
         failure = request_failure(reason)

@@ -90,7 +90,8 @@ defmodule ZaimuTomo.Langfuse do
         traceId: trace_id,
         name: @user_feedback_score_name,
         value: value,
-        dataType: "BOOLEAN"
+        dataType: "BOOLEAN",
+        environment: environment()
       }
       |> maybe_put_comment(comment)
 
@@ -293,7 +294,7 @@ defmodule ZaimuTomo.Langfuse do
 
       Rules:
       - Return only structured output matching the schema. Never ask questions.
-      - amount_to_pay_cents: the invoice grand total including VAT, in cents (e.g. the "Total de tous les services et livraisons" line). Ignore subtotals, VAT lines, payment lines ("Paiement effectué") and the "Montant dû" balance, even if the balance is 0.00.
+      - amount_to_pay_cents: the invoice grand total including VAT, in cents (e.g. the "Total de tous les services et livraisons" line). Ignore subtotals, VAT lines, payment lines ("Paiement effectué") and the "Montant dû" balance, even if the balance is 0.00. Use 0 for a zero-total invoice and a negative integer for a credit note or refund.
       - If the total line has no amount, use the sum of the line items' incl.-VAT amounts.
       - currency: ISO 4217 code. If several currencies appear, choose {{currency_hint}} when present, otherwise the currency of the grand total.
       - invoice_date: ISO 8601 YYYY-MM-DD.

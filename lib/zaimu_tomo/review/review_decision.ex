@@ -10,6 +10,7 @@ defmodule ZaimuTomo.Review.ReviewDecision do
     embeds_one :original_data, ExtractedData
     embeds_one :decision_data, ExtractedData
     field :decision_type, :string
+    field :extraction_feedback, :boolean
     field :rejection_reason, :string
     field :review_completed_at, :utc_datetime
     field :review_notes, :string
@@ -73,7 +74,7 @@ defmodule ZaimuTomo.Review.ReviewDecision do
   """
   def decide_changeset(%__MODULE__{} = review_decision, to, attrs) when to in @decisions do
     review_decision
-    |> cast(attrs, [:rejection_reason, :review_notes])
+    |> cast(attrs, [:rejection_reason, :review_notes, :extraction_feedback])
     |> cast_embed(:decision_data, with: &ExtractedData.embedded_changeset/2)
     |> change(
       review_status: to,
