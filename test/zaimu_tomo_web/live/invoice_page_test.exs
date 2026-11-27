@@ -370,6 +370,7 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
 
       assert_receive {:score_payload, %{traceId: "trace-ok", value: 1} = payload}
       refute Map.has_key?(payload, :comment)
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == true
     end
 
     test "corrections score the extraction as incorrect and list the fields, not the comment",
@@ -388,6 +389,7 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
       assert_receive {:score_payload, %{traceId: "trace-fix", value: 0, comment: comment}}
       assert comment =~ "amount_to_pay_cents 4200 -> 3990"
       refute comment =~ "private note"
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == false
     end
 
     test "an explicit choice overrides the automatic score", %{
@@ -408,6 +410,7 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
       submit_invoice(live, %{"amount" => "39.90"})
 
       assert_receive {:score_payload, %{traceId: "trace-override", value: 1}}
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == true
     end
 
     test "rejecting sends the explicit choice, never the reason", %{
@@ -433,6 +436,7 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
 
       assert_receive {:score_payload, %{traceId: "trace-reject", value: 0, comment: comment}}
       refute comment =~ "private reason"
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == false
     end
 
     test "rejecting without a choice sends no score", %{conn: conn, scope: scope, user: user} do
@@ -453,14 +457,26 @@ defmodule ZaimuTomoWeb.InvoicePageTest do
 
       assert has_element?(live, "#invoice-rejected")
       refute_receive {:score_payload, _payload}, 100
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == nil
     end
 
-    test "is hidden without a Langfuse trace", %{conn: conn, scope: scope, user: user} do
+    test "saves extraction feedback in the database even without a Langfuse trace", %{
+      conn: conn,
+      scope: scope,
+      user: user
+    } do
+      capture_scores()
+
       review =
         scope |> document_fixture() |> extracted_content_fixture(user) |> pending_review_fixture()
 
       {:ok, live, _html} = live(conn, invoice_path(review))
-      refute has_element?(live, "#extraction-feedback")
+      assert has_element?(live, "#extraction-feedback")
+      live |> element("#extraction-feedback button", "Correct") |> render_click()
+      submit_invoice(live, %{"reason_for_payment" => "Personal label"})
+
+      assert Repo.get!(ReviewDecision, review.id).extraction_feedback == true
+      refute_receive {:score_payload, _payload}, 100
     end
   end
 

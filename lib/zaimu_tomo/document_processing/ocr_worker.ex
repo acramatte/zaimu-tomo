@@ -60,15 +60,16 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
           try do
             with {:ok, ^temporary_path} <- Storage.get_object(object_key, temporary_path),
                  {:ok, markdown, raw_llm_response} <- DocumentOCR.process(temporary_path),
-                 {:ok, extracted_data} <-
-                   ZaimuTomo.LLMClient.extract_invoice(markdown, currency_hint) do
+                 {:ok, extracted_data, extraction_meta} <-
+                   ZaimuTomo.LLMClient.extract_invoice_with_meta(markdown, currency_hint) do
               persist_and_emit_success(
                 document,
                 extracted_data,
                 raw_llm_response,
                 trace_id,
                 currency_hint,
-                expected_extraction_id
+                expected_extraction_id,
+                extraction_meta
               )
             end
           after
@@ -92,10 +93,12 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
         raw_llm_response,
         trace_id,
         currency_hint,
-        expected_extraction_id \\ nil
+        expected_extraction_id \\ nil,
+        extraction_meta \\ %{}
       ) do
     analysis = %{
       "processed_at" => DateTime.utc_now(),
+      "extraction" => extraction_analysis(raw_llm_response, currency_hint, extraction_meta),
       "verification" => %{}
     }
 
@@ -326,4 +329,16 @@ defmodule ZaimuTomo.DocumentProcessing.Worker do
 
   defp error_stack_trace(_error),
     do: []
+
+  defp extraction_analysis(raw_llm_response, currency_hint, extraction_meta) do
+    %{"currency_hint" => currency_hint}
+    |> maybe_put_non_nil("ocr_model", ocr_model(raw_llm_response))
+    |> Map.merge(extraction_meta)
+  end
+
+  defp ocr_model(%{"model" => model}) when is_binary(model) and model != "", do: model
+  defp ocr_model(_raw), do: nil
+
+  defp maybe_put_non_nil(map, _key, nil), do: map
+  defp maybe_put_non_nil(map, key, value), do: Map.put(map, key, value)
 end

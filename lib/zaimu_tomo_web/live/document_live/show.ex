@@ -485,7 +485,7 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         <div class="invoice-section-title">Booking</div>
         <.booking_fields values={@values} categories={@categories} />
 
-        <div :if={@trace?} class="invoice-feedback" id="extraction-feedback">
+        <div class="invoice-feedback" id="extraction-feedback">
           <span class="muted">Extraction correct?</span>
           <button
             type="button"
@@ -506,7 +506,9 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
             👎 Incorrect
           </button>
           <span class="invoice-feedback-hint">
-            Sent to Langfuse when you post. Without a choice, corrections count as incorrect.
+            {if @trace?,
+              do: "Saved with your review and sent to Langfuse when you post.",
+              else: "Saved with your review when you post."} Without a choice, corrections count as incorrect.
           </span>
         </div>
 
@@ -864,11 +866,14 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
   end
 
   def handle_event("reject", %{"review_decision" => params}, socket) do
-    %{current_scope: scope, extracted_content: ec} = socket.assigns
+    %{current_scope: scope, extracted_content: ec, feedback_value: feedback_value} =
+      socket.assigns
 
-    case Review.reject_invoice(ec.id, scope.user.id, params["rejection_reason"]) do
+    case Review.reject_invoice(ec.id, scope.user.id, params["rejection_reason"], nil,
+           extraction_feedback: feedback_value
+         ) do
       {:ok, _} ->
-        Review.score_rejected_extraction(ec, socket.assigns.feedback_value)
+        Review.score_rejected_extraction(ec, feedback_value)
 
         {:noreply,
          socket
@@ -965,7 +970,8 @@ defmodule ZaimuTomoWeb.DocumentLive.Show do
         need_or_want: values["need_or_want"],
         notes: comment
       },
-      tax_claim_attrs: %{"status" => values["tax_treatment_status"] || "undecided"}
+      tax_claim_attrs: %{"status" => values["tax_treatment_status"] || "undecided"},
+      extraction_feedback: socket.assigns.feedback_value
     ]
 
     result =

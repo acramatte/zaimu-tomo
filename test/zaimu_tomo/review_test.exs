@@ -95,6 +95,108 @@ defmodule ZaimuTomo.ReviewTest do
 
       assert decision.review_status == "rejected"
       assert decision.rejection_reason == "Duplicate invoice"
+      assert decision.extraction_feedback == nil
+    end
+
+    test "persists explicit extraction_feedback on approve, amend, and reject" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      # Approve defaults to true, can be overridden to false
+      c1 = scope |> document_fixture() |> extracted_content_fixture(user)
+      {:ok, _} = Review.create_initial_decision(c1)
+      {:ok, d1} = Review.approve_invoice(c1.id, user.id)
+      assert d1.extraction_feedback == true
+
+      c2 =
+        scope
+        |> document_fixture()
+        |> extracted_content_fixture(user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 4200,
+            invoice_date: "2026-06-09",
+            invoice_number: "INV-2",
+            currency: "CHF",
+            reason_for_payment: "Consulting",
+            issuer: "Acme Corp"
+          }
+        })
+
+      {:ok, _} = Review.create_initial_decision(c2)
+      {:ok, d2} = Review.approve_invoice(c2.id, user.id, nil, extraction_feedback: false)
+      assert d2.extraction_feedback == false
+
+      # Amend defaults to false, can be overridden to true (e.g. personal bookkeeping edit)
+      c3 =
+        scope
+        |> document_fixture()
+        |> extracted_content_fixture(user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 4200,
+            invoice_date: "2026-06-09",
+            invoice_number: "INV-3",
+            currency: "CHF",
+            reason_for_payment: "Order payment",
+            issuer: "Acme Corp"
+          }
+        })
+
+      {:ok, _} = Review.create_initial_decision(c3)
+
+      {:ok, d3} =
+        Review.amend_invoice(c3.id, user.id, %{
+          amount_to_pay_cents: 4200,
+          invoice_date: "2026-06-09",
+          invoice_number: "INV-3",
+          currency: "CHF",
+          reason_for_payment: "Groceries",
+          issuer: "Acme Corp"
+        })
+
+      assert d3.extraction_feedback == false
+
+      c4 =
+        scope
+        |> document_fixture()
+        |> extracted_content_fixture(user, %{
+          extracted_data: %{
+            amount_to_pay_cents: 4200,
+            invoice_date: "2026-06-09",
+            invoice_number: "INV-4",
+            currency: "CHF",
+            reason_for_payment: "Travelcard purchase",
+            issuer: "Acme Corp"
+          }
+        })
+
+      {:ok, _} = Review.create_initial_decision(c4)
+
+      {:ok, d4} =
+        Review.amend_invoice(
+          c4.id,
+          user.id,
+          %{
+            amount_to_pay_cents: 4200,
+            invoice_date: "2026-06-09",
+            invoice_number: "INV-4",
+            currency: "CHF",
+            reason_for_payment: "Personal label",
+            issuer: "Acme Corp"
+          },
+          nil,
+          extraction_feedback: 1
+        )
+
+      assert d4.extraction_feedback == true
+
+      # Reject persists explicit feedback when provided
+      c5 = scope |> document_fixture() |> extracted_content_fixture(user)
+      {:ok, _} = Review.create_initial_decision(c5)
+
+      {:ok, d5} =
+        Review.reject_invoice(c5.id, user.id, "Duplicate", nil, extraction_feedback: true)
+
+      assert d5.extraction_feedback == true
     end
   end
 
