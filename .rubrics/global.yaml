@@ -1,0 +1,88 @@
+name: global
+description: >
+  Repo-wide architecture, authorization, privacy, and code-hygiene invariants
+  derived from docs/architecture.md and past review findings.
+paths:
+  - "lib/**"
+  - "priv/repo/migrations/**"
+  - "config/**"
+  - "docs/**"
+
+criteria:
+  - id: scope_first_authorization
+    weight: 0.15
+    inspect: [diff]
+    check: >
+      Every user-facing context function takes %Accounts.Scope{} as its first
+      argument and filters queries by scope.user.id; LiveViews use @current_scope
+      (never @current_user) and live in the appropriate live_session. Unscoped
+      functions exist only for documented maintenance/release tasks.
+
+  - id: single_status_writer
+    weight: 0.15
+    inspect: [diff]
+    check: >
+      Respects docs/architecture.md §8 state machines: never adds a second writer
+      for review_decisions.review_status, journal_entries.status,
+      extracted_content.verification_status, tax_deduction_claims.status,
+      Review.posting_decision/2, Review.document_status/2, or Statements.ExtractJob.
+
+  - id: privacy_and_redaction
+    weight: 0.20
+    inspect: [diff]
+    check: >
+      Respects D11 and §8 privacy rules: never copies content_sha256 into
+      unredacted JSON maps, logs, UI templates, or third-party payloads; never
+      places financial text, OCR markdown, or raw provider bodies in oban_jobs
+      args, logs, or error summaries.
+
+  - id: datetime_chronological_comparison
+    weight: 0.15
+    inspect: [diff]
+    check: >
+      Never orders or compares Date, DateTime, or NaiveDateTime structs with
+      Elixir term comparison (<, >, or bare Enum.sort_by/2 without a Date/Time
+      comparator, which compares :day before :month and :year). Always passes
+      NaiveDateTime/DateTime/Date or explicit *.compare/2.
+
+  - id: path_and_key_safety
+    weight: 0.10
+    inspect: [diff]
+    check: >
+      Validates user- or CLI-supplied version slugs, filenames, and S3 keys with
+      a leading alphanumeric regex (rejecting "." and ".."); never silently
+      guesses storage version prefixes from local parent directory names.
+
+  - id: docs_and_env_parity
+    weight: 0.10
+    inspect: [diff]
+    check: >
+      When the diff alters a context, schema, flow, Oban queue/job, env var, CI
+      workflow, or runbook, updates the matching docs/ page (and config/deploy.yml
+      / .kamal/secrets.example for new env vars) in the same commit, with zero
+      secrets or real host details.
+
+  - id: scope_hygiene_and_tests
+    weight: 0.15
+    inspect: [diff, raw_logs]
+    check: >
+      Uses Req for HTTP (never HTTPoison, Tesla, or httpc); avoids dead stubs or
+      unrequested file churn; adds focused tests for new behavior and edge cases
+      without weakening or deleting existing assertions to force green.
+
+penalties:
+  - id: slop_digest_or_pii_leak
+    penalty: -0.25
+    check: Copies content_sha256, financial text, or secrets into unredacted JSON, logs, Oban args, or docs.
+  - id: slop_second_status_writer
+    penalty: -0.25
+    check: Writes to a guarded status column outside its single documented state-machine function.
+  - id: slop_datetime_term_sort
+    penalty: -0.20
+    check: Uses bare Enum.sort_by/2 or </>/<=/>= on Date, DateTime, or NaiveDateTime structs.
+  - id: slop_forbidden_http_client
+    penalty: -0.15
+    check: Introduces :httpoison, :tesla, or :httpc instead of :req.
+  - id: slop_weakened_tests_or_churn
+    penalty: -0.15
+    check: Weakens/removes existing test assertions or adds unrequested file churn / staged build artifacts.

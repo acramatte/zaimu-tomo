@@ -1,0 +1,45 @@
+name: ops_and_release
+description: >
+  Production operability, Elixir release compatibility, Oban eval-node safety,
+  and migration/restore invariants.
+paths:
+  - "docs/operations.md"
+  - "docs/deployment.md"
+  - "lib/zaimu_tomo/release.ex"
+  - "rel/**"
+  - "config/deploy.yml"
+  - "Dockerfile"
+
+criteria:
+  - id: release_image_operability
+    weight: 0.40
+    inspect: [diff]
+    check: >
+      Production runbooks invoke release helpers via
+      `kamal app exec "bin/zaimu_tomo eval ..."`, never `mix` tasks (which do not
+      exist in the OTP release image). Diskless production workflows work end to
+      end over S3 (e.g. output_dir: nil, from_s3 / s3_key).
+
+  - id: eval_node_oban_isolation
+    weight: 0.30
+    inspect: [diff]
+    check: >
+      Any new ZaimuTomo.Release helper that starts the app goes through
+      start_app/0 (with Oban queues, plugins, and peer disabled) so short-lived
+      eval containers never grab jobs and orphan them on exit.
+
+  - id: migration_and_trigger_safety
+    weight: 0.30
+    inspect: [diff]
+    check: >
+      Changes to migrations, DB triggers, or backfills stay safe for zero-downtime
+      deploys (additive before destructive, idempotent online backfills) and
+      document data-only pg_dump / --disable-triggers caveats in docs/operations.md.
+
+penalties:
+  - id: slop_mix_in_prod_runbook
+    penalty: -0.15
+    check: Documents mix commands as production commands inside the release container.
+  - id: slop_secret_or_host_in_docs
+    penalty: -0.30
+    check: Commits real hostnames, IPs, credentials, port allocations, or backup destinations in docs.

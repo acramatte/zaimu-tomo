@@ -1,0 +1,53 @@
+name: ai_pipeline
+description: >
+  Invariants for OCR, LLM extraction, verification, TypeSafe shadow runs, and
+  statement extraction pipelines.
+paths:
+  - "lib/zaimu_tomo/document_processing/**"
+  - "lib/zaimu_tomo/llm_client.ex"
+  - "lib/zaimu_tomo/langfuse.ex"
+  - "lib/zaimu_tomo/type_safe_verification/**"
+  - "lib/zaimu_tomo/statements/**"
+
+criteria:
+  - id: prompt_schema_alignment
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Any change to extraction/verification output schemas (e.g. integer amounts,
+      credit-note signs, zero totals, new fields, or statement line directions)
+      stays aligned with the built-in local prompt templates in ZaimuTomo.Langfuse
+      so Langfuse-off environments follow identical rules.
+
+  - id: provenance_over_aliases
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Persisted model and prompt provenance records only response- or
+      config-confirmed values; never falls back to a moving provider alias (such
+      as "mistral-ocr-latest") when the response omits the executed model name.
+
+  - id: verification_fail_closed
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Only verification_status == "verified" may ever count as a pass;
+      verification_failed leaves the document reviewable by a human without
+      failing OCR/extraction; TypeSafe shadow verification stays fail-open and
+      writes analysis under the extracted_content row lock (D7, D35).
+
+  - id: transactional_job_safety
+    weight: 0.25
+    inspect: [diff]
+    check: >
+      Uploads enqueue Oban jobs in the same Postgres transaction as the parent
+      row; terminal processing writes hold the document/statement row lock and
+      preserve supersede/concurrency checks (D8, D27, D28, D36).
+
+penalties:
+  - id: slop_alias_hardcoding
+    penalty: -0.10
+    check: Hardcodes a moving model alias as persisted provenance when the provider omits it.
+  - id: slop_unverified_auto_pass
+    penalty: -0.30
+    check: Treats verification_failed, needs_review, or missing verification as verified.

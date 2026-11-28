@@ -1,0 +1,110 @@
+name: Rubric Review
+
+on:
+  # No branch filter: stacked PRs (base = parent feature branch) get rubric checks too.
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MIX_ENV: test
+
+jobs:
+  rubric-review:
+    name: Advisory LLM rubric review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    # Advisory while calibrating: surfaces semantic/architectural findings on
+    # the PR without blocking merges on model/API hiccups.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Check API key configuration
+        id: check_key
+        env:
+          RUBRIC_LLM_API_KEY: ${{ secrets.RUBRIC_LLM_API_KEY }}
+        run: |
+          if [ -z "$RUBRIC_LLM_API_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Rubric review skipped"
+              echo "Set the \`RUBRIC_LLM_API_KEY\` repository secret (and optional \`RUBRIC_LLM_BASE_URL\` / \`RUBRIC_LLM_MODEL\` variables) to enable automated PR rubric reviews."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        if: steps.check_key.outputs.configured == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Set up Elixir
+        id: beam
+        if: steps.check_key.outputs.configured == 'true'
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: "1.20"
+          otp-version: "28"
+
+      - name: Cache dependencies
+        if: steps.check_key.outputs.configured == 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - name: Install dependencies
+        if: steps.check_key.outputs.configured == 'true'
+        run: mix deps.get
+
+      - name: Run rubric critic
+        id: critic
+        if: steps.check_key.outputs.configured == 'true'
+        env:
+          RUBRIC_LLM_API_KEY: ${{ secrets.RUBRIC_LLM_API_KEY }}
+          RUBRIC_LLM_BASE_URL: ${{ vars.RUBRIC_LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai' }}
+          RUBRIC_LLM_MODEL: ${{ vars.RUBRIC_LLM_MODEL || 'gemini-4-carbon' }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > /tmp/pr_body.md
+          mix zaimu_tomo.rubric_review \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --pr-body-file /tmp/pr_body.md \
+            --output-json /tmp/rubric_result.json \
+            --output-md /tmp/rubric_review.md
+
+          if [ -s /tmp/rubric_review.md ]; then
+            echo "has_report=true" >> "$GITHUB_OUTPUT"
+            cat /tmp/rubric_review.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upsert sticky PR comment
+        if: steps.critic.outputs.has_report == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          EXISTING_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.body | contains("<!-- zaimu-tomo-rubric-review -->")) | .id' \
+            | head -n 1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${EXISTING_ID}" \
+              -F body=@/tmp/rubric_review.md >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -F body=@/tmp/rubric_review.md >/dev/null
+          fi
